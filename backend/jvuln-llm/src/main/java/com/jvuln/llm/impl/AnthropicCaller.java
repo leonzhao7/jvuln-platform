@@ -61,6 +61,7 @@ public class AnthropicCaller {
         int[] inputTokens  = {0};
         int[] outputTokens = {0};
         String[] stopReason = {"end_turn"};
+        String[] errorMsg   = {null};
 
         webClient.post()
                 .uri("/v1/messages")
@@ -84,10 +85,23 @@ public class AnthropicCaller {
                         } else if ("message_start".equals(type)) {
                             JsonNode usage = json.path("message").path("usage");
                             inputTokens[0] = usage.path("input_tokens").asInt(0);
+                        } else if ("error".equals(type)) {
+                            // API-level error event (e.g. overloaded, invalid_request)
+                            String msg = json.path("error").path("message").asText(null);
+                            if (msg == null) msg = json.path("error").path("type").asText("unknown API error");
+                            errorMsg[0] = msg;
+                            log.warn("Anthropic SSE error event: {}", msg);
                         }
                     } catch (Exception ignored) {}
                 })
                 .blockLast();
+
+        if (text.length() == 0 && errorMsg[0] != null) {
+            throw new RuntimeException("Anthropic API error: " + errorMsg[0]);
+        }
+        if (text.length() == 0) {
+            log.warn("Anthropic response has empty content (model={}, stopReason={})", model, stopReason[0]);
+        }
 
         return new LlmResponse(
                 text.toString(),

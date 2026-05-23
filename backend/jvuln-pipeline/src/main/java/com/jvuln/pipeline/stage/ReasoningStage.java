@@ -34,6 +34,9 @@ public class ReasoningStage implements Stage {
     @Override
     public String name() { return "Vulnerability Reasoning"; }
 
+    // Diff size caps for each attempt: shrink on retries to reduce load
+    private static final int[] DIFF_CAPS = {6000, 3000, 1000};
+
     @Override
     public StageResult execute(PipelineContext ctx) throws Exception {
         ctx.reportProgress("Starting AI vulnerability reasoning");
@@ -41,28 +44,41 @@ public class ReasoningStage implements Stage {
         String systemPrompt = promptRegistry.getSystemPrompt("reasoning");
         String userTemplate = promptRegistry.getUserPrompt("reasoning");
 
-        // Trim each input to only what the reasoning prompt actually needs
         String intelligence = trimIntelligence(ctx.getCompletedStages().get(1).getData());
-        String patchDiff    = extractDiff(ctx.getCompletedStages().get(2).getData());
+        Object rawDiffData  = ctx.getCompletedStages().get(2).getData();
         StageResult stage3  = ctx.getCompletedStages().get(3);
         String codeAnalysis = trimCodeAnalysis(stage3 != null ? stage3.getData() : null);
 
-        log.info("Reasoning input sizes: intel={}c diff={}c code={}c",
-                intelligence.length(), patchDiff.length(), codeAnalysis.length());
-
-        Map<String, String> vars = new HashMap<>();
-        vars.put("intelligence", intelligence);
-        vars.put("patch_diff", patchDiff);
-        vars.put("code_analysis", codeAnalysis);
-        String userPrompt = promptRegistry.render(userTemplate, vars);
-
-        LlmRequest request = LlmRequest.reasoning(systemPrompt, userPrompt);
-
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            if (attempt > 0) {
+                // Brief backoff before retry
+                try { Thread.sleep(2000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            }
+
+            int diffCap = DIFF_CAPS[Math.min(attempt, DIFF_CAPS.length - 1)];
+            String patchDiff = extractDiff(rawDiffData, diffCap);
+
+            log.info("Reasoning attempt {}: intel={}c diff={}c (cap={}) code={}c",
+                    attempt + 1, intelligence.length(), patchDiff.length(), diffCap, codeAnalysis.length());
+
+            Map<String, String> vars = new HashMap<>();
+            vars.put("intelligence", intelligence);
+            vars.put("patch_diff", patchDiff);
+            vars.put("code_analysis", codeAnalysis);
+            String userPrompt = promptRegistry.render(userTemplate, vars);
+            LlmRequest request = LlmRequest.reasoning(systemPrompt, userPrompt);
+
             try {
                 ctx.reportProgress("AI reasoning attempt " + (attempt + 1));
                 LlmResponse response = ctx.getLlmClient().chat(request);
-                String json = stripMarkdownFence(response.getContent());
+                String content = response.getContent();
+                if (content == null || content.trim().isEmpty()) {
+                    throw new RuntimeException("LLM returned empty content");
+                }
+                String json = stripMarkdownFence(content);
+                if (json.isEmpty()) {
+                    throw new RuntimeException("LLM response is empty after stripping markdown fence");
+                }
                 Object parsed = mapper.readValue(json, Object.class);
                 ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 4, parsed);
                 ctx.reportProgress("AI reasoning completed (tokens: "
@@ -94,16 +110,17 @@ public class ReasoningStage implements Stage {
     }
 
     /** Extract just the raw diff text from the patch stage result. */
-    private String extractDiff(Object data) throws Exception {
+    private String extractDiff(Object data, int cap) throws Exception {
         JsonNode root = mapper.valueToTree(data);
         // patch stage stores {rawDiff, diffs, commitInfo, ...}
         JsonNode rawDiff = root.path("rawDiff");
         if (!rawDiff.isMissingNode() && rawDiff.isTextual()) {
-            return rawDiff.asText();
+            String d = rawDiff.asText();
+            return d.length() > cap ? d.substring(0, cap) + "\n...[truncated]" : d;
         }
         // fallback: full JSON but capped
         String full = mapper.writeValueAsString(data);
-        return full.length() > 6000 ? full.substring(0, 6000) + "\n...[truncated]" : full;
+        return full.length() > cap ? full.substring(0, cap) + "\n...[truncated]" : full;
     }
 
     /** Keep method analysis + CWE matches, drop verbose call-chain details. */
