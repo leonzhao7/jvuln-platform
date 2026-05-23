@@ -1,7 +1,10 @@
 package com.jvuln.patcher;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.store.model.CveIntelligence;
 import com.jvuln.patcher.strategy.LocateStrategy;
+import com.jvuln.patcher.strategy.MavenSourceDiffStrategy;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageResult;
 import com.jvuln.pipeline.stage.Stage;
@@ -10,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -19,8 +23,11 @@ public class PatchLocateStage implements Stage {
 
     private static final Logger log = LoggerFactory.getLogger(PatchLocateStage.class);
     private final List<LocateStrategy> strategies;
+    private final MavenSourceDiffStrategy mavenStrategy;
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    public PatchLocateStage(List<LocateStrategy> strategies) {
+    public PatchLocateStage(List<LocateStrategy> strategies, MavenSourceDiffStrategy mavenStrategy) {
+        this.mavenStrategy = mavenStrategy;
         this.strategies = new ArrayList<>(strategies);
         this.strategies.sort(Comparator.comparingInt(LocateStrategy::priority));
     }
@@ -41,36 +48,101 @@ public class PatchLocateStage implements Stage {
             return StageResult.failure(2, name(), "Stage 1 data not available");
         }
 
-        CveIntelligence intel = (CveIntelligence) stage1.getData();
-        String sourceRepo = intel.getSourceRepo();
-        List<String> knownCommits = intel.getFixCommits();
+        // Stage 1 data may be a real CveIntelligence or a deserialized Map (when loaded from cache)
+        Object stage1Data = stage1.getData();
+        String sourceRepo    = extractString(stage1Data, "sourceRepo");
+        String groupId       = extractNestedString(stage1Data, "artifact", "groupId");
+        String artifactId    = extractNestedString(stage1Data, "artifact", "artifactId");
+        String fixedVersion  = extractString(stage1Data, "fixedVersion");
+        List<String> knownCommits = extractCommits(stage1Data);
 
+        log.info("Stage2: sourceRepo={} artifact={}:{} fixed={} commits={}",
+                sourceRepo, groupId, artifactId, fixedVersion, knownCommits.size());
+
+        // Phase 1: try commit-based strategies (reference-commit, ghsa-commit)
         for (LocateStrategy strategy : strategies) {
+            if (strategy instanceof MavenSourceDiffStrategy) continue; // handled separately
             ctx.reportProgress("Trying strategy: " + strategy.name());
             try {
                 Optional<LocateStrategy.PatchResult> result =
                         strategy.locate(cveId, sourceRepo, knownCommits);
-
                 if (result.isPresent()) {
-                    LocateStrategy.PatchResult pr = result.get();
-                    log.info("Patch found via {}: {}", strategy.name(), pr.getCommitHash());
-
-                    List<PatchInfo.FileDiff> diffs = DiffParser.parse(pr.getRawDiff());
-                    PatchInfo patchInfo = new PatchInfo(
-                            pr.getCommitHash(), pr.getCommitMessage(), "",
-                            diffs, strategy.name());
-
-                    ctx.getWorkspaceManager().writeStageData(cveId, 2, patchInfo);
-                    ctx.getWorkspaceManager().writeDiff(cveId, pr.getRawDiff());
-
-                    ctx.reportProgress("Found " + diffs.size() + " Java files changed via " + strategy.name());
-                    return StageResult.success(2, name(), patchInfo);
+                    return buildSuccess(ctx, cveId, result.get(), strategy.name());
                 }
             } catch (Exception e) {
                 log.warn("Strategy {} failed: {}", strategy.name(), e.getMessage());
             }
         }
 
-        return StageResult.failure(2, name(), "No fix commit found with any strategy");
+        // Phase 2: Maven source JAR diff — independent of GitHub
+        if (groupId != null && !groupId.isEmpty() && fixedVersion != null && !fixedVersion.isEmpty()) {
+            ctx.reportProgress("Trying strategy: maven-source-diff");
+            try {
+                Optional<LocateStrategy.PatchResult> result =
+                        mavenStrategy.locateByArtifact(cveId, groupId, artifactId, fixedVersion);
+                if (result.isPresent()) {
+                    return buildSuccess(ctx, cveId, result.get(), "maven-source-diff");
+                }
+            } catch (Exception e) {
+                log.warn("MavenSourceDiff failed: {}", e.getMessage());
+            }
+        }
+
+        return StageResult.failure(2, name(),
+                "No fix commit found with any strategy (tried: reference-commit, ghsa-commit, maven-source-diff)");
+    }
+
+    private StageResult buildSuccess(PipelineContext ctx, String cveId,
+                                      LocateStrategy.PatchResult pr, String strategyName) throws Exception {
+        List<PatchInfo.FileDiff> diffs = DiffParser.parse(pr.getRawDiff());
+        PatchInfo patchInfo = new PatchInfo(pr.getCommitHash(), pr.getCommitMessage(), "", diffs, strategyName);
+        ctx.getWorkspaceManager().writeStageData(cveId, 2, patchInfo);
+        ctx.getWorkspaceManager().writeDiff(cveId, pr.getRawDiff());
+        ctx.reportProgress("Found " + diffs.size() + " Java files changed via " + strategyName);
+        log.info("Patch found via {}: {} ({} Java files)", strategyName, pr.getCommitHash(), diffs.size());
+        return StageResult.success(2, name(), patchInfo);
+    }
+
+    // ── Helpers for deserializing Stage 1 data whether it's CveIntelligence or a Map ──
+
+    private String extractString(Object data, String field) {
+        if (data instanceof CveIntelligence) {
+            CveIntelligence intel = (CveIntelligence) data;
+            if ("sourceRepo".equals(field))   return intel.getSourceRepo();
+            if ("fixedVersion".equals(field)) return intel.getFixedVersion();
+        }
+        try {
+            JsonNode node = mapper.valueToTree(data);
+            return node.path(field).asText(null);
+        } catch (Exception e) { return null; }
+    }
+
+    private String extractNestedString(Object data, String parent, String field) {
+        if (data instanceof CveIntelligence) {
+            CveIntelligence intel = (CveIntelligence) data;
+            if ("artifact".equals(parent) && intel.getArtifact() != null) {
+                if ("groupId".equals(field))    return intel.getArtifact().getGroupId();
+                if ("artifactId".equals(field)) return intel.getArtifact().getArtifactId();
+            }
+        }
+        try {
+            JsonNode node = mapper.valueToTree(data);
+            return node.path(parent).path(field).asText(null);
+        } catch (Exception e) { return null; }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> extractCommits(Object data) {
+        if (data instanceof CveIntelligence) {
+            List<String> c = ((CveIntelligence) data).getFixCommits();
+            return c != null ? c : Collections.emptyList();
+        }
+        try {
+            JsonNode node = mapper.valueToTree(data);
+            JsonNode commits = node.path("fixCommits");
+            List<String> result = new ArrayList<>();
+            if (commits.isArray()) for (JsonNode c : commits) result.add(c.asText());
+            return result;
+        } catch (Exception e) { return Collections.emptyList(); }
     }
 }
