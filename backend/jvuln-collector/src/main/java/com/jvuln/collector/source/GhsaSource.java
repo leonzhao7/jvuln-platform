@@ -13,6 +13,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class GhsaSource implements IntelSource {
@@ -80,6 +82,24 @@ public class GhsaSource implements IntelSource {
             String url = ref.asText("");
             if (url.contains("/commit/")) fixCommits.add(url);
             articles.add(new CveIntelligence.Article("", url, "GHSA", ""));
+        }
+
+        // Fallback: extract fixedVersion from release tag URL when first_patched_version is empty
+        // e.g. https://github.com/h2database/h2database/releases/tag/version-2.0.206 → 2.0.206
+        if (fixedVersion.isEmpty()) {
+            Pattern tagPat = Pattern.compile("github\\.com/[^/]+/[^/]+/releases/tag/([^/\\s]+)");
+            for (CveIntelligence.Article a : articles) {
+                Matcher m = tagPat.matcher(a.getUrl());
+                if (m.find()) {
+                    String tag = m.group(1);
+                    String ver = tag.replaceFirst("^(?:version[-_]?|v|release[-_]?)", "");
+                    if (ver.matches("\\d+\\..*")) {
+                        fixedVersion = ver;
+                        log.info("GhsaSource: extracted fixedVersion={} from release tag URL", fixedVersion);
+                        break;
+                    }
+                }
+            }
         }
 
         sourceRepo = adv.path("source_code_location").asText("");
