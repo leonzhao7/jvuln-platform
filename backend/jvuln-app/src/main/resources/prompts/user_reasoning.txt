@@ -1,0 +1,40 @@
+## CVE 信息
+{{intelligence}}
+
+## 补丁 Diff
+{{patch_diff}}
+
+## 代码结构化分析
+{{code_analysis}}
+
+请按以下 JSON 格式输出分析结果：
+{
+  "trigger_chain": {
+    "summary": "一句话概括触发路径",
+    "steps": [
+      {"seq": 1, "class": "类名", "method": "方法名", "description": "该步骤做了什么"}
+    ],
+    "entry_point": "外部可达的入口（HTTP 接口/反序列化入口等）",
+    "sink": "最终危险操作"
+  },
+  "code_analysis": {
+    "vuln_root_cause": "根因分析（为什么这段代码有漏洞）",
+    "vuln_code_walkthrough": [
+      {"line": "代码行内容", "explanation": "为什么有问题"}
+    ],
+    "fix_description": "补丁做了什么",
+    "fix_completeness": "修复是否完整，有无绕过可能"
+  },
+  "impact": {
+    "severity": "严重程度",
+    "attack_vector": "攻击向量",
+    "prerequisites": ["前置条件1", "前置条件2"],
+    "consequences": ["可造成的后果"],
+    "real_world_scenarios": ["真实利用场景描述"]
+  },
+  "secure_coding": {
+    "violated_principles": ["违反了哪些安全编码原则"],
+    "recommendations": ["给开发者的修复建议"],
+    "similar_patterns": ["类似的漏洞模式需要注意"]
+  }
+}

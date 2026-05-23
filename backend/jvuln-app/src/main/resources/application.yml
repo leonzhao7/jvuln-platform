@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: jvuln-platform
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+  datasource:
+    url: jdbc:h2:file:./data/jvuln;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+jvuln:
+  workspace:
+    root: workspace
+  llm:
+    base-url: ${LLM_BASE_URL:http://localhost:11434/v1}
+    api-key: ${LLM_API_KEY:}
+    model: ${LLM_MODEL:deepseek-coder}
+    temperature: 0.1
+    max-tokens: 8192
+  nvd:
+    api-key: ${NVD_API_KEY:}
+  github:
+    token: ${GITHUB_TOKEN:}
+
+logging:
+  level:
+    com.jvuln: DEBUG
