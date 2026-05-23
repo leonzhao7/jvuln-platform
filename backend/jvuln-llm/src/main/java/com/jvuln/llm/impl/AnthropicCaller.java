@@ -15,6 +15,7 @@ import reactor.core.publisher.Flux;
 import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
+import java.util.UUID;
 
 /**
  * Calls Anthropic Messages API directly.
@@ -51,11 +52,9 @@ public class AnthropicCaller {
     }
 
     public LlmResponse chat(LlmRequest request) {
-        // Use streaming internally to avoid proxy non-streaming timeout limits.
-        // Collect text chunks + final usage from message_delta event.
         ObjectNode body = buildBody(request);
         body.put("stream", true);
-        log.info("Anthropic chat (stream-collect): model={} maxTokens={}", model, request.getMaxTokens());
+        log.info("Anthropic chat (streaming): model={} maxTokens={}", model, request.getMaxTokens());
 
         StringBuilder text = new StringBuilder();
         int[] inputTokens  = {0};
@@ -86,7 +85,6 @@ public class AnthropicCaller {
                             JsonNode usage = json.path("message").path("usage");
                             inputTokens[0] = usage.path("input_tokens").asInt(0);
                         } else if ("error".equals(type)) {
-                            // API-level error event (e.g. overloaded, invalid_request)
                             String msg = json.path("error").path("message").asText(null);
                             if (msg == null) msg = json.path("error").path("type").asText("unknown API error");
                             errorMsg[0] = msg;
@@ -94,22 +92,17 @@ public class AnthropicCaller {
                         }
                     } catch (Exception ignored) {}
                 })
-                .blockLast();
+                .blockLast(Duration.ofSeconds(300));
 
         if (text.length() == 0 && errorMsg[0] != null) {
             throw new RuntimeException("Anthropic API error: " + errorMsg[0]);
         }
         if (text.length() == 0) {
-            log.warn("Anthropic response has empty content (model={}, stopReason={})", model, stopReason[0]);
+            throw new RuntimeException("Anthropic streaming returned no content");
         }
 
-        return new LlmResponse(
-                text.toString(),
-                inputTokens[0],
-                outputTokens[0],
-                model,
-                stopReason[0]
-        );
+        log.info("Anthropic response: stopReason={} tokens={}/{}", stopReason[0], inputTokens[0], outputTokens[0]);
+        return new LlmResponse(text.toString(), inputTokens[0], outputTokens[0], model, stopReason[0]);
     }
 
     public Flux<String> chatStream(LlmRequest request) {
@@ -158,6 +151,16 @@ public class AnthropicCaller {
             messages.add(m);
         }
         body.set("messages", messages);
+
+        // new-api channel affinity requires metadata.user_id to route the request;
+        // actual id values are not validated — only field presence matters
+        ObjectNode metadata = mapper.createObjectNode();
+        metadata.put("user_id",
+                "{\"device_id\":\"0000000000000000000000000000000000000000000000000000000000000001\","
+                + "\"account_uuid\":\"\","
+                + "\"session_id\":\"" + UUID.randomUUID() + "\"}");
+        body.set("metadata", metadata);
+
         return body;
     }
 }
