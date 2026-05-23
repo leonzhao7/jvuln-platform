@@ -215,21 +215,24 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
     private String convertToGitDiff(String diff, Path prevDir, Path fixedDir,
                                      String prevVersion, String fixedVersion) {
         if (diff.trim().isEmpty()) return diff;
-        // Replace absolute paths with relative paths and add git-style headers
-        Pattern fileHeader = Pattern.compile("^--- (.+)\\s*\n\\+\\+\\+ (.+)$", Pattern.MULTILINE);
+        // Split on each per-file block header ("diff -rU3 fileA fileB")
+        // Note: diff.split("(?m)(?=^diff )") needs the (?m) flag inside the regex
+        String[] sections = diff.split("(?m)(?=^diff )");
+        Pattern fileHeader = Pattern.compile(
+                "^---\\s+(\\S+).*\\n\\+\\+\\+\\s+(\\S+)", Pattern.MULTILINE);
         StringBuilder result = new StringBuilder();
-        String[] sections = diff.split("(?=^--- )", Pattern.MULTILINE);
         for (String section : sections) {
             if (section.trim().isEmpty()) continue;
             Matcher m = fileHeader.matcher(section);
-            if (!m.find()) { result.append(section); continue; }
-            String prevPath = m.group(1).trim().replace(prevDir.toString(), "").replaceAll("^/", "");
-            String fixedPath = m.group(2).trim().replace(fixedDir.toString(), "").replaceAll("^/", "");
+            if (!m.find()) continue;
+            // Strip absolute temp-dir prefixes; timestamps are already excluded by \\S+
+            String prevPath = m.group(1).replace(prevDir.toString(), "").replaceAll("^/", "");
+            String fixedPath = m.group(2).replace(fixedDir.toString(), "").replaceAll("^/", "");
             if (!prevPath.endsWith(".java") && !fixedPath.endsWith(".java")) continue;
             result.append("diff --git a/").append(prevPath).append(" b/").append(fixedPath).append("\n");
             result.append("--- a/").append(prevPath).append("\n");
             result.append("+++ b/").append(fixedPath).append("\n");
-            // Append hunks (skip the original --- / +++ lines)
+            // Append hunks only (everything after the --- / +++ header block)
             String body = section.substring(m.end()).trim();
             if (!body.isEmpty()) result.append(body).append("\n");
         }
@@ -256,6 +259,51 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
         }
         // Fallback: decrement patch version
         return decrementVersion(fixedVersion);
+    }
+
+    /**
+     * Given the last affected version string from advisory (e.g. "<= 5.8.19" or "< 5.8.20"),
+     * returns the expected fixed version from Maven Central.
+     * Returns null if it cannot be determined.
+     */
+    public String inferFixedVersion(String groupId, String artifactId, String affectedTo) {
+        if (affectedTo == null || affectedTo.trim().isEmpty()) return null;
+        String trimmed = affectedTo.trim();
+        // "< X" means X is already the fixed version
+        if (trimmed.startsWith("< ")) {
+            return trimmed.substring(2).trim();
+        }
+        // "<= X" means the fix is the next version after X
+        String lastAffected;
+        if (trimmed.startsWith("<= ")) {
+            lastAffected = trimmed.substring(3).trim();
+        } else {
+            // Best-effort: extract version-like token
+            Matcher m = Pattern.compile("[\\d]+(?:\\.[\\d]+)+").matcher(trimmed);
+            if (!m.find()) return null;
+            lastAffected = m.group();
+        }
+        return inferNextVersion(groupId, artifactId, lastAffected);
+    }
+
+    /** Returns the version immediately after {@code lastAffected} in Maven Central metadata. */
+    public String inferNextVersion(String groupId, String artifactId, String lastAffected) {
+        try {
+            String groupPath = groupId.replace('.', '/');
+            String metaUrl = CENTRAL + "/" + groupPath + "/" + artifactId + "/maven-metadata.xml";
+            String xml = webClient.get().uri(metaUrl)
+                    .retrieve().bodyToMono(String.class).block();
+            if (xml != null) {
+                List<String> versions = parseVersionsFromMetadata(xml);
+                int idx = versions.indexOf(lastAffected);
+                if (idx >= 0 && idx + 1 < versions.size()) {
+                    return versions.get(idx + 1);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("MavenSourceDiff: next-version lookup failed: {}", e.getMessage());
+        }
+        return null;
     }
 
     private List<String> parseVersionsFromMetadata(String xml) {

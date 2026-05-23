@@ -54,12 +54,13 @@ public class PatchLocateStage implements Stage {
         String groupId       = extractNestedString(stage1Data, "artifact", "groupId");
         String artifactId    = extractNestedString(stage1Data, "artifact", "artifactId");
         String fixedVersion  = extractString(stage1Data, "fixedVersion");
+        String affectedTo    = extractNestedString(stage1Data, "affectedVersions", "to");
         List<String> knownCommits = extractCommits(stage1Data);
 
         log.info("Stage2: sourceRepo={} artifact={}:{} fixed={} commits={}",
                 sourceRepo, groupId, artifactId, fixedVersion, knownCommits.size());
 
-        // Phase 1: try commit-based strategies (reference-commit, ghsa-commit)
+        // Phase 1: try commit-based strategies (reference-commit, ghsa-commit, cve-commit-search)
         for (LocateStrategy strategy : strategies) {
             if (strategy instanceof MavenSourceDiffStrategy) continue; // handled separately
             ctx.reportProgress("Trying strategy: " + strategy.name());
@@ -74,12 +75,21 @@ public class PatchLocateStage implements Stage {
             }
         }
 
-        // Phase 2: Maven source JAR diff — independent of GitHub
-        if (groupId != null && !groupId.isEmpty() && fixedVersion != null && !fixedVersion.isEmpty()) {
+        // Phase 2: Maven source JAR diff — works without GitHub access.
+        // If fixedVersion is unknown, infer it from the affected version range.
+        String effectiveFixed = (fixedVersion != null && !fixedVersion.isEmpty()) ? fixedVersion : null;
+        if (effectiveFixed == null && groupId != null && !groupId.isEmpty()
+                && affectedTo != null && !affectedTo.isEmpty()) {
+            effectiveFixed = mavenStrategy.inferFixedVersion(groupId, artifactId, affectedTo);
+            if (effectiveFixed != null) {
+                log.info("Stage2: inferred fixedVersion={} from affectedTo='{}'", effectiveFixed, affectedTo);
+            }
+        }
+        if (groupId != null && !groupId.isEmpty() && effectiveFixed != null) {
             ctx.reportProgress("Trying strategy: maven-source-diff");
             try {
                 Optional<LocateStrategy.PatchResult> result =
-                        mavenStrategy.locateByArtifact(cveId, groupId, artifactId, fixedVersion);
+                        mavenStrategy.locateByArtifact(cveId, groupId, artifactId, effectiveFixed);
                 if (result.isPresent()) {
                     return buildSuccess(ctx, cveId, result.get(), "maven-source-diff");
                 }
@@ -89,7 +99,7 @@ public class PatchLocateStage implements Stage {
         }
 
         return StageResult.failure(2, name(),
-                "No fix commit found with any strategy (tried: reference-commit, ghsa-commit, maven-source-diff)");
+                "No fix commit found with any strategy (tried: reference-commit, ghsa-commit, cve-commit-search, maven-source-diff)");
     }
 
     private StageResult buildSuccess(PipelineContext ctx, String cveId,
