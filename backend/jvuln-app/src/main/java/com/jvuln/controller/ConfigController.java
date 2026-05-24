@@ -1,66 +1,84 @@
 package com.jvuln.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.llm.LlmCaller;
-import com.jvuln.llm.LlmClient;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
 import com.jvuln.llm.impl.AnthropicCaller;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.store.LlmConfigRepository;
 import com.jvuln.store.entity.LlmConfig;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/config")
 public class ConfigController {
 
     private final LlmConfigRepository repo;
-    private final LlmClient llmClient;
     private final ObjectMapper mapper;
 
-    public ConfigController(LlmConfigRepository repo, LlmClient llmClient, ObjectMapper mapper) {
+    public ConfigController(LlmConfigRepository repo, ObjectMapper mapper) {
         this.repo = repo;
-        this.llmClient = llmClient;
         this.mapper = mapper;
     }
 
     @GetMapping("/llm")
-    public ResponseEntity<LlmConfig> get() {
-        LlmConfig cfg = repo.findById(1L).orElseGet(LlmConfig::new);
-        // Never return the raw API key to the client
-        LlmConfig safe = copyWithMaskedKey(cfg);
-        return ResponseEntity.ok(safe);
+    public ResponseEntity<List<LlmConfig>> list() {
+        List<LlmConfig> all = repo.findAll().stream()
+                .map(this::copyWithMaskedKey)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(all);
     }
 
-    @PutMapping("/llm")
-    public ResponseEntity<LlmConfig> save(@RequestBody LlmConfig incoming) {
-        LlmConfig cfg = repo.findById(1L).orElseGet(LlmConfig::new);
-        cfg.setId(1L);
-        cfg.setProviderType(incoming.getProviderType());
-        cfg.setBaseUrl(incoming.getBaseUrl());
-        cfg.setModel(incoming.getModel());
-        cfg.setTemperature(incoming.getTemperature() != null ? incoming.getTemperature() : 0.1);
-        cfg.setMaxTokens(incoming.getMaxTokens() != null ? incoming.getMaxTokens() : 8192);
-        cfg.setEnabled(incoming.isEnabled());
-        // Only overwrite key if a non-masked value was sent
-        if (incoming.getApiKey() != null && !incoming.getApiKey().equals("••••••••")) {
-            cfg.setApiKey(incoming.getApiKey());
-        }
+    @PostMapping("/llm")
+    public ResponseEntity<LlmConfig> create(@RequestBody LlmConfig incoming) {
+        LlmConfig cfg = new LlmConfig();
+        applyFields(cfg, incoming);
+        cfg.setActive(false);
         repo.save(cfg);
         return ResponseEntity.ok(copyWithMaskedKey(cfg));
     }
 
-    @PostMapping("/llm/test")
-    public ResponseEntity<Map<String, Object>> test() {
+    @PutMapping("/llm/{id}")
+    public ResponseEntity<?> update(@PathVariable Long id, @RequestBody LlmConfig incoming) {
+        LlmConfig cfg = repo.findById(id).orElse(null);
+        if (cfg == null) return ResponseEntity.notFound().build();
+        applyFields(cfg, incoming);
+        repo.save(cfg);
+        return ResponseEntity.ok(copyWithMaskedKey(cfg));
+    }
+
+    @DeleteMapping("/llm/{id}")
+    public ResponseEntity<?> delete(@PathVariable Long id) {
+        if (!repo.existsById(id)) return ResponseEntity.notFound().build();
+        repo.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Transactional
+    @PostMapping("/llm/{id}/activate")
+    public ResponseEntity<?> activate(@PathVariable Long id) {
+        LlmConfig cfg = repo.findById(id).orElse(null);
+        if (cfg == null) return ResponseEntity.notFound().build();
+        repo.deactivateAll();
+        cfg.setActive(true);
+        repo.save(cfg);
+        return ResponseEntity.ok(copyWithMaskedKey(cfg));
+    }
+
+    @PostMapping("/llm/{id}/test")
+    public ResponseEntity<Map<String, Object>> test(@PathVariable Long id) {
         Map<String, Object> result = new HashMap<>();
         try {
-            LlmConfig cfg = repo.findById(1L).orElseThrow(
-                    () -> new IllegalStateException("No LLM config saved yet"));
+            LlmConfig cfg = repo.findById(id).orElseThrow(
+                    () -> new IllegalStateException("Config not found"));
             if (cfg.getBaseUrl() == null || cfg.getBaseUrl().trim().isEmpty()) {
                 throw new IllegalStateException("Base URL is not configured");
             }
@@ -91,15 +109,28 @@ public class ConfigController {
         return ResponseEntity.ok(result);
     }
 
+    private void applyFields(LlmConfig cfg, LlmConfig incoming) {
+        cfg.setName(incoming.getName());
+        cfg.setProviderType(incoming.getProviderType());
+        cfg.setBaseUrl(incoming.getBaseUrl());
+        cfg.setModel(incoming.getModel());
+        cfg.setTemperature(incoming.getTemperature() != null ? incoming.getTemperature() : 0.1);
+        cfg.setMaxTokens(incoming.getMaxTokens() != null ? incoming.getMaxTokens() : 8192);
+        if (incoming.getApiKey() != null && !incoming.getApiKey().equals("••••••••")) {
+            cfg.setApiKey(incoming.getApiKey());
+        }
+    }
+
     private LlmConfig copyWithMaskedKey(LlmConfig src) {
         LlmConfig copy = new LlmConfig();
         copy.setId(src.getId());
+        copy.setName(src.getName());
         copy.setProviderType(src.getProviderType());
         copy.setBaseUrl(src.getBaseUrl());
         copy.setModel(src.getModel());
         copy.setTemperature(src.getTemperature());
         copy.setMaxTokens(src.getMaxTokens());
-        copy.setEnabled(src.isEnabled());
+        copy.setActive(src.isActive());
         copy.setApiKey(src.getApiKey() != null && !src.getApiKey().isEmpty() ? "••••••••" : "");
         return copy;
     }

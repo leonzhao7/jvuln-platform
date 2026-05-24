@@ -7,10 +7,14 @@ import javax.persistence.*;
 public class LlmConfig {
 
     @Id
-    private Long id = 1L; // singleton row
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", length = 100)
+    private String name;
 
     @Column(name = "provider_type", length = 30)
-    private String providerType = "openai-compat"; // openai-compat | anthropic-proxy | ollama
+    private String providerType = "openai-compat";
 
     @Column(name = "base_url", length = 500)
     private String baseUrl;
@@ -27,11 +31,13 @@ public class LlmConfig {
     @Column(name = "max_tokens")
     private Integer maxTokens = 8192;
 
-    @Column(name = "enabled")
-    private boolean enabled = false;
+    @Column(name = "active")
+    private boolean active = false;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
     public String getProviderType() { return providerType; }
     public void setProviderType(String providerType) { this.providerType = providerType; }
     public String getBaseUrl() { return baseUrl; }
@@ -44,6 +50,6 @@ public class LlmConfig {
     public void setTemperature(Double temperature) { this.temperature = temperature; }
     public Integer getMaxTokens() { return maxTokens; }
     public void setMaxTokens(Integer maxTokens) { this.maxTokens = maxTokens; }
-    public boolean isEnabled() { return enabled; }
-    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
 }

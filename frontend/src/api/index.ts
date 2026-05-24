@@ -63,18 +63,23 @@ export const api = {
   getReport: (cveId: string) =>
     http.get<{ markdown: string }>(`/analysis/${cveId}/report`).then(r => r.data),
 
-  getLlmConfig: () => http.get<LlmConfig>('/config/llm').then(r => r.data),
-  saveLlmConfig: (cfg: LlmConfig) => http.put<LlmConfig>('/config/llm', cfg).then(r => r.data),
-  testLlmConfig: () => http.post<{ ok: boolean; model?: string; response?: string; tokens?: string; error?: string }>('/config/llm/test').then(r => r.data),
+  listLlmConfigs: () => http.get<LlmConfig[]>('/config/llm').then(r => r.data),
+  createLlmConfig: (cfg: Omit<LlmConfig, 'id' | 'active'>) => http.post<LlmConfig>('/config/llm', cfg).then(r => r.data),
+  updateLlmConfig: (id: number, cfg: Partial<LlmConfig>) => http.put<LlmConfig>(`/config/llm/${id}`, cfg).then(r => r.data),
+  deleteLlmConfig: (id: number) => http.delete(`/config/llm/${id}`),
+  activateLlmConfig: (id: number) => http.post<LlmConfig>(`/config/llm/${id}/activate`).then(r => r.data),
+  testLlmConfig: (id: number) =>
+    http.post<{ ok: boolean; model?: string; response?: string; tokens?: string; error?: string }>(`/config/llm/${id}/test`).then(r => r.data),
 }
 
 export interface LlmConfig {
   id?: number
+  name: string
   providerType: string
   baseUrl: string
   apiKey: string
   model: string
   temperature: number
   maxTokens: number
-  enabled: boolean
+  active: boolean
 }
