@@ -7,7 +7,8 @@ import javax.persistence.*;
 public class LlmConfig {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "llm_config_seq")
+    @SequenceGenerator(name = "llm_config_seq", sequenceName = "llm_config_seq", allocationSize = 1, initialValue = 100)
     private Long id;
 
     @Column(name = "name", length = 100)
@@ -32,7 +33,7 @@ public class LlmConfig {
     private Integer maxTokens = 8192;
 
     @Column(name = "active")
-    private boolean active = false;
+    private Boolean active = false;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -50,6 +51,6 @@ public class LlmConfig {
     public void setTemperature(Double temperature) { this.temperature = temperature; }
     public Integer getMaxTokens() { return maxTokens; }
     public void setMaxTokens(Integer maxTokens) { this.maxTokens = maxTokens; }
-    public boolean isActive() { return active; }
+    public boolean isActive() { return Boolean.TRUE.equals(active); }
     public void setActive(boolean active) { this.active = active; }
 }
