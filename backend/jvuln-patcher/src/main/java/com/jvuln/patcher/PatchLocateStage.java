@@ -3,6 +3,7 @@ package com.jvuln.patcher;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.store.model.CveIntelligence;
+import com.jvuln.patcher.strategy.AiPatchSearchStrategy;
 import com.jvuln.patcher.strategy.LocateStrategy;
 import com.jvuln.patcher.strategy.MavenSourceDiffStrategy;
 import com.jvuln.pipeline.model.PipelineContext;
@@ -24,9 +25,12 @@ public class PatchLocateStage implements Stage {
     private static final Logger log = LoggerFactory.getLogger(PatchLocateStage.class);
     private final List<LocateStrategy> strategies;
     private final MavenSourceDiffStrategy mavenStrategy;
+    private final AiPatchSearchStrategy aiStrategy;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public PatchLocateStage(List<LocateStrategy> strategies, MavenSourceDiffStrategy mavenStrategy) {
+    public PatchLocateStage(List<LocateStrategy> strategies, MavenSourceDiffStrategy mavenStrategy,
+                             AiPatchSearchStrategy aiStrategy) {
+        this.aiStrategy = aiStrategy;
         this.mavenStrategy = mavenStrategy;
         this.strategies = new ArrayList<>(strategies);
         this.strategies.sort(Comparator.comparingInt(LocateStrategy::priority));
@@ -55,11 +59,12 @@ public class PatchLocateStage implements Stage {
         String artifactId    = extractNestedString(stage1Data, "artifact", "artifactId");
         String fixedVersion  = extractString(stage1Data, "fixedVersion");
         String affectedTo    = extractNestedString(stage1Data, "affectedVersions", "to");
+        String description   = extractString(stage1Data, "description");
         List<String> knownCommits = extractCommits(stage1Data);
+        List<String> articleUrls  = extractArticleUrls(stage1Data);
 
         log.info("Stage2: sourceRepo={} artifact={}:{} fixed={} commits={}",
                 sourceRepo, groupId, artifactId, fixedVersion, knownCommits.size());
-
         // Phase 1: try commit-based strategies (reference-commit, ghsa-commit, cve-commit-search)
         for (LocateStrategy strategy : strategies) {
             if (strategy instanceof MavenSourceDiffStrategy) continue; // handled separately
@@ -98,8 +103,22 @@ public class PatchLocateStage implements Stage {
             }
         }
 
+        // Phase 3: AI-guided search — LLM reasons about the CVE and produces new leads
+        // (commit keywords, version, release tag) which are fed back into existing strategies.
+        ctx.reportProgress("Trying strategy: ai-patch-search");
+        try {
+            Optional<LocateStrategy.PatchResult> result = aiStrategy.locateWithAiHints(
+                    cveId, sourceRepo, groupId, artifactId,
+                    description, affectedTo, effectiveFixed, articleUrls);
+            if (result.isPresent()) {
+                return buildSuccess(ctx, cveId, result.get(), "ai-patch-search");
+            }
+        } catch (Exception e) {
+            log.warn("AiPatchSearch failed: {}", e.getMessage());
+        }
+
         return StageResult.failure(2, name(),
-                "No fix commit found with any strategy (tried: reference-commit, ghsa-commit, cve-commit-search, maven-source-diff)");
+                "No fix commit found with any strategy (tried: reference-commit, ghsa-commit, cve-commit-search, maven-source-diff, ai-patch-search)");
     }
 
     private StageResult buildSuccess(PipelineContext ctx, String cveId,
@@ -120,6 +139,7 @@ public class PatchLocateStage implements Stage {
             CveIntelligence intel = (CveIntelligence) data;
             if ("sourceRepo".equals(field))   return intel.getSourceRepo();
             if ("fixedVersion".equals(field)) return intel.getFixedVersion();
+            if ("description".equals(field))  return intel.getDescription();
         }
         try {
             JsonNode node = mapper.valueToTree(data);
@@ -152,6 +172,30 @@ public class PatchLocateStage implements Stage {
             JsonNode commits = node.path("fixCommits");
             List<String> result = new ArrayList<>();
             if (commits.isArray()) for (JsonNode c : commits) result.add(c.asText());
+            return result;
+        } catch (Exception e) { return Collections.emptyList(); }
+    }
+
+    private List<String> extractArticleUrls(Object data) {
+        if (data instanceof CveIntelligence) {
+            List<CveIntelligence.Article> articles = ((CveIntelligence) data).getArticles();
+            if (articles == null) return Collections.emptyList();
+            List<String> urls = new ArrayList<>();
+            for (CveIntelligence.Article a : articles) {
+                if (a.getUrl() != null && !a.getUrl().isEmpty()) urls.add(a.getUrl());
+            }
+            return urls;
+        }
+        try {
+            JsonNode node = mapper.valueToTree(data);
+            JsonNode articles = node.path("articles");
+            List<String> result = new ArrayList<>();
+            if (articles.isArray()) {
+                for (JsonNode a : articles) {
+                    String url = a.path("url").asText("");
+                    if (!url.isEmpty()) result.add(url);
+                }
+            }
             return result;
         } catch (Exception e) { return Collections.emptyList(); }
     }

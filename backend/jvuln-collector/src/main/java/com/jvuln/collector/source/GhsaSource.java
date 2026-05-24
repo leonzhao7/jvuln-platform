@@ -72,8 +72,12 @@ public class GhsaSource implements IntelSource {
                 }
                 affectedTo = v.path("vulnerable_version_range").asText("");
                 JsonNode patched = v.path("first_patched_version");
-                if (!patched.isMissingNode() && patched.has("identifier")) {
-                    fixedVersion = patched.path("identifier").asText("");
+                if (!patched.isMissingNode()) {
+                    if (patched.isTextual()) {
+                        fixedVersion = patched.asText("");
+                    } else if (patched.has("identifier")) {
+                        fixedVersion = patched.path("identifier").asText("");
+                    }
                 }
             }
         }

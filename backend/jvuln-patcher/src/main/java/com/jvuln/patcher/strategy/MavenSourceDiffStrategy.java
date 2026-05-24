@@ -43,6 +43,9 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
                 Arrays.asList("org.springframework:spring-webmvc",
                               "org.springframework:spring-web",
                               "org.springframework:spring-core"));
+        ARTIFACT_EXPANSIONS.put("com.baomidou:mybatis-plus",
+                Arrays.asList("com.baomidou:mybatis-plus-extension",
+                              "com.baomidou:mybatis-plus-core"));
     }
 
     private final WebClient webClient;
