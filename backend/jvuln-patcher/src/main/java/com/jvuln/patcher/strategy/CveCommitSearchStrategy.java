@@ -11,6 +11,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -85,6 +87,9 @@ public class CveCommitSearchStrategy implements LocateStrategy {
         String[] parts = fullName.split("/", 2);
         String canonOwner = parts[0], canonRepo = parts.length > 1 ? parts[1] : repo;
 
+        // Collect all candidates with their diffs, then pick the best-scoring one.
+        // Avoids returning a doc/changelog commit when a real code fix is also present.
+        List<PatchResult> candidates = new ArrayList<>();
         for (JsonNode item : items) {
             String sha     = item.path("sha").asText("");
             String message = item.path("commit").path("message").asText("");
@@ -100,21 +105,55 @@ public class CveCommitSearchStrategy implements LocateStrategy {
 
                 if (diff != null && diff.contains("diff --git")) {
                     String shortSha = sha.substring(0, Math.min(10, sha.length()));
-                    log.info("CveCommitSearch: got diff for {} ('{}'), size={}c",
-                            shortSha, message.split("\n")[0], diff.length());
+                    log.info("CveCommitSearch: candidate {} ('{}'), score={}, size={}c",
+                            shortSha, message.split("\n")[0],
+                            scoreCommit(message, diff), diff.length());
                     String commitUrl = "https://github.com/" + canonOwner + "/" + canonRepo + "/commit/" + sha;
-                    return Optional.of(new PatchResult(commitUrl, sha, message, diff));
+                    candidates.add(new PatchResult(commitUrl, sha, message, diff));
                 }
             } catch (Exception e) {
                 log.warn("CveCommitSearch: failed to fetch diff for {}: {}", sha, e.getMessage());
             }
         }
-        return Optional.empty();
+
+        return candidates.stream()
+                .filter(pr -> pr.getRawDiff().contains(".java b/"))  // must have Java source changes
+                .max(Comparator.comparingInt(pr -> scoreCommit(pr.getCommitMessage(), pr.getRawDiff())))
+                .map(pr -> {
+                    log.info("CveCommitSearch: selected '{}' (score={})",
+                            pr.getCommitMessage().split("\n")[0],
+                            scoreCommit(pr.getCommitMessage(), pr.getRawDiff()));
+                    return pr;
+                });
+    }
+
+    /**
+     * Score a commit candidate. Higher = more likely to be the real security fix.
+     * - Penalise documentation/changelog/release commits
+     * - Reward commits that change .java files
+     * - Reward larger diffs (real fixes tend to be bigger than doc edits)
+     */
+    private int scoreCommit(String message, String diff) {
+        int score = 0;
+        String msgLower = message.toLowerCase();
+
+        // Penalise obvious non-fix commit types
+        if (msgLower.matches("(?s)^\\[(docs?|doc|changelog|release|test|ci)\\].*")) score -= 20;
+        if (msgLower.contains("release note") || msgLower.contains("changelog")
+                || msgLower.startsWith("bump ") || msgLower.startsWith("prepare release")) score -= 15;
+        if (msgLower.contains("readme") || msgLower.contains("[doc") || msgLower.startsWith("docs:")) score -= 10;
+
+        // Reward Java source file changes
+        if (diff.contains(".java\n") || diff.contains(".java b/")) score += 10;
+
+        // Reward larger diffs up to a cap (docs edits are usually tiny)
+        score += Math.min(diff.length() / 500, 10);
+
+        return score;
     }
 
     /** Resolves the canonical "owner/repo" by following any GitHub repo transfers/renames. */
-    private String resolveCanonicalFullName(String owner, String repo) {
-        try {
+    private String resolveCanonicalFullName(String owner, String repo) {        try {
             String repoJson = webClient.get()
                     .uri("/repos/" + owner + "/" + repo)
                     .header("Accept", "application/vnd.github+json")
