@@ -45,7 +45,10 @@ public class AiPatchSearchStrategy {
             "Rules:\n" +
             "- commitSearchTerms: 1-3 keywords LIKELY IN THE FIX COMMIT MESSAGE (not the CVE ID itself).\n" +
             "  Think about what a developer would write: class names, method names, feature names.\n" +
-            "- fixedVersion: the exact Maven version string that first contains the fix, or null.\n" +
+            "- fixedVersion: the exact Maven version string that FIRST CONTAINS THE FIX.\n" +
+            "  CRITICAL: fixedVersion MUST be strictly GREATER than the last affected version.\n" +
+            "  Example: if 'Affected versions: <= 5.8.11', fixedVersion must be 5.8.12 or later — NEVER 5.8.11 or earlier.\n" +
+            "  Example: if 'Affected versions: < 3.5.3', fixedVersion must be 3.5.3 or later.\n" +
             "- releaseTag: the exact GitHub release tag for the fix (e.g. 'v3.5.3.1' or '3.5.3.1'), or null.\n" +
             "- If you are not confident about a field, set it to null rather than guessing.";
 
@@ -114,16 +117,21 @@ public class AiPatchSearchStrategy {
         // 2. Retry maven-source-diff with AI-inferred fixed version (only if different from what we tried)
         if (groupId != null && !groupId.isEmpty() && hints.fixedVersion != null
                 && !hints.fixedVersion.equals(fixedVersion)) {
-            log.info("AiPatchSearch: retrying maven-source-diff with AI version={}", hints.fixedVersion);
-            try {
-                Optional<PatchResult> result = mavenStrategy.locateByArtifact(
-                        cveId, groupId, artifactId, hints.fixedVersion);
-                if (result.isPresent()) {
-                    log.info("AiPatchSearch: found patch via maven-source-diff with AI version");
-                    return result;
+            if (!isVersionAfterAffected(hints.fixedVersion, affectedTo)) {
+                log.warn("AiPatchSearch: AI fixedVersion={} is not strictly after affectedTo='{}', rejecting",
+                        hints.fixedVersion, affectedTo);
+            } else {
+                log.info("AiPatchSearch: retrying maven-source-diff with AI version={}", hints.fixedVersion);
+                try {
+                    Optional<PatchResult> result = mavenStrategy.locateByArtifact(
+                            cveId, groupId, artifactId, hints.fixedVersion);
+                    if (result.isPresent()) {
+                        log.info("AiPatchSearch: found patch via maven-source-diff with AI version");
+                        return result;
+                    }
+                } catch (Exception e) {
+                    log.warn("AiPatchSearch: maven-source-diff with AI version failed: {}", e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("AiPatchSearch: maven-source-diff with AI version failed: {}", e.getMessage());
             }
         }
 
@@ -330,6 +338,51 @@ public class AiPatchSearchStrategy {
     private static String encode(String s) {
         try { return java.net.URLEncoder.encode(s, "UTF-8"); }
         catch (Exception e) { return s.replace(" ", "+"); }
+    }
+
+    /**
+     * Returns true only if candidate is strictly greater than the last affected version
+     * implied by affectedTo (e.g. "<= 5.8.11" → candidate must be > 5.8.11).
+     * Returns true when affectedTo is null/empty (no constraint to check against).
+     */
+    static boolean isVersionAfterAffected(String candidate, String affectedTo) {
+        if (candidate == null || candidate.isEmpty()) return false;
+        if (affectedTo == null || affectedTo.trim().isEmpty()) return true;
+        String trimmed = affectedTo.trim();
+        String lastAffected;
+        if (trimmed.startsWith("<= ")) {
+            lastAffected = trimmed.substring(3).trim();
+            // candidate must be strictly > lastAffected
+            return compareVersions(candidate, lastAffected) > 0;
+        } else if (trimmed.startsWith("< ")) {
+            lastAffected = trimmed.substring(2).trim();
+            // candidate must be >= lastAffected (lastAffected itself is already the fix)
+            return compareVersions(candidate, lastAffected) >= 0;
+        } else {
+            // Best-effort: extract version token and treat as "<="
+            Matcher m = Pattern.compile("[\\d]+(?:\\.[\\d]+)+").matcher(trimmed);
+            if (!m.find()) return true;
+            lastAffected = m.group();
+            return compareVersions(candidate, lastAffected) > 0;
+        }
+    }
+
+    /** Numeric segment-by-segment version comparison. Returns negative/0/positive like compareTo. */
+    static int compareVersions(String v1, String v2) {
+        String[] p1 = v1.split("[.\\-]");
+        String[] p2 = v2.split("[.\\-]");
+        int len = Math.max(p1.length, p2.length);
+        for (int i = 0; i < len; i++) {
+            int n1 = i < p1.length ? parseSegment(p1[i]) : 0;
+            int n2 = i < p2.length ? parseSegment(p2[i]) : 0;
+            if (n1 != n2) return Integer.compare(n1, n2);
+        }
+        return 0;
+    }
+
+    private static int parseSegment(String s) {
+        try { return Integer.parseInt(s); }
+        catch (NumberFormatException e) { return 0; }
     }
 
     // ── Hints DTO ────────────────────────────────────────────────────────────────
