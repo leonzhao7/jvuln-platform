@@ -5,6 +5,8 @@ import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageResult;
 import com.jvuln.pipeline.stage.Stage;
@@ -27,6 +29,13 @@ import java.util.regex.Pattern;
 public class CodeAnalysisStage implements Stage {
 
     private static final Logger log = LoggerFactory.getLogger(CodeAnalysisStage.class);
+
+    private final DiffRelevanceFilter relevanceFilter;
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    public CodeAnalysisStage(DiffRelevanceFilter relevanceFilter) {
+        this.relevanceFilter = relevanceFilter;
+    }
 
     // Matches: @@ -602,7 +602,7 @@ protected void doPut(...)
     private static final Pattern HUNK_HEADER = Pattern.compile(
@@ -58,16 +67,27 @@ public class CodeAnalysisStage implements Stage {
             return StageResult.failure(3, name(), "No Java file changes found in diff");
         }
 
-        ctx.reportProgress("Analyzing " + fileChanges.size() + " Java file(s)");
+        // Filter out unrelated files from noisy diffs (e.g. maven-source-diff version bumps)
+        String cveDescription = extractStage1String(ctx, "description");
+        String groupId = extractStage1Nested(ctx, "artifact", "groupId");
+        String artifactId = extractStage1Nested(ctx, "artifact", "artifactId");
+        String affectedComponent = (groupId != null && artifactId != null)
+                ? groupId + ":" + artifactId : null;
+
+        List<JavaFileChange> relevant = relevanceFilter.filter(
+                fileChanges, cveId, cveDescription, affectedComponent);
+
+        ctx.reportProgress("Analyzing " + relevant.size() + " Java file(s)"
+                + (relevant.size() < fileChanges.size()
+                   ? " (filtered from " + fileChanges.size() + ")" : ""));
 
         List<CodeAnalysisResult> results = new ArrayList<>();
-        for (JavaFileChange change : fileChanges) {
+        for (JavaFileChange change : relevant) {
             ctx.reportProgress("Analyzing " + shortName(change.filePath));
             CodeAnalysisResult result = analyzeChange(change);
             results.add(result);
         }
 
-        // Wrap in a container map for easy JSON access
         java.util.Map<String, Object> output = new java.util.LinkedHashMap<>();
         output.put("analyzedFiles", results);
         int totalCwe = 0;
@@ -77,6 +97,28 @@ public class CodeAnalysisStage implements Stage {
         ctx.getWorkspaceManager().writeStageData(cveId, 3, output);
         ctx.reportProgress("Code analysis complete: " + results.size() + " file(s) analyzed");
         return StageResult.success(3, name(), output);
+    }
+
+    // ── Stage 1 data helpers ──────────────────────────────────────────────────
+
+    private String extractStage1String(PipelineContext ctx, String field) {
+        try {
+            StageResult s1 = ctx.getCompletedStages().get(1);
+            if (s1 == null || s1.getData() == null) return null;
+            JsonNode node = mapper.valueToTree(s1.getData());
+            String val = node.path(field).asText(null);
+            return (val != null && !val.isEmpty()) ? val : null;
+        } catch (Exception e) { return null; }
+    }
+
+    private String extractStage1Nested(PipelineContext ctx, String parent, String field) {
+        try {
+            StageResult s1 = ctx.getCompletedStages().get(1);
+            if (s1 == null || s1.getData() == null) return null;
+            JsonNode node = mapper.valueToTree(s1.getData());
+            String val = node.path(parent).path(field).asText(null);
+            return (val != null && !val.isEmpty()) ? val : null;
+        } catch (Exception e) { return null; }
     }
 
     private List<JavaFileChange> parseJavaChanges(String rawDiff) {
@@ -263,22 +305,5 @@ public class CodeAnalysisStage implements Stage {
     private static String shortName(String filePath) {
         int slash = filePath.lastIndexOf('/');
         return slash >= 0 ? filePath.substring(slash + 1) : filePath;
-    }
-
-    private static class JavaFileChange {
-        final String filePath;
-        final String rawSection;
-        final String removedCode;
-        final String addedCode;
-        final Set<String> methodNames;
-
-        JavaFileChange(String filePath, String rawSection, String removedCode,
-                        String addedCode, Set<String> methodNames) {
-            this.filePath = filePath;
-            this.rawSection = rawSection;
-            this.removedCode = removedCode;
-            this.addedCode = addedCode;
-            this.methodNames = methodNames;
-        }
     }
 }
