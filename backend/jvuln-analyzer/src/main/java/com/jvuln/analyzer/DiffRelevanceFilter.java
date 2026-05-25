@@ -53,7 +53,16 @@ public class DiffRelevanceFilter {
             "[{\"file\": \"path/to/File.java\", \"relevant\": true, \"reason\": \"one sentence\"}]\n" +
             "relevant=true means the change is directly fixing the CVE or hardening the same attack surface.\n" +
             "relevant=false means it is a new feature, refactoring, or unrelated bug fix.\n" +
-            "When in doubt, set relevant=true.";
+            "When in doubt, set relevant=true.\n" +
+            "\n" +
+            "IMPORTANT: NVD/GHSA CVE descriptions and CWE labels are OFTEN INACCURATE.\n" +
+            "Do NOT rely solely on the description keyword (e.g. 'SQL Injection') to decide relevance.\n" +
+            "Judge each file by what the CODE CHANGE actually does:\n" +
+            "- A file adding class-whitelist enforcement (allowClass, allowClassSet) is relevant for RCE/injection CVEs\n" +
+            "- A file restricting expression engine access (OGNL, SpEL, JEXL, MVEL, Aviator, Groovy) is relevant\n" +
+            "- A file tightening deserialization (XMLDecoder, ObjectInputStream, readObject) is relevant\n" +
+            "- A file that only adds new features or query parameters unrelated to security is NOT relevant\n" +
+            "The description tells you what the CVE is about, but the CODE is the ground truth for relevance.";
 
     private final LlmClient llmClient;
     private final ObjectMapper mapper = new ObjectMapper();
