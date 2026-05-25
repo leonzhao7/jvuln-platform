@@ -162,12 +162,37 @@ event: pipeline_done data: {"status":"COMPLETED"}
 
 策略链（按优先级）：
 1. **RefCommitStrategy**：直接从情报中提取 fixCommits URL，下载 commit diff
-2. **SearchCommitStrategy**：用 CVE ID 搜索 GitHub commit message
-3. **TagDiffStrategy**：diff 相邻发布 tag（fixedVersion vs 前一版本）
+2. **SearchCommitStrategy**：用 CVE ID 搜索 GitHub commit message；对多结果用 AI 辅助选择最相关的 commit
+3. **TagDiffStrategy**：diff 相邻发布 tag（fixedVersion vs 前一版本），生成 maven-source-diff
 
 产物：`patches/fix.diff`（unified diff），以及 `patches/source/` 下 before/after 源文件（供 Stage 3 解析）。
 
+**CRLF 处理**：maven-source-diff 生成时使用 `diff --strip-trailing-cr`，避免因 JAR 内文件行尾为 CRLF 而导致所有行都出现在 diff 中（会将无关文件数从 90+ 膨胀到实际修改的 20+ 个）。
+
 ### Stage 3 — Code Analysis
+
+#### Diff 相关性过滤（DiffRelevanceFilter）
+
+maven-source-diff 策略产生的 diff 可能包含大量无关文件（新增 feature、重构、分页 dialect 等）。Stage 3 进入实际分析前先做两阶段过滤：
+
+**阶段一：传统预过滤**（确定性，快速同步）
+
+排除条件需同时满足（保守策略，有疑问则保留）：
+- 移除行数 < 5（几乎是纯新增，非修复）
+- diff 内容不含安全关键词（`inject`、`sql`、`xss`、`deserializ`、`bypass`、`traversal` 等约 20 个）
+- diff 内容不含 CVE 描述中提取的特征 token（组件名、类名等）
+
+**阶段二：AI 过滤**（当预过滤后仍 > 6 个文件时触发）
+
+向 LLM 发送每个文件的压缩摘要（路径 + 增减行数 + 方法名 + 3 行移除代码样本），要求返回：
+```json
+[{"file": "path/to/File.java", "relevant": true, "reason": "one sentence"}]
+```
+安全机制：AI 返回 0 个文件或调用失败时，回退到预过滤结果。
+
+**阈值**：≤ 6 个文件（commit 策略的 diff 通常很精准）直接跳过所有过滤。
+
+#### 代码静态分析
 
 使用 JavaParser 直接解析源文件 AST（无子进程）：
 
@@ -226,13 +251,27 @@ LlmClient (interface)
 
 `LlmClientFactory` 根据配置的 `provider` 字段（`anthropic` / `openai-compat`）实例化对应实现，并注入 `baseUrl`、`apiKey`、`model`。
 
-### 配置持久化
+### 配置持久化（多模型支持）
 
-LLM 配置通过 `PUT /api/config/llm` 保存到 `backend/data/llm-config.json`，重启后自动加载，不依赖数据库。
+LLM 配置存储在 H2 数据库的 `llm_config` 表中，支持保存多条配置并指定其中一条为激活状态：
+
+- `POST /api/config/llm` — 新建配置
+- `PUT /api/config/llm/{id}` — 更新配置（API Key 显示为 `••••••••`，提交该值时不覆盖原 Key）
+- `DELETE /api/config/llm/{id}` — 删除配置
+- `POST /api/config/llm/{id}/activate` — 原子操作：将所有配置 `active=false`，再将目标配置 `active=true`
+- `POST /api/config/llm/{id}/test` — 用指定配置发送轻量请求验证连通性
+
+`DbLlmConfigProvider` 通过 `findByActiveTrue()` 查询当前激活配置，供 Pipeline 各阶段使用。
+
+**H2 兼容注意**：`active` 字段使用 `Boolean`（装箱类型）而非 `boolean`，避免 `ddl-auto: update` 添加新列后现有行为 NULL 导致映射失败。ID 使用 `@GeneratedValue(SEQUENCE)` 而非 `IDENTITY`，避免 H2 无法 ALTER 已有列类型。
 
 ### 连通性测试
 
-`POST /api/config/llm/test` 发送一条轻量请求（`max_tokens=5`）验证端点可达和 API Key 有效性，返回延迟和模型信息。
+`POST /api/config/llm/{id}/test` 发送一条轻量请求（`max_tokens=5`）验证端点可达和 API Key 有效性，返回延迟和模型信息。
+
+### Diff 视图过滤
+
+`GET /api/analysis/{cveId}/diff` 在 Stage 3 数据可用时，自动将原始 `fix.diff` 过滤为只包含 Stage 3 `analyzedFiles` 中的文件，响应中同时返回 `totalFiles`（原始文件数）和 `shownFiles`（过滤后文件数）。Stage 3 数据不存在时退化为返回完整 diff。
 
 ---
 
@@ -273,6 +312,8 @@ Patch Diff tab 使用 `diff2html` 将 unified diff 渲染为 side-by-side 或 li
 | LLM 超时 | 非流式 / 流式 | 流式 + 收集 | 规避代理非流式 60s 超时 |
 | Stage 数据 | 全量 DB / 文件系统 | 文件系统 | 便于调试、手动查看、导出 |
 | AI 响应格式 | 纯文本 / JSON | 结构化 JSON | 便于前端解析展示触发链等数据 |
+| Diff 噪音过滤 | 纯传统 / 纯 AI | 两阶段混合 | 传统预过滤快且稳定，AI 处理语义判断；小 diff（≤6 文件）跳过过滤 |
+| LLM 多配置 | 单配置文件 / DB 多条 | H2 多行 + active 标志 | 支持切换不同 provider/model，保留历史配置 |
 
 ---
 

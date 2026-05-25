@@ -11,7 +11,7 @@ jvuln-platform/
 │   ├── jvuln-pipeline    # 5 阶段 Pipeline 引擎 + SSE 推送
 │   ├── jvuln-collector   # Stage 1: 情报采集 (NVD/GHSA/OSV)
 │   ├── jvuln-patcher     # Stage 2: 补丁定位 + Diff 解析
-│   ├── jvuln-analyzer    # Stage 3: JavaParser 代码静态分析
+│   ├── jvuln-analyzer    # Stage 3: JavaParser 代码静态分析 + Diff 过滤
 │   ├── jvuln-llm         # AI 抽象层 (Anthropic + OpenAI-compat)
 │   ├── jvuln-generator   # Stage 5: 产物生成
 │   └── jvuln-store       # 存储层 (H2 + 文件系统)
@@ -60,16 +60,18 @@ npm run dev
 
 ### 4. 配置 LLM
 
-打开 `http://localhost:5173/settings`，填入 AI 服务配置：
+打开 `http://localhost:5173/settings`，可保存多个 LLM 配置并指定哪一个为激活状态：
 
 | 字段 | 说明 |
 |------|------|
+| Name | 配置名称（如 "Claude Sonnet via new-api"） |
 | Provider | `anthropic`（原生）或 `openai-compat`（OpenAI 兼容） |
 | Base URL | 如 `https://api.anthropic.com` 或本地代理地址 |
 | API Key | 对应服务的 API Key |
 | Model | 如 `claude-sonnet-4-6` |
 
-点击 **Test Connection** 验证连通性，保存后 Stage 4 AI 推理将使用此配置。
+- **Activate**：将该配置设为当前生效配置（同一时刻只有一个激活）
+- **Test**：发送轻量请求验证连通性和 API Key 有效性
 
 ## 使用流程
 
@@ -78,7 +80,7 @@ npm run dev
 3. 实时查看 5 个阶段的执行进度（SSE 推送）
 4. 分析完成后查看：
    - **Intelligence**：漏洞情报（CVSS、影响版本、修复提交）
-   - **Patch Diff**：修复补丁对比视图
+   - **Patch Diff**：修复补丁对比视图（仅展示 Stage 3 确认相关的文件）
    - **Code Analysis**：JavaParser 静态分析 + CWE 模式匹配
    - **AI Reasoning**：触发链、漏洞根因、修复评估
    - **Artifacts**：生成的演示项目和 PoC
@@ -89,7 +91,7 @@ npm run dev
 |-------|------|------|
 | 1 | Intelligence Collection | 从 NVD/GHSA/OSV 采集 CVE 情报 |
 | 2 | Patch Locating | 定位修复 commit，提取 unified diff |
-| 3 | Code Analysis | JavaParser AST 分析，CWE 模式匹配 |
+| 3 | Code Analysis | Diff 相关性过滤 + JavaParser AST 分析 + CWE 模式匹配 |
 | 4 | Vulnerability Reasoning | AI 推理触发链、根因、修复完整性 |
 | 5 | Artifact Generation | 生成漏洞复现项目和报告 |
 
@@ -107,13 +109,16 @@ POST /api/analysis/{cveId}/sync-status  # 按磁盘文件同步 DB 状态
 
 GET  /api/analysis/{cveId}/intelligence
 GET  /api/analysis/{cveId}/patch
-GET  /api/analysis/{cveId}/diff
+GET  /api/analysis/{cveId}/diff         # 返回 {diff, totalFiles, shownFiles}
 GET  /api/analysis/{cveId}/code-analysis
 GET  /api/analysis/{cveId}/reasoning
 
-GET  /api/config/llm
-PUT  /api/config/llm
-POST /api/config/llm/test
+GET  /api/config/llm                    # 获取所有 LLM 配置列表
+POST /api/config/llm                    # 新建 LLM 配置
+PUT  /api/config/llm/{id}              # 更新指定配置
+DELETE /api/config/llm/{id}            # 删除指定配置
+POST /api/config/llm/{id}/activate     # 激活指定配置（自动去激活其他）
+POST /api/config/llm/{id}/test         # 测试指定配置的连通性
 ```
 
 ## 工作区结构
@@ -127,6 +132,8 @@ backend/workspace/CVE-xxxx-xxxxx/
 │   ├── 4_reasoning.json
 │   └── 5_artifacts.json
 ├── patches/
+│   ├── fix.diff
+│   └── source/{before,after}/
 ├── vuln-demo/        # 生成的 Spring Boot 复现项目
 ├── poc/
 └── report/
@@ -134,7 +141,13 @@ backend/workspace/CVE-xxxx-xxxxx/
 
 ## 已验证 CVE
 
-- **CVE-2025-24813** — Apache Tomcat Partial PUT RCE (CVSS 9.8, CWE-44)
+| CVE | 组件 | CVSS | 类型 |
+|-----|------|------|------|
+| CVE-2025-24813 | Apache Tomcat | 9.8 | Partial PUT RCE (CWE-44 + CWE-502) |
+| CVE-2023-25330 | MyBatis-Plus | 9.8 | SQL Injection (TenantLine/DataPermission) |
+| CVE-2022-22965 | Spring Framework | 9.8 | Spring4Shell RCE |
+| CVE-2023-3276 | — | — | — |
+| CVE-2016-1000027 | Spring Web | — | — |
 
 ## 注意事项
 

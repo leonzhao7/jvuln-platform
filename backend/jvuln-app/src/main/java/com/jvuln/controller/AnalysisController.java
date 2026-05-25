@@ -1,5 +1,7 @@
 package com.jvuln.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.pipeline.PipelineEngine;
 import com.jvuln.store.CveTaskRepository;
 import com.jvuln.store.StageRecordRepository;
@@ -12,11 +14,15 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/analysis")
@@ -26,6 +32,7 @@ public class AnalysisController {
     private final CveTaskRepository taskRepo;
     private final StageRecordRepository stageRepo;
     private final WorkspaceManager workspaceManager;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public AnalysisController(PipelineEngine pipelineEngine, CveTaskRepository taskRepo,
                               StageRecordRepository stageRepo, WorkspaceManager workspaceManager) {
@@ -126,17 +133,73 @@ public class AnalysisController {
     public ResponseEntity<?> getDiff(@PathVariable String cveId) {
         try {
             Path diffFile = workspaceManager.getCvePath(cveId).resolve("patches/fix.diff");
-            if (Files.exists(diffFile)) {
-                Map<String, String> resp = new HashMap<>();
-                resp.put("diff", new String(Files.readAllBytes(diffFile), java.nio.charset.StandardCharsets.UTF_8));
-                return ResponseEntity.ok(resp);
-            }
-            return ResponseEntity.notFound().build();
+            if (!Files.exists(diffFile)) return ResponseEntity.notFound().build();
+
+            String rawDiff = new String(Files.readAllBytes(diffFile), StandardCharsets.UTF_8);
+            Set<String> analyzedFiles = loadAnalyzedFileNames(cveId);
+
+            String diff = analyzedFiles.isEmpty() ? rawDiff : filterDiff(rawDiff, analyzedFiles);
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("diff", diff);
+            resp.put("totalFiles", countDiffSections(rawDiff));
+            resp.put("shownFiles", countDiffSections(diff));
+            return ResponseEntity.ok(resp);
         } catch (IOException e) {
             Map<String, String> err = new HashMap<>();
             err.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(err);
         }
+    }
+
+    /** Returns file names from Stage 3 analyzedFiles, empty set if Stage 3 not available. */
+    private Set<String> loadAnalyzedFileNames(String cveId) {
+        try {
+            Path stage3 = workspaceManager.getStageFile(cveId, 3);
+            if (!Files.exists(stage3)) return Collections.emptySet();
+            JsonNode root = mapper.readTree(stage3.toFile());
+            JsonNode files = root.path("analyzedFiles");
+            if (!files.isArray()) return Collections.emptySet();
+            Set<String> names = new HashSet<>();
+            for (JsonNode f : files) {
+                String name = f.path("fileName").asText("");
+                if (!name.isEmpty()) names.add(name);
+            }
+            return names;
+        } catch (Exception e) {
+            return Collections.emptySet();
+        }
+    }
+
+    /** Keeps only diff sections whose file path matches one of the analyzed file names. */
+    private String filterDiff(String rawDiff, Set<String> analyzedFiles) {
+        String[] sections = rawDiff.split("(?=diff --git )");
+        StringBuilder sb = new StringBuilder();
+        for (String section : sections) {
+            if (section.trim().isEmpty()) continue;
+            if (sectionMatchesAny(section, analyzedFiles)) sb.append(section);
+        }
+        return sb.toString();
+    }
+
+    private boolean sectionMatchesAny(String section, Set<String> analyzedFiles) {
+        // First line: "diff --git a/path/to/File.java b/path/to/File.java"
+        String firstLine = section.indexOf('\n') > 0
+                ? section.substring(0, section.indexOf('\n')) : section;
+        for (String name : analyzedFiles) {
+            if (firstLine.contains(name)) return true;
+            // Also match by just the filename
+            String shortName = name.contains("/") ? name.substring(name.lastIndexOf('/') + 1) : name;
+            if (firstLine.contains(shortName)) return true;
+        }
+        return false;
+    }
+
+    private int countDiffSections(String diff) {
+        int count = 0;
+        for (String s : diff.split("(?=diff --git )")) {
+            if (!s.trim().isEmpty()) count++;
+        }
+        return count;
     }
 
     @GetMapping("/{cveId}/reasoning")
