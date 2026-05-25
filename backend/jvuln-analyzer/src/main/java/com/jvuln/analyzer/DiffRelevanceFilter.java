@@ -40,7 +40,11 @@ public class DiffRelevanceFilter {
             "sql", "xss", "csrf", "ssrf", "rce", "deserializ", "classloader",
             "reflection", "permission", "authori", "authen", "bypass", "traversal",
             "upload", "template", "vuln", "security", "cve", "fix", "patch",
-            "remediat", "exploit", "attack", "malicious", "arbitrary"
+            "remediat", "exploit", "attack", "malicious", "arbitrary",
+            // expression / script injection
+            "expression", "sandbox", "whitelist", "allowclass", "classset",
+            "scriptengine", "groovy", "ognl", "spel", "jexl", "mvel", "aviator",
+            "xmldecoder", "rhino", "nashorn"
     ));
 
     private static final String SYSTEM_PROMPT =
