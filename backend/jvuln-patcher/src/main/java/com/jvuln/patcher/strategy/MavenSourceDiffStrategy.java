@@ -203,7 +203,8 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
                                         String groupId, String artifactId,
                                         String prevVersion, String fixedVersion) throws Exception {
         ProcessBuilder pb = new ProcessBuilder(
-                "diff", "-rU3", "--exclude=*.class", "--exclude=*.properties",
+                "diff", "-rU3", "--strip-trailing-cr",
+                "--exclude=*.class", "--exclude=*.properties",
                 prevDir.toString(), fixedDir.toString());
         pb.redirectErrorStream(true);
         Process proc = pb.start();
