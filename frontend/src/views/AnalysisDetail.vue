@@ -3,9 +3,11 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type TaskDetail } from '../api'
 import { ElMessage } from 'element-plus'
+import { useI18n } from '../i18n'
 
 const route = useRoute()
 const router = useRouter()
+const { t, array } = useI18n()
 const cveId = route.params.cveId as string
 
 const detail = ref<TaskDetail | null>(null)
@@ -20,7 +22,7 @@ const task = computed(() => detail.value?.task)
 const stages = computed(() => detail.value?.stages ?? [])
 
 const stageIcons = ['01', '02', '03', '04', '05']
-const stageNames = ['Intelligence', 'Patch Locate', 'Code Analysis', 'AI Reasoning', 'Artifacts']
+const stageNames = computed(() => array<string>('analysis.stageNames'))
 
 const stageClass = (status?: string) => {
   const map: Record<string, string> = {
@@ -43,7 +45,7 @@ const load = async () => {
     detail.value = await api.getTask(cveId)
     await loadStageData()
   } catch {
-    ElMessage.error('Failed to load task')
+    ElMessage.error(t('analysis.loadFailed'))
   }
 }
 
@@ -90,7 +92,7 @@ const startStream = () => {
 
 const rerun = async (fromStage?: number) => {
   await api.rerunTask(cveId, fromStage)
-  ElMessage.success('Rerun started')
+  ElMessage.success(t('analysis.rerunStarted'))
   startStream()
 }
 
@@ -116,14 +118,14 @@ const cvssTag = (score: number) => {
     <!-- Page header -->
     <div class="jv-detail-header">
       <div class="jv-detail-header-left">
-        <span class="jv-back-btn" @click="router.push('/')">← Back</span>
+        <span class="jv-back-btn" @click="router.push('/')">{{ t('common.back') }}</span>
         <h2 style="margin:0; font-family:var(--font-mono); font-size:18px">{{ cveId }}</h2>
-        <span :class="taskStatusClass(task!.status)">{{ task!.status }}</span>
+        <span :class="taskStatusClass(task!.status)">{{ t(`status.${task!.status}`) }}</span>
       </div>
       <div class="jv-detail-header-right">
-        <el-button size="small" :loading="sseActive" @click="rerun()">↺ Rerun All</el-button>
+        <el-button size="small" :loading="sseActive" @click="rerun()">{{ t('analysis.rerunAll') }}</el-button>
         <el-button size="small" v-if="diffText" @click="router.push(`/analysis/${cveId}/diff`)">
-          View Diff
+          {{ t('analysis.viewDiff') }}
         </el-button>
       </div>
     </div>
@@ -133,10 +135,10 @@ const cvssTag = (score: number) => {
       <div v-for="(name, i) in stageNames" :key="i"
         :class="stageClass(stages[i]?.status)"
         @click="rerun(i + 1)"
-        :title="`Rerun from Stage ${i+1}`">
+        :title="t('analysis.rerunFromStage', { stage: i + 1 })">
         <div class="jv-stage-num">{{ stageIcons[i] }}</div>
         <div class="jv-stage-name">{{ name }}</div>
-        <div class="jv-stage-status">{{ stages[i]?.status ?? 'PENDING' }}</div>
+        <div class="jv-stage-status">{{ t(`status.${stages[i]?.status ?? 'PENDING'}`) }}</div>
       </div>
     </div>
 
@@ -150,10 +152,10 @@ const cvssTag = (score: number) => {
       <el-tabs v-model="activeTab" type="border-card">
 
         <!-- Overview -->
-        <el-tab-pane label="Overview" name="overview">
+        <el-tab-pane :label="t('analysis.tabs.overview')" name="overview">
           <div v-if="stageData[1]">
             <el-descriptions :column="2" border size="small">
-              <el-descriptions-item label="CVE ID">
+              <el-descriptions-item :label="t('analysis.fields.cveId')">
                 <span style="font-family:var(--font-mono)">{{ stageData[1].cveId }}</span>
               </el-descriptions-item>
               <el-descriptions-item label="CVSS">
@@ -166,34 +168,34 @@ const cvssTag = (score: number) => {
               <el-descriptions-item label="CWE">
                 <span style="font-family:var(--font-mono)">{{ stageData[1].cweId ?? '—' }}</span>
               </el-descriptions-item>
-              <el-descriptions-item label="Fixed Version">
+              <el-descriptions-item :label="t('analysis.fields.fixedVersion')">
                 <span style="font-family:var(--font-mono)">{{ stageData[1].fixedVersion || '—' }}</span>
               </el-descriptions-item>
-              <el-descriptions-item label="Artifact" :span="2">
+              <el-descriptions-item :label="t('analysis.fields.artifact')" :span="2">
                 <span style="font-family:var(--font-mono); font-size:13px">
                   {{ stageData[1].artifact?.groupId }}:{{ stageData[1].artifact?.artifactId }}
                 </span>
               </el-descriptions-item>
-              <el-descriptions-item label="Source Repo" :span="2">
+              <el-descriptions-item :label="t('analysis.fields.sourceRepo')" :span="2">
                 <a :href="stageData[1].sourceRepo" target="_blank">{{ stageData[1].sourceRepo }}</a>
               </el-descriptions-item>
-              <el-descriptions-item label="Description" :span="2">
+              <el-descriptions-item :label="t('analysis.fields.description')" :span="2">
                 {{ stageData[1].description }}
               </el-descriptions-item>
             </el-descriptions>
 
             <div v-if="stageData[1].fixCommits?.length" style="margin-top:20px">
-              <div class="jv-section-label">Fix Commits</div>
+              <div class="jv-section-label">{{ t('analysis.fixCommits') }}</div>
               <div v-for="c in stageData[1].fixCommits" :key="c" style="margin-top:4px">
                 <a :href="c" target="_blank" style="font-family:var(--font-mono); font-size:12px">{{ c }}</a>
               </div>
             </div>
           </div>
-          <el-empty v-else description="Intelligence data not available yet" />
+          <el-empty v-else :description="t('analysis.intelligenceUnavailable')" />
         </el-tab-pane>
 
         <!-- Code Analysis -->
-        <el-tab-pane label="Code Analysis" name="analysis">
+        <el-tab-pane :label="t('analysis.tabs.codeAnalysis')" name="analysis">
           <div v-if="stageData[3]?.analyzedFiles?.length">
             <div v-for="(file, fi) in stageData[3].analyzedFiles" :key="fi" class="jv-file-block">
               <div class="jv-file-header">
@@ -205,7 +207,7 @@ const cvssTag = (score: number) => {
               <!-- CWE Matches -->
               <div v-if="file.cweMatches?.length" style="margin-bottom:16px">
                 <div class="jv-section-label" style="margin-bottom:8px">
-                  CWE MATCHES ({{ file.cweMatches.length }})
+                  {{ t('analysis.cweMatches') }} ({{ file.cweMatches.length }})
                 </div>
                 <div v-for="c in file.cweMatches" :key="c.cweId + c.matchedCode" class="jv-cwe-block">
                   <div class="cwe-id">{{ c.cweId }}: {{ c.cweName }}</div>
@@ -224,11 +226,11 @@ const cvssTag = (score: number) => {
                 </div>
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
                   <div>
-                    <div class="jv-code-label-vuln">VULNERABLE</div>
+                    <div class="jv-code-label-vuln">{{ t('analysis.vulnerable') }}</div>
                     <pre class="jv-code-vuln">{{ m.vulnerableCode }}</pre>
                   </div>
                   <div>
-                    <div class="jv-code-label-fixed">FIXED</div>
+                    <div class="jv-code-label-fixed">{{ t('analysis.fixed') }}</div>
                     <pre class="jv-code-fixed">{{ m.fixedCode }}</pre>
                   </div>
                 </div>
@@ -236,51 +238,51 @@ const cvssTag = (score: number) => {
 
               <!-- Call Chain -->
               <div v-if="file.callChain?.length">
-                <div class="jv-section-label" style="margin-bottom:6px">CALL CHAIN</div>
+                <div class="jv-section-label" style="margin-bottom:6px">{{ t('analysis.callChain') }}</div>
                 <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
                   <span v-for="(c, ci) in file.callChain" :key="c" class="jv-chain-item">
                     {{ c }}
-                    <span v-if="ci < file.callChain.length - 1" style="color:var(--text-disabled); margin-left:6px">→</span>
+                    <span v-if="Number(ci) < file.callChain.length - 1" style="color:var(--text-disabled); margin-left:6px">→</span>
                   </span>
                 </div>
               </div>
             </div>
           </div>
-          <el-empty v-else description="Code analysis not available yet" />
+          <el-empty v-else :description="t('analysis.codeAnalysisUnavailable')" />
         </el-tab-pane>
 
         <!-- AI Reasoning -->
-        <el-tab-pane label="AI Reasoning" name="reasoning">
+        <el-tab-pane :label="t('analysis.tabs.aiReasoning')" name="reasoning">
           <div v-if="stageData[4]">
             <pre class="jv-json-view">{{ jsonStr(stageData[4]) }}</pre>
           </div>
           <div v-else style="text-align:center; padding:40px">
             <div v-if="stages.find(s => s.stageNum === 4 && s.status === 'FAILED')"
               style="color:var(--critical)">
-              Stage 4 failed: {{ stages.find(s => s.stageNum === 4)?.errorMsg }}
+              {{ t('analysis.stage4Failed', { error: stages.find(s => s.stageNum === 4)?.errorMsg ?? '' }) }}
               <br/>
-              <el-button style="margin-top:12px" @click="rerun(4)">Retry AI Reasoning</el-button>
+              <el-button style="margin-top:12px" @click="rerun(4)">{{ t('analysis.retryReasoning') }}</el-button>
             </div>
-            <div v-else style="color:var(--text-disabled)">AI reasoning not available yet</div>
+            <div v-else style="color:var(--text-disabled)">{{ t('analysis.reasoningUnavailable') }}</div>
           </div>
         </el-tab-pane>
 
         <!-- Raw Intelligence -->
-        <el-tab-pane label="Intelligence" name="intel">
+        <el-tab-pane :label="t('analysis.tabs.intelligence')" name="intel">
           <pre v-if="stageData[1]" class="jv-json-view">{{ jsonStr(stageData[1]) }}</pre>
-          <el-empty v-else description="Intelligence not available" />
+          <el-empty v-else :description="t('analysis.intelligenceRawUnavailable')" />
         </el-tab-pane>
 
         <!-- Stage Logs -->
-        <el-tab-pane label="Stage Logs" name="logs">
+        <el-tab-pane :label="t('analysis.tabs.stageLogs')" name="logs">
           <el-timeline>
             <el-timeline-item
               v-for="s in stages" :key="s.stageNum"
               :type="s.status === 'COMPLETED' ? 'success' : s.status === 'FAILED' ? 'danger' : 'primary'"
               :timestamp="s.finishedAt?.replace('T', ' ').slice(0, 19) ?? ''">
-              <div style="font-weight:500">Stage {{ s.stageNum }}: {{ s.stageName }}</div>
+              <div style="font-weight:500">{{ t('common.stage') }} {{ s.stageNum }}: {{ s.stageName }}</div>
               <div style="color:var(--text-disabled); font-size:12px; font-family:var(--font-mono)">
-                Started: {{ s.startedAt?.replace('T', ' ').slice(0, 19) ?? '—' }}
+                {{ t('analysis.startedAt') }}: {{ s.startedAt?.replace('T', ' ').slice(0, 19) ?? '—' }}
               </div>
               <div v-if="s.errorMsg" style="color:var(--critical); font-size:12px; margin-top:4px">
                 {{ s.errorMsg }}

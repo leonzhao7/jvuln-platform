@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { useI18n, type Locale } from './i18n'
+
 const router = useRouter()
+const { locale, setLocale, t } = useI18n()
 </script>
 
 <template>
@@ -8,15 +11,24 @@ const router = useRouter()
     <el-header class="jv-header">
       <div class="jv-header-brand" @click="router.push('/')">
         <span class="jv-logo">JVULN</span>
-        <span class="jv-tagline">Java Vulnerability Platform</span>
+        <span class="jv-tagline">{{ t('app.tagline') }}</span>
       </div>
       <div style="flex:1"/>
       <nav class="jv-nav">
-        <span class="jv-nav-link" @click="router.push('/')">Dashboard</span>
+        <span class="jv-nav-link" @click="router.push('/')">{{ t('app.dashboard') }}</span>
         <span class="jv-nav-divider">|</span>
-        <span class="jv-nav-link" @click="router.push('/settings')">Settings</span>
+        <span class="jv-nav-link" @click="router.push('/settings')">{{ t('app.settings') }}</span>
+        <el-select
+          :model-value="locale"
+          size="small"
+          style="width: 106px"
+          @change="setLocale($event as Locale)"
+        >
+          <el-option label="中文" value="zh-CN" />
+          <el-option label="English" value="en-US" />
+        </el-select>
         <el-button type="primary" size="small" @click="router.push('/analysis/new')">
-          + New Analysis
+          {{ t('app.newAnalysis') }}
         </el-button>
       </nav>
     </el-header>

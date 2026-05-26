@@ -2,7 +2,9 @@
 import { ref, onMounted } from 'vue'
 import { api, type LlmConfig } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from '../i18n'
 
+const { t } = useI18n()
 const configs = ref<LlmConfig[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -47,7 +49,7 @@ const loadConfigs = async () => {
   try {
     configs.value = await api.listLlmConfigs()
   } catch {
-    ElMessage.error('Failed to load configurations')
+    ElMessage.error(t('settings.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -81,22 +83,22 @@ const openEdit = (cfg: LlmConfig) => {
 
 const saveForm = async () => {
   if (!form.value.baseUrl || !form.value.model) {
-    ElMessage.error('Base URL and Model are required')
+    ElMessage.error(t('settings.baseUrlAndModelRequired'))
     return
   }
   saving.value = true
   try {
     if (dialogMode.value === 'add') {
       await api.createLlmConfig(form.value)
-      ElMessage.success('Configuration added')
+      ElMessage.success(t('settings.addSuccess'))
     } else {
       await api.updateLlmConfig(editingId.value!, form.value)
-      ElMessage.success('Configuration updated')
+      ElMessage.success(t('settings.updateSuccess'))
     }
     dialogVisible.value = false
     await loadConfigs()
   } catch (e: any) {
-    ElMessage.error(e.response?.data?.error ?? 'Save failed')
+    ElMessage.error(e.response?.data?.error ?? t('settings.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -106,10 +108,10 @@ const activate = async (cfg: LlmConfig) => {
   activatingId.value = cfg.id!
   try {
     await api.activateLlmConfig(cfg.id!)
-    ElMessage.success(`"${cfg.name || cfg.model}" set as active`)
+    ElMessage.success(t('settings.activateSuccess', { name: cfg.name || cfg.model }))
     await loadConfigs()
   } catch {
-    ElMessage.error('Failed to activate')
+    ElMessage.error(t('settings.activateFailed'))
   } finally {
     activatingId.value = null
   }
@@ -131,15 +133,15 @@ const testConfig = async (cfg: LlmConfig) => {
 const deleteConfig = async (cfg: LlmConfig) => {
   try {
     await ElMessageBox.confirm(
-      `Delete "${cfg.name || cfg.model}"?`,
-      'Confirm Delete',
-      { confirmButtonText: 'Delete', cancelButtonText: 'Cancel', type: 'warning' }
+      t('settings.deleteConfirm', { name: cfg.name || cfg.model }),
+      t('settings.confirmDelete'),
+      { confirmButtonText: t('common.delete'), cancelButtonText: t('common.cancel'), type: 'warning' }
     )
     await api.deleteLlmConfig(cfg.id!)
-    ElMessage.success('Deleted')
+    ElMessage.success(t('settings.deleteSuccess'))
     await loadConfigs()
   } catch (e: any) {
-    if (e !== 'cancel') ElMessage.error('Delete failed')
+    if (e !== 'cancel') ElMessage.error(t('settings.deleteFailed'))
   }
 }
 
@@ -157,38 +159,38 @@ const providerLabel = (type: string) => {
 
 <template>
   <div style="max-width:900px; margin:0 auto">
-    <h2 style="margin:0 0 24px; font-family:var(--font-mono); font-size:18px">Settings</h2>
+    <h2 style="margin:0 0 24px; font-family:var(--font-mono); font-size:18px">{{ t('settings.title') }}</h2>
 
     <!-- LLM Configurations -->
     <el-card>
       <template #header>
         <div style="display:flex; align-items:center; justify-content:space-between">
           <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled); letter-spacing:1px">
-            LLM CONFIGURATIONS
+            {{ t('settings.llmConfigurations') }}
           </span>
-          <el-button type="primary" size="small" @click="openAdd">+ Add New</el-button>
+          <el-button type="primary" size="small" @click="openAdd">{{ t('settings.addNew') }}</el-button>
         </div>
       </template>
 
       <el-table :data="configs" v-loading="loading" style="width:100%"
         :row-class-name="(row: any) => row.row.active ? 'active-row' : ''">
 
-        <el-table-column label="Name" min-width="140">
+        <el-table-column :label="t('settings.name')" min-width="140">
           <template #default="{ row }">
             <div style="display:flex; align-items:center; gap:8px">
-              <span>{{ row.name || '(unnamed)' }}</span>
-              <span v-if="row.active" class="jv-tag jv-tag-completed">Active</span>
+              <span>{{ row.name || t('settings.unnamed') }}</span>
+              <span v-if="row.active" class="jv-tag jv-tag-completed">{{ t('common.active') }}</span>
             </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="Provider" width="140">
+        <el-table-column :label="t('settings.provider')" width="140">
           <template #default="{ row }">
             <span class="jv-tag jv-tag-pending">{{ providerLabel(row.providerType) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="Model" min-width="180">
+        <el-table-column :label="t('settings.model')" min-width="180">
           <template #default="{ row }">
             <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-muted)">
               {{ row.model || '—' }}
@@ -196,7 +198,7 @@ const providerLabel = (type: string) => {
           </template>
         </el-table-column>
 
-        <el-table-column label="Base URL" min-width="200">
+        <el-table-column :label="t('settings.baseUrl')" min-width="200">
           <template #default="{ row }">
             <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled)">
               {{ row.baseUrl ? (row.baseUrl.length > 35 ? row.baseUrl.substring(0, 35) + '…' : row.baseUrl) : '—' }}
@@ -209,11 +211,11 @@ const providerLabel = (type: string) => {
             <div style="display:flex; gap:6px; justify-content:flex-end">
               <el-button v-if="!row.active" size="small" type="success"
                 :loading="activatingId === row.id" @click="activate(row)">
-                Activate
+                {{ t('common.activate') }}
               </el-button>
-              <el-button size="small" :loading="testingId === row.id" @click="testConfig(row)">Test</el-button>
-              <el-button size="small" @click="openEdit(row)">Edit</el-button>
-              <el-button size="small" type="danger" plain @click="deleteConfig(row)">Delete</el-button>
+              <el-button size="small" :loading="testingId === row.id" @click="testConfig(row)">{{ t('common.test') }}</el-button>
+              <el-button size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+              <el-button size="small" type="danger" plain @click="deleteConfig(row)">{{ t('common.delete') }}</el-button>
             </div>
           </template>
         </el-table-column>
@@ -225,7 +227,7 @@ const providerLabel = (type: string) => {
           :class="testResults[cfg.id!].ok ? 'jv-test-ok' : 'jv-test-fail'">
           <span class="jv-test-label">
             {{ cfg.name || cfg.model }}:
-            {{ testResults[cfg.id!].ok ? '✓ Connected' : '✗ Failed' }}
+            {{ testResults[cfg.id!].ok ? t('settings.connected') : t('settings.failed') }}
           </span>
           <span v-if="testResults[cfg.id!].ok" style="font-family:var(--font-mono); font-size:12px; color:var(--text-secondary)">
             {{ testResults[cfg.id!].model }} · "{{ testResults[cfg.id!].response }}" · {{ testResults[cfg.id!].tokens }} tokens
@@ -235,49 +237,49 @@ const providerLabel = (type: string) => {
       </div>
 
       <div v-if="configs.length === 0 && !loading" style="text-align:center; color:var(--text-disabled); padding:32px 0; font-size:13px">
-        No configurations yet. Click <b style="color:var(--text-muted)">+ Add New</b> to get started.
+        {{ t('settings.empty') }}
       </div>
     </el-card>
 
     <!-- Add / Edit Dialog -->
     <el-dialog v-model="dialogVisible"
-      :title="dialogMode === 'add' ? 'Add LLM Configuration' : 'Edit LLM Configuration'"
+      :title="dialogMode === 'add' ? t('settings.addTitle') : t('settings.editTitle')"
       width="540px">
 
       <el-form :model="form" label-position="top">
-        <el-form-item label="Config Name (optional)">
-          <el-input v-model="form.name" placeholder="e.g. new-api claude / local ollama" />
+        <el-form-item :label="t('settings.configName')">
+          <el-input v-model="form.name" :placeholder="t('settings.configNamePlaceholder')" />
         </el-form-item>
 
-        <el-form-item label="Provider Type">
+        <el-form-item :label="t('settings.providerType')">
           <el-select v-model="form.providerType" @change="onProviderChange" style="width:100%">
-            <el-option label="OpenAI-Compatible (通用，推荐)" value="openai-compat" />
-            <el-option label="Anthropic (Claude 官方 API)" value="anthropic" />
-            <el-option label="Ollama (本地模型)" value="ollama" />
-            <el-option label="OpenAI (官方)" value="openai" />
-            <el-option label="DeepSeek" value="deepseek" />
+            <el-option :label="t('settings.providerOptions.openaiCompat')" value="openai-compat" />
+            <el-option :label="t('settings.providerOptions.anthropic')" value="anthropic" />
+            <el-option :label="t('settings.providerOptions.ollama')" value="ollama" />
+            <el-option :label="t('settings.providerOptions.openai')" value="openai" />
+            <el-option :label="t('settings.providerOptions.deepseek')" value="deepseek" />
           </el-select>
         </el-form-item>
 
-        <el-form-item label="Base URL">
+        <el-form-item :label="t('settings.baseUrl')">
           <el-input v-model="form.baseUrl" placeholder="http://localhost:3000/v1" />
         </el-form-item>
 
-        <el-form-item label="API Key">
+        <el-form-item :label="t('settings.apiKey')">
           <el-input v-model="form.apiKey" type="password" show-password
-            placeholder="Leave unchanged to keep current key" />
+            :placeholder="t('settings.apiKeyPlaceholder')" />
         </el-form-item>
 
-        <el-form-item :label="'Model' + (modelHint ? ' — ' + modelHint : '')">
-          <el-input v-model="form.model" placeholder="model name" />
+        <el-form-item :label="t('settings.model') + (modelHint ? ' — ' + modelHint : '')">
+          <el-input v-model="form.model" :placeholder="t('settings.modelPlaceholder')" />
         </el-form-item>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
-          <el-form-item label="Temperature">
+          <el-form-item :label="t('settings.temperature')">
             <el-input-number v-model="form.temperature" :min="0" :max="2" :step="0.05" :precision="2"
               style="width:100%" />
           </el-form-item>
-          <el-form-item label="Max Tokens">
+          <el-form-item :label="t('settings.maxTokens')">
             <el-input-number v-model="form.maxTokens" :min="512" :max="128000" :step="1024"
               style="width:100%" />
           </el-form-item>
@@ -286,8 +288,8 @@ const providerLabel = (type: string) => {
 
       <template #footer>
         <div style="display:flex; gap:12px; justify-content:flex-end">
-          <el-button @click="dialogVisible = false">Cancel</el-button>
-          <el-button type="primary" :loading="saving" @click="saveForm">Save</el-button>
+          <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
+          <el-button type="primary" :loading="saving" @click="saveForm">{{ t('common.save') }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -296,29 +298,29 @@ const providerLabel = (type: string) => {
     <el-card style="margin-top:20px">
       <template #header>
         <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled); letter-spacing:1px">
-          QUICK REFERENCE
+          {{ t('settings.quickReference') }}
         </span>
       </template>
       <div class="jv-ref-table">
         <div class="jv-ref-row">
-          <span class="jv-ref-label">Anthropic (Claude 官方)</span>
-          <span class="jv-ref-val">Base URL: <code>https://api.anthropic.com</code> · Model: <code>claude-sonnet-4-6</code></span>
+          <span class="jv-ref-label">{{ t('settings.refs.anthropicLabel') }}</span>
+          <span class="jv-ref-val">{{ t('settings.refs.anthropicText', { baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-6' }) }}</span>
         </div>
         <div class="jv-ref-row">
-          <span class="jv-ref-label">Ollama (本地)</span>
-          <span class="jv-ref-val">先运行 <code>ollama serve</code> · Base URL: <code>http://localhost:11434/v1</code> · API Key 留空</span>
+          <span class="jv-ref-label">{{ t('settings.refs.ollamaLabel') }}</span>
+          <span class="jv-ref-val">{{ t('settings.refs.ollamaText', { command: 'ollama serve', baseUrl: 'http://localhost:11434/v1' }) }}</span>
         </div>
         <div class="jv-ref-row">
-          <span class="jv-ref-label">new-api / one-api 中转</span>
-          <span class="jv-ref-val">Base URL 填中转地址，API Key 填中转 Token，Model 填目标模型名</span>
+          <span class="jv-ref-label">{{ t('settings.refs.proxyLabel') }}</span>
+          <span class="jv-ref-val">{{ t('settings.refs.proxyText') }}</span>
         </div>
         <div class="jv-ref-row">
-          <span class="jv-ref-label">DeepSeek API</span>
-          <span class="jv-ref-val">Base URL: <code>https://api.deepseek.com/v1</code> · Model: <code>deepseek-chat</code></span>
+          <span class="jv-ref-label">{{ t('settings.refs.deepseekLabel') }}</span>
+          <span class="jv-ref-val">{{ t('settings.refs.deepseekText', { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }) }}</span>
         </div>
         <div class="jv-ref-row" style="border-bottom:none">
-          <span class="jv-ref-label">Active 配置</span>
-          <span class="jv-ref-val">将被 Pipeline AI 阶段使用；未激活的配置可用 Test 验证连通性</span>
+          <span class="jv-ref-label">{{ t('settings.refs.activeLabel') }}</span>
+          <span class="jv-ref-val">{{ t('settings.refs.activeText') }}</span>
         </div>
       </div>
     </el-card>

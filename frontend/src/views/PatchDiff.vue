@@ -4,10 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 import { ElMessage } from 'element-plus'
 import { html as diff2htmlHtml } from 'diff2html'
+import { ColorSchemeType } from 'diff2html/lib/types'
+import { useI18n } from '../i18n'
 import 'diff2html/bundles/css/diff2html.min.css'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const cveId = route.params.cveId as string
 
 const diffContent = ref('')
@@ -22,7 +25,7 @@ const render = () => {
     matching: 'lines',
     outputFormat: viewType.value,
     renderNothingWhenEmpty: false,
-    colorScheme: 'dark',
+    colorScheme: ColorSchemeType.DARK,
   })
 }
 
@@ -32,7 +35,7 @@ onMounted(async () => {
     diffContent.value = data.diff
     render()
   } catch {
-    ElMessage.error('Failed to load diff')
+    ElMessage.error(t('diff.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -53,17 +56,17 @@ const fileCount = computed(() => {
   <div>
     <div class="jv-diff-header">
       <div class="jv-diff-header-left">
-        <span class="jv-back-btn" @click="router.push(`/analysis/${cveId}`)">← Back</span>
+        <span class="jv-back-btn" @click="router.push(`/analysis/${cveId}`)">{{ t('common.back') }}</span>
         <h2 style="margin:0; font-family:var(--font-mono); font-size:18px">
           {{ cveId }}
         </h2>
-        <span class="jv-tag jv-tag-pending">PATCH DIFF</span>
+        <span class="jv-tag jv-tag-pending">{{ t('diff.patchDiff') }}</span>
         <span v-if="fileCount" style="font-family:var(--font-mono); font-size:12px; color:var(--text-disabled)">
-          {{ fileCount }} file{{ fileCount > 1 ? 's' : '' }}
+          {{ t('diff.fileCount', { count: fileCount }) }}
         </span>
       </div>
       <el-button size="small" @click="toggleView">
-        {{ viewType === 'side-by-side' ? 'Unified View' : 'Side-by-Side' }}
+        {{ viewType === 'side-by-side' ? t('diff.unifiedView') : t('diff.sideBySide') }}
       </el-button>
     </div>
 
@@ -71,7 +74,7 @@ const fileCount = computed(() => {
 
     <div v-else-if="diffHtml" class="diff-wrapper d2h-dark-color-scheme" v-html="diffHtml" />
 
-    <el-empty v-else description="No diff available for this CVE" />
+    <el-empty v-else :description="t('diff.empty')" />
   </div>
 </template>
 

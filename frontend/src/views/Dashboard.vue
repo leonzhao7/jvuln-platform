@@ -2,8 +2,10 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, type CveTask } from '../api'
+import { useI18n } from '../i18n'
 
 const router = useRouter()
+const { t } = useI18n()
 const tasks = ref<CveTask[]>([])
 const loading = ref(false)
 
@@ -47,9 +49,9 @@ const stats = computed(() => ({
     <!-- Page header -->
     <div class="jv-page-header">
       <div>
-        <h2 style="margin:0 0 4px">CVE Analysis Tasks</h2>
+        <h2 style="margin:0 0 4px">{{ t('dashboard.title') }}</h2>
         <p style="color:var(--text-muted); font-size:13px; margin:0">
-          {{ stats.total }} total · {{ stats.done }} completed · {{ stats.running }} running
+          {{ t('dashboard.summary', { total: stats.total, done: stats.done, running: stats.running }) }}
         </p>
       </div>
     </div>
@@ -57,19 +59,19 @@ const stats = computed(() => ({
     <!-- Stat cards -->
     <div class="jv-stats-row">
       <div class="jv-stat-card">
-        <div class="jv-stat-label">TOTAL</div>
+        <div class="jv-stat-label">{{ t('dashboard.total') }}</div>
         <div class="jv-stat-value">{{ stats.total }}</div>
       </div>
       <div class="jv-stat-card jv-stat-critical">
-        <div class="jv-stat-label">CRITICAL (9+)</div>
+        <div class="jv-stat-label">{{ t('dashboard.critical') }}</div>
         <div class="jv-stat-value" style="color:var(--critical)">{{ stats.critical }}</div>
       </div>
       <div class="jv-stat-card jv-stat-running">
-        <div class="jv-stat-label">RUNNING</div>
+        <div class="jv-stat-label">{{ t('dashboard.running') }}</div>
         <div class="jv-stat-value" style="color:var(--medium)">{{ stats.running }}</div>
       </div>
       <div class="jv-stat-card jv-stat-done">
-        <div class="jv-stat-label">COMPLETED</div>
+        <div class="jv-stat-label">{{ t('dashboard.completed') }}</div>
         <div class="jv-stat-value" style="color:var(--success)">{{ stats.done }}</div>
       </div>
     </div>
@@ -77,7 +79,7 @@ const stats = computed(() => ({
     <!-- Table -->
     <el-table :data="tasks" v-loading="loading" style="width:100%">
 
-      <el-table-column prop="cveId" label="CVE ID" width="180">
+      <el-table-column prop="cveId" :label="t('dashboard.cveId')" width="180">
         <template #default="{ row }">
           <span class="jv-cve-link" @click="router.push(`/analysis/${row.cveId}`)">
             {{ row.cveId }}
@@ -85,13 +87,13 @@ const stats = computed(() => ({
         </template>
       </el-table-column>
 
-      <el-table-column label="Status" width="130">
+      <el-table-column :label="t('common.status')" width="130">
         <template #default="{ row }">
-          <span :class="statusClass(row.status)">{{ row.status }}</span>
+          <span :class="statusClass(row.status)">{{ t(`status.${row.status}`) }}</span>
         </template>
       </el-table-column>
 
-      <el-table-column label="Stage" width="80">
+      <el-table-column :label="t('common.stage')" width="80">
         <template #default="{ row }">
           <span style="font-family:var(--font-mono); color:var(--text-muted); font-size:13px">
             {{ row.currentStage }}/5
@@ -99,7 +101,7 @@ const stats = computed(() => ({
         </template>
       </el-table-column>
 
-      <el-table-column label="CVSS" width="110">
+      <el-table-column :label="t('dashboard.cvss')" width="110">
         <template #default="{ row }">
           <span v-if="row.cvssScore" :class="cvssClass(row.cvssScore)">
             {{ row.cvssScore }}
@@ -108,7 +110,7 @@ const stats = computed(() => ({
         </template>
       </el-table-column>
 
-      <el-table-column prop="cweId" label="CWE" width="100">
+      <el-table-column prop="cweId" :label="t('dashboard.cwe')" width="100">
         <template #default="{ row }">
           <span style="font-family:var(--font-mono); color:var(--text-muted); font-size:12px">
             {{ row.cweId || '—' }}
@@ -116,7 +118,7 @@ const stats = computed(() => ({
         </template>
       </el-table-column>
 
-      <el-table-column label="Artifact">
+      <el-table-column :label="t('dashboard.artifact')">
         <template #default="{ row }">
           <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-secondary)">
             {{ row.artifact ?? '—' }}
@@ -124,7 +126,7 @@ const stats = computed(() => ({
         </template>
       </el-table-column>
 
-      <el-table-column label="Updated" width="170">
+      <el-table-column :label="t('dashboard.updated')" width="170">
         <template #default="{ row }">
           <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled)">
             {{ row.updatedAt?.replace('T', ' ').slice(0, 19) }}
@@ -132,12 +134,17 @@ const stats = computed(() => ({
         </template>
       </el-table-column>
 
-      <el-table-column label="" width="110" align="right">
+      <el-table-column label="" width="120" align="right">
         <template #default="{ row }">
-          <el-button size="small" @click="router.push(`/analysis/${row.cveId}`)">View</el-button>
-          <el-popconfirm title="Delete this task?" @confirm="deleteTask(row.cveId)">
+          <el-button size="small" @click="router.push(`/analysis/${row.cveId}`)">{{ t('common.view') }}</el-button>
+          <el-popconfirm
+            :title="t('dashboard.deleteConfirm')"
+            :confirm-button-text="t('common.delete')"
+            :cancel-button-text="t('common.cancel')"
+            @confirm="deleteTask(row.cveId)"
+          >
             <template #reference>
-              <el-button size="small" type="danger">Del</el-button>
+              <el-button size="small" type="danger">{{ t('common.delete') }}</el-button>
             </template>
           </el-popconfirm>
         </template>
@@ -146,9 +153,9 @@ const stats = computed(() => ({
 
     <div v-if="!loading && tasks.length === 0" class="jv-empty">
       <div style="font-size:32px; margin-bottom:12px">⬡</div>
-      <div style="color:var(--text-muted); font-size:14px">No analyses yet.</div>
+      <div style="color:var(--text-muted); font-size:14px">{{ t('dashboard.empty') }}</div>
       <el-button type="primary" style="margin-top:16px" @click="router.push('/analysis/new')">
-        Start First Analysis
+        {{ t('dashboard.startFirst') }}
       </el-button>
     </div>
   </div>
