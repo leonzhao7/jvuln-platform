@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, type CveTask } from '../api'
 
@@ -15,67 +15,124 @@ const load = async () => {
 
 onMounted(load)
 
-const statusTag = (s: string) => {
-  const map: Record<string, string> = {
-    PENDING: 'info', RUNNING: 'warning', COMPLETED: 'success', FAILED: 'danger'
-  }
-  return map[s] ?? 'info'
-}
-
 const deleteTask = async (cveId: string) => {
   await api.deleteTask(cveId)
   await load()
 }
+
+const cvssClass = (score: number) => {
+  if (score >= 9)   return 'jv-tag jv-tag-critical'
+  if (score >= 7)   return 'jv-tag jv-tag-high'
+  if (score >= 4)   return 'jv-tag jv-tag-medium'
+  return 'jv-tag jv-tag-low'
+}
+
+const statusClass = (s: string) => ({
+  COMPLETED: 'jv-tag jv-tag-completed',
+  RUNNING:   'jv-tag jv-tag-running',
+  FAILED:    'jv-tag jv-tag-failed',
+  PENDING:   'jv-tag jv-tag-pending',
+}[s] ?? 'jv-tag jv-tag-pending')
+
+const stats = computed(() => ({
+  total:    tasks.value.length,
+  critical: tasks.value.filter(t => (t.cvssScore ?? 0) >= 9).length,
+  running:  tasks.value.filter(t => t.status === 'RUNNING').length,
+  done:     tasks.value.filter(t => t.status === 'COMPLETED').length,
+}))
 </script>
 
 <template>
   <div>
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
-      <h2 style="color:#e2e8f0">CVE Analysis Tasks</h2>
-      <el-button type="primary" @click="router.push('/analysis/new')">+ New Analysis</el-button>
+    <!-- Page header -->
+    <div class="jv-page-header">
+      <div>
+        <h2 style="margin:0 0 4px">CVE Analysis Tasks</h2>
+        <p style="color:var(--text-muted); font-size:13px; margin:0">
+          {{ stats.total }} total · {{ stats.done }} completed · {{ stats.running }} running
+        </p>
+      </div>
     </div>
 
-    <el-table :data="tasks" v-loading="loading"
-      style="background:#1e1e3a; border-radius:8px"
-      :header-cell-style="{ background:'#2a2a4a', color:'#94a3b8' }"
-      :cell-style="{ background:'#1e1e3a', color:'#e2e8f0' }">
+    <!-- Stat cards -->
+    <div class="jv-stats-row">
+      <div class="jv-stat-card">
+        <div class="jv-stat-label">TOTAL</div>
+        <div class="jv-stat-value">{{ stats.total }}</div>
+      </div>
+      <div class="jv-stat-card jv-stat-critical">
+        <div class="jv-stat-label">CRITICAL (9+)</div>
+        <div class="jv-stat-value" style="color:var(--critical)">{{ stats.critical }}</div>
+      </div>
+      <div class="jv-stat-card jv-stat-running">
+        <div class="jv-stat-label">RUNNING</div>
+        <div class="jv-stat-value" style="color:var(--medium)">{{ stats.running }}</div>
+      </div>
+      <div class="jv-stat-card jv-stat-done">
+        <div class="jv-stat-label">COMPLETED</div>
+        <div class="jv-stat-value" style="color:var(--success)">{{ stats.done }}</div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <el-table :data="tasks" v-loading="loading" style="width:100%">
 
       <el-table-column prop="cveId" label="CVE ID" width="180">
         <template #default="{ row }">
-          <el-link @click="router.push(`/analysis/${row.cveId}`)" style="color:#60a5fa">
+          <span class="jv-cve-link" @click="router.push(`/analysis/${row.cveId}`)">
             {{ row.cveId }}
-          </el-link>
+          </span>
         </template>
       </el-table-column>
 
-      <el-table-column label="Status" width="120">
+      <el-table-column label="Status" width="130">
         <template #default="{ row }">
-          <el-tag :type="statusTag(row.status)" size="small">{{ row.status }}</el-tag>
+          <span :class="statusClass(row.status)">{{ row.status }}</span>
         </template>
       </el-table-column>
 
-      <el-table-column label="Stage" width="100">
+      <el-table-column label="Stage" width="80">
         <template #default="{ row }">
-          <span>{{ row.currentStage }}/5</span>
+          <span style="font-family:var(--font-mono); color:var(--text-muted); font-size:13px">
+            {{ row.currentStage }}/5
+          </span>
         </template>
       </el-table-column>
 
-      <el-table-column prop="cvssScore" label="CVSS" width="80"/>
-      <el-table-column prop="cweId" label="CWE" width="100"/>
+      <el-table-column label="CVSS" width="110">
+        <template #default="{ row }">
+          <span v-if="row.cvssScore" :class="cvssClass(row.cvssScore)">
+            {{ row.cvssScore }}
+          </span>
+          <span v-else style="color:var(--text-disabled)">—</span>
+        </template>
+      </el-table-column>
+
+      <el-table-column prop="cweId" label="CWE" width="100">
+        <template #default="{ row }">
+          <span style="font-family:var(--font-mono); color:var(--text-muted); font-size:12px">
+            {{ row.cweId || '—' }}
+          </span>
+        </template>
+      </el-table-column>
 
       <el-table-column label="Artifact">
         <template #default="{ row }">
-          <span style="font-size:12px; color:#94a3b8">{{ row.artifact ?? '-' }}</span>
+          <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-secondary)">
+            {{ row.artifact ?? '—' }}
+          </span>
         </template>
       </el-table-column>
 
-      <el-table-column label="Updated" width="180">
+      <el-table-column label="Updated" width="170">
         <template #default="{ row }">
-          <span style="font-size:12px; color:#64748b">{{ row.updatedAt?.replace('T', ' ').slice(0, 19) }}</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled)">
+            {{ row.updatedAt?.replace('T', ' ').slice(0, 19) }}
+          </span>
         </template>
       </el-table-column>
 
-      <el-table-column label="Actions" width="120">
+      <el-table-column label="" width="110" align="right">
         <template #default="{ row }">
           <el-button size="small" @click="router.push(`/analysis/${row.cveId}`)">View</el-button>
           <el-popconfirm title="Delete this task?" @confirm="deleteTask(row.cveId)">
@@ -87,6 +144,61 @@ const deleteTask = async (cveId: string) => {
       </el-table-column>
     </el-table>
 
-    <el-empty v-if="!loading && tasks.length === 0" description="No analyses yet. Start one!" />
+    <div v-if="!loading && tasks.length === 0" class="jv-empty">
+      <div style="font-size:32px; margin-bottom:12px">⬡</div>
+      <div style="color:var(--text-muted); font-size:14px">No analyses yet.</div>
+      <el-button type="primary" style="margin-top:16px" @click="router.push('/analysis/new')">
+        Start First Analysis
+      </el-button>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.jv-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+}
+.jv-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  margin-bottom: 24px;
+  background: var(--border-subtle);
+  border: 1px solid var(--border-subtle);
+}
+.jv-stat-card {
+  background: var(--bg-surface);
+  padding: 16px 20px;
+}
+.jv-stat-critical { border-top: 2px solid var(--critical); }
+.jv-stat-running  { border-top: 2px solid var(--medium); }
+.jv-stat-done     { border-top: 2px solid var(--success); }
+.jv-stat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.jv-stat-value {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 300;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.jv-cve-link {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent-light);
+  cursor: pointer;
+}
+.jv-cve-link:hover { color: var(--accent); text-decoration: underline; }
+.jv-empty {
+  text-align: center;
+  padding: 60px 0;
+}
+</style>

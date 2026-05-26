@@ -29,24 +29,27 @@ const submit = async () => {
 
 <template>
   <div style="max-width:520px; margin:60px auto">
-    <el-card style="background:#1e1e3a; border:1px solid #2a2a4a">
+    <el-card>
       <template #header>
-        <h3 style="color:#e2e8f0">New CVE Analysis</h3>
+        <div class="jv-new-header">
+          <span style="font-family:var(--font-mono); font-size:13px; color:var(--text-disabled); letter-spacing:1px">
+            NEW ANALYSIS
+          </span>
+        </div>
       </template>
 
       <el-form @submit.prevent="submit" label-position="top">
-        <el-form-item label="CVE ID" style="--el-text-color-regular:#94a3b8">
+        <el-form-item label="CVE ID">
           <el-input
             v-model="cveId"
             placeholder="CVE-2025-24813"
             size="large"
             clearable
             @keyup.enter="submit"
-            style="--el-input-bg-color:#0f0f23; --el-input-text-color:#e2e8f0"
           />
         </el-form-item>
 
-        <p style="color:#64748b; font-size:13px; margin-bottom:16px">
+        <p style="color:var(--text-disabled); font-size:12px; margin-bottom:20px; line-height:1.8; font-family:var(--font-mono)">
           The pipeline will collect CVE intelligence, locate the fix commit,
           analyze the vulnerable code, and generate educational artifacts.
         </p>

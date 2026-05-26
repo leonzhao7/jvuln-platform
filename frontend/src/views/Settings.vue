@@ -157,62 +157,61 @@ const providerLabel = (type: string) => {
 
 <template>
   <div style="max-width:900px; margin:0 auto">
-    <h2 style="color:#e2e8f0; margin-bottom:24px">Settings</h2>
+    <h2 style="margin:0 0 24px; font-family:var(--font-mono); font-size:18px">Settings</h2>
 
     <!-- LLM Configurations -->
-    <el-card style="background:#1e1e3a; border:1px solid #2a2a4a">
+    <el-card>
       <template #header>
         <div style="display:flex; align-items:center; justify-content:space-between">
-          <span style="color:#e2e8f0; font-weight:600">LLM Configurations</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled); letter-spacing:1px">
+            LLM CONFIGURATIONS
+          </span>
           <el-button type="primary" size="small" @click="openAdd">+ Add New</el-button>
         </div>
       </template>
 
-      <el-table :data="configs" v-loading="loading"
-        style="--el-table-bg-color:#1e1e3a; --el-table-header-bg-color:#16163a; --el-table-tr-bg-color:#1e1e3a;
-               --el-table-row-hover-bg-color:#252550; --el-text-color-primary:#e2e8f0; --el-table-border-color:#2a2a4a"
+      <el-table :data="configs" v-loading="loading" style="width:100%"
         :row-class-name="(row: any) => row.row.active ? 'active-row' : ''">
 
         <el-table-column label="Name" min-width="140">
           <template #default="{ row }">
             <div style="display:flex; align-items:center; gap:8px">
-              <span style="color:#e2e8f0">{{ row.name || '(unnamed)' }}</span>
-              <el-tag v-if="row.active" type="success" size="small" effect="dark">Active</el-tag>
+              <span>{{ row.name || '(unnamed)' }}</span>
+              <span v-if="row.active" class="jv-tag jv-tag-completed">Active</span>
             </div>
           </template>
         </el-table-column>
 
         <el-table-column label="Provider" width="140">
           <template #default="{ row }">
-            <el-tag size="small" effect="plain" style="color:#94a3b8; border-color:#2a2a4a">
-              {{ providerLabel(row.providerType) }}
-            </el-tag>
+            <span class="jv-tag jv-tag-pending">{{ providerLabel(row.providerType) }}</span>
           </template>
         </el-table-column>
 
         <el-table-column label="Model" min-width="180">
           <template #default="{ row }">
-            <span style="color:#94a3b8; font-family:monospace; font-size:13px">{{ row.model || '—' }}</span>
+            <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-muted)">
+              {{ row.model || '—' }}
+            </span>
           </template>
         </el-table-column>
 
         <el-table-column label="Base URL" min-width="200">
           <template #default="{ row }">
-            <span style="color:#64748b; font-size:12px; font-family:monospace">
+            <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled)">
               {{ row.baseUrl ? (row.baseUrl.length > 35 ? row.baseUrl.substring(0, 35) + '…' : row.baseUrl) : '—' }}
             </span>
           </template>
         </el-table-column>
 
-        <el-table-column label="Actions" width="280" align="right">
+        <el-table-column label="" width="280" align="right">
           <template #default="{ row }">
             <div style="display:flex; gap:6px; justify-content:flex-end">
               <el-button v-if="!row.active" size="small" type="success"
                 :loading="activatingId === row.id" @click="activate(row)">
                 Activate
               </el-button>
-              <el-button size="small" :loading="testingId === row.id"
-                @click="testConfig(row)">Test</el-button>
+              <el-button size="small" :loading="testingId === row.id" @click="testConfig(row)">Test</el-button>
               <el-button size="small" @click="openEdit(row)">Edit</el-button>
               <el-button size="small" type="danger" plain @click="deleteConfig(row)">Delete</el-button>
             </div>
@@ -222,42 +221,32 @@ const providerLabel = (type: string) => {
 
       <!-- Test results inline below table -->
       <div v-for="cfg in configs" :key="'tr-' + cfg.id">
-        <div v-if="testResults[cfg.id!]" style="margin:8px 0 4px; padding:10px 12px; border-radius:6px"
-          :style="testResults[cfg.id!].ok
-            ? 'background:#052e16; border:1px solid #166534'
-            : 'background:#2d1a1a; border:1px solid #7f1d1d'">
-          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
-            <span style="font-weight:600; font-size:13px"
-              :style="testResults[cfg.id!].ok ? 'color:#4ade80' : 'color:#f87171'">
-              {{ cfg.name || cfg.model }}:
-              {{ testResults[cfg.id!].ok ? '✓ Connected' : '✗ Failed' }}
-            </span>
-            <span v-if="testResults[cfg.id!].ok" style="color:#86efac; font-size:12px; font-family:monospace">
-              {{ testResults[cfg.id!].model }} · "{{ testResults[cfg.id!].response }}" · {{ testResults[cfg.id!].tokens }} tokens
-            </span>
-            <span v-else style="color:#fca5a5; font-size:12px">{{ testResults[cfg.id!].error }}</span>
-          </div>
+        <div v-if="testResults[cfg.id!]" class="jv-test-result"
+          :class="testResults[cfg.id!].ok ? 'jv-test-ok' : 'jv-test-fail'">
+          <span class="jv-test-label">
+            {{ cfg.name || cfg.model }}:
+            {{ testResults[cfg.id!].ok ? '✓ Connected' : '✗ Failed' }}
+          </span>
+          <span v-if="testResults[cfg.id!].ok" style="font-family:var(--font-mono); font-size:12px; color:var(--text-secondary)">
+            {{ testResults[cfg.id!].model }} · "{{ testResults[cfg.id!].response }}" · {{ testResults[cfg.id!].tokens }} tokens
+          </span>
+          <span v-else style="font-size:12px; color:var(--critical)">{{ testResults[cfg.id!].error }}</span>
         </div>
       </div>
 
-      <div v-if="configs.length === 0 && !loading"
-        style="text-align:center; color:#475569; padding:32px 0; font-size:14px">
-        No configurations yet. Click <b>+ Add New</b> to get started.
+      <div v-if="configs.length === 0 && !loading" style="text-align:center; color:var(--text-disabled); padding:32px 0; font-size:13px">
+        No configurations yet. Click <b style="color:var(--text-muted)">+ Add New</b> to get started.
       </div>
     </el-card>
 
     <!-- Add / Edit Dialog -->
     <el-dialog v-model="dialogVisible"
       :title="dialogMode === 'add' ? 'Add LLM Configuration' : 'Edit LLM Configuration'"
-      width="540px"
-      style="--el-dialog-bg-color:#1e1e3a; --el-dialog-title-font-size:16px; --el-text-color-primary:#e2e8f0">
+      width="540px">
 
-      <el-form :model="form" label-position="top"
-        style="--el-text-color-regular:#94a3b8; --el-form-label-font-size:13px">
-
+      <el-form :model="form" label-position="top">
         <el-form-item label="Config Name (optional)">
-          <el-input v-model="form.name" placeholder="e.g. new-api claude / local ollama"
-            style="--el-input-bg-color:#0f0f23; --el-input-text-color:#e2e8f0; --el-input-placeholder-color:#475569" />
+          <el-input v-model="form.name" placeholder="e.g. new-api claude / local ollama" />
         </el-form-item>
 
         <el-form-item label="Provider Type">
@@ -271,19 +260,16 @@ const providerLabel = (type: string) => {
         </el-form-item>
 
         <el-form-item label="Base URL">
-          <el-input v-model="form.baseUrl" placeholder="http://localhost:3000/v1"
-            style="--el-input-bg-color:#0f0f23; --el-input-text-color:#e2e8f0; --el-input-placeholder-color:#475569" />
+          <el-input v-model="form.baseUrl" placeholder="http://localhost:3000/v1" />
         </el-form-item>
 
         <el-form-item label="API Key">
           <el-input v-model="form.apiKey" type="password" show-password
-            placeholder="Leave unchanged to keep current key"
-            style="--el-input-bg-color:#0f0f23; --el-input-text-color:#e2e8f0; --el-input-placeholder-color:#475569" />
+            placeholder="Leave unchanged to keep current key" />
         </el-form-item>
 
         <el-form-item :label="'Model' + (modelHint ? ' — ' + modelHint : '')">
-          <el-input v-model="form.model" placeholder="model name"
-            style="--el-input-bg-color:#0f0f23; --el-input-text-color:#e2e8f0; --el-input-placeholder-color:#475569" />
+          <el-input v-model="form.model" placeholder="model name" />
         </el-form-item>
 
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
@@ -307,16 +293,33 @@ const providerLabel = (type: string) => {
     </el-dialog>
 
     <!-- Quick Reference -->
-    <el-card style="background:#1e1e3a; border:1px solid #2a2a4a; margin-top:20px">
+    <el-card style="margin-top:20px">
       <template #header>
-        <span style="color:#94a3b8; font-size:13px">Quick Reference</span>
+        <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled); letter-spacing:1px">
+          QUICK REFERENCE
+        </span>
       </template>
-      <div style="font-size:12px; color:#64748b; line-height:2">
-        <div><b style="color:#94a3b8">Anthropic (Claude 官方)：</b>Base URL 填 <code>https://api.anthropic.com</code>，API Key 填 <code>sk-ant-...</code>，Model 填 <code>claude-sonnet-4-6</code></div>
-        <div><b style="color:#94a3b8">Ollama (本地)：</b>先运行 <code style="color:#60a5fa">ollama serve</code>，Base URL 填 <code>http://localhost:11434/v1</code>，API Key 留空</div>
-        <div><b style="color:#94a3b8">new-api / one-api 中转：</b>Base URL 填中转地址，API Key 填中转 Token，Model 填目标模型名</div>
-        <div><b style="color:#94a3b8">DeepSeek API：</b>Base URL 填 <code>https://api.deepseek.com/v1</code>，Model 填 <code>deepseek-chat</code></div>
-        <div><b style="color:#94a3b8">Active 配置</b>将被 Pipeline AI 阶段使用；未激活的配置可用 Test 验证连通性</div>
+      <div class="jv-ref-table">
+        <div class="jv-ref-row">
+          <span class="jv-ref-label">Anthropic (Claude 官方)</span>
+          <span class="jv-ref-val">Base URL: <code>https://api.anthropic.com</code> · Model: <code>claude-sonnet-4-6</code></span>
+        </div>
+        <div class="jv-ref-row">
+          <span class="jv-ref-label">Ollama (本地)</span>
+          <span class="jv-ref-val">先运行 <code>ollama serve</code> · Base URL: <code>http://localhost:11434/v1</code> · API Key 留空</span>
+        </div>
+        <div class="jv-ref-row">
+          <span class="jv-ref-label">new-api / one-api 中转</span>
+          <span class="jv-ref-val">Base URL 填中转地址，API Key 填中转 Token，Model 填目标模型名</span>
+        </div>
+        <div class="jv-ref-row">
+          <span class="jv-ref-label">DeepSeek API</span>
+          <span class="jv-ref-val">Base URL: <code>https://api.deepseek.com/v1</code> · Model: <code>deepseek-chat</code></span>
+        </div>
+        <div class="jv-ref-row" style="border-bottom:none">
+          <span class="jv-ref-label">Active 配置</span>
+          <span class="jv-ref-val">将被 Pipeline AI 阶段使用；未激活的配置可用 Test 验证连通性</span>
+        </div>
       </div>
     </el-card>
   </div>
@@ -324,6 +327,50 @@ const providerLabel = (type: string) => {
 
 <style scoped>
 :deep(.active-row td) {
-  background: #0f2a1a !important;
+  background: #1c3a29 !important;
+}
+
+.jv-test-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border-left: 3px solid;
+}
+.jv-test-ok   { background: rgba(66,190,101,.08); border-color: var(--success); }
+.jv-test-fail { background: rgba(250,77,86,.08);  border-color: var(--critical); }
+.jv-test-label {
+  font-weight: 600;
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+.jv-test-ok   .jv-test-label { color: var(--success); }
+.jv-test-fail .jv-test-label { color: var(--critical); }
+
+.jv-ref-table { font-size: 12px; }
+.jv-ref-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  align-items: start;
+}
+.jv-ref-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding-top: 1px;
+}
+.jv-ref-val { color: var(--text-disabled); line-height: 1.8; }
+.jv-ref-val code {
+  color: var(--accent-light);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: rgba(15,98,254,.1);
+  padding: 1px 5px;
 }
 </style>

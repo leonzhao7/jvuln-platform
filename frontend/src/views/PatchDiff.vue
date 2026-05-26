@@ -45,9 +45,11 @@ const toggleView = () => {
 
 <template>
   <div>
-    <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px">
-      <el-button text @click="router.push(`/analysis/${cveId}`)">← Back</el-button>
-      <h2 style="color:#e2e8f0">{{ cveId }} — Patch Diff</h2>
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:24px">
+      <span class="jv-back-btn" @click="router.push(`/analysis/${cveId}`)">← Back</span>
+      <h2 style="margin:0; font-family:var(--font-mono); font-size:18px">
+        {{ cveId }} — Patch Diff
+      </h2>
       <div style="flex:1"/>
       <el-button size="small" @click="toggleView">
         {{ viewType === 'side-by-side' ? 'Unified View' : 'Side-by-Side' }}
@@ -63,52 +65,71 @@ const toggleView = () => {
 </template>
 
 <style>
+.jv-back-btn {
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+}
+.jv-back-btn:hover { color: var(--text-primary); }
+
 .diff-wrapper {
-  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
   overflow: hidden;
   font-size: 12px;
 }
 .diff-wrapper .d2h-wrapper {
-  background: #1e1e3a;
+  background: var(--bg-surface);
 }
 .diff-wrapper .d2h-file-header {
-  background: #2a2a4a;
-  color: #94a3b8;
-  border-bottom: 1px solid #3a3a5a;
+  background: var(--bg-base);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 .diff-wrapper .d2h-code-line,
 .diff-wrapper .d2h-code-side-line {
-  background: #0f0f23;
-  color: #e2e8f0;
+  background: var(--bg-code);
+  color: var(--text-secondary);
 }
 .diff-wrapper .d2h-del {
-  background: #2d0000 !important;
-  color: #fca5a5 !important;
+  background: #2a0000 !important;
+  color: #ffb3b8 !important;
 }
 .diff-wrapper .d2h-ins {
-  background: #002d00 !important;
-  color: #86efac !important;
+  background: #001a0a !important;
+  color: #a7f0ba !important;
 }
 .diff-wrapper .d2h-cntx {
-  background: #0f0f23 !important;
-  color: #64748b !important;
+  background: var(--bg-code) !important;
+  color: var(--text-disabled) !important;
 }
 .diff-wrapper .d2h-info {
-  background: #1e293b;
-  color: #60a5fa;
+  background: var(--bg-base);
+  color: var(--accent-light);
+  font-family: var(--font-mono);
 }
 .diff-wrapper .d2h-file-list-wrapper {
-  background: #1e1e3a;
-  border: 1px solid #2a2a4a;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .diff-wrapper .d2h-file-list-line {
-  color: #94a3b8;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 .diff-wrapper .d2h-tag {
-  background: #2a2a4a;
-  color: #94a3b8;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border-radius: 0;
 }
 .diff-wrapper td, .diff-wrapper th {
-  border-color: #2a2a4a !important;
+  border-color: var(--border-subtle) !important;
+}
+.diff-wrapper .d2h-file-stats .d2h-additions {
+  color: var(--success);
+}
+.diff-wrapper .d2h-file-stats .d2h-deletions {
+  color: var(--critical);
 }
 </style>
