@@ -106,6 +106,7 @@ public class ReasoningStage implements Stage {
         copyField(root, out, "fixedVersion");
         copyField(root, out, "artifact");
         copyField(root, out, "fixCommits");
+        copyField(root, out, "affectedVersions");
         return mapper.writeValueAsString(out);
     }
 

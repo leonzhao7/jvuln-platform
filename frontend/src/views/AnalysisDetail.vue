@@ -105,6 +105,14 @@ onUnmounted(() => evtSource?.close())
 
 const jsonStr = (obj: any) => JSON.stringify(obj, null, 2)
 
+const severityClass = (s: string) => {
+  const v = (s || '').toUpperCase()
+  if (v.includes('CRITICAL') || v.includes('严重')) return 'jv-tag jv-tag-critical'
+  if (v.includes('HIGH') || v.includes('高')) return 'jv-tag jv-tag-high'
+  if (v.includes('MEDIUM') || v.includes('中')) return 'jv-tag jv-tag-medium'
+  return 'jv-tag jv-tag-low'
+}
+
 const cvssTag = (score: number) => {
   if (score >= 9) return 'jv-tag jv-tag-critical'
   if (score >= 7) return 'jv-tag jv-tag-high'
@@ -253,8 +261,144 @@ const cvssTag = (score: number) => {
 
         <!-- AI Reasoning -->
         <el-tab-pane :label="t('analysis.tabs.aiReasoning')" name="reasoning">
-          <div v-if="stageData[4]">
-            <pre class="jv-json-view">{{ jsonStr(stageData[4]) }}</pre>
+          <div v-if="stageData[4]" class="jv-reasoning">
+
+            <!-- Trigger Chain -->
+            <div v-if="stageData[4].trigger_chain" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.reasoning.triggerChain') }}</div>
+              <div class="jv-reasoning-field">
+                <span class="jv-field-label">{{ t('analysis.reasoning.triggerSummary') }}:</span>
+                {{ stageData[4].trigger_chain.summary }}
+              </div>
+              <div class="jv-trigger-steps">
+                <div v-for="step in stageData[4].trigger_chain.steps" :key="step.seq" class="jv-trigger-step">
+                  <span class="jv-step-seq">{{ step.seq }}</span>
+                  <span class="jv-step-class">{{ step.class }}.{{ step.method }}()</span>
+                  <span class="jv-step-desc">{{ step.description }}</span>
+                </div>
+              </div>
+              <div class="jv-reasoning-meta">
+                <span><span class="jv-field-label">{{ t('analysis.reasoning.entryPoint') }}:</span> {{ stageData[4].trigger_chain.entry_point }}</span>
+                <span><span class="jv-field-label">{{ t('analysis.reasoning.sink') }}:</span> {{ stageData[4].trigger_chain.sink }}</span>
+              </div>
+            </div>
+
+            <!-- Code Analysis -->
+            <div v-if="stageData[4].code_analysis" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.reasoning.rootCause') }}</div>
+              <div class="jv-reasoning-text">{{ stageData[4].code_analysis.vuln_root_cause }}</div>
+
+              <div v-if="stageData[4].code_analysis.vuln_code_walkthrough?.length" style="margin-top:12px">
+                <div class="jv-field-label" style="margin-bottom:6px">{{ t('analysis.reasoning.codeWalkthrough') }}</div>
+                <div v-for="(w, i) in stageData[4].code_analysis.vuln_code_walkthrough" :key="i" class="jv-walkthrough-item">
+                  <code class="jv-walkthrough-line">{{ w.line }}</code>
+                  <span class="jv-walkthrough-expl">{{ w.explanation }}</span>
+                </div>
+              </div>
+
+              <div class="jv-reasoning-field" style="margin-top:12px">
+                <span class="jv-field-label">{{ t('analysis.reasoning.fixDescription') }}:</span>
+                {{ stageData[4].code_analysis.fix_description }}
+              </div>
+              <div class="jv-reasoning-field">
+                <span class="jv-field-label">{{ t('analysis.reasoning.fixCompleteness') }}:</span>
+                {{ stageData[4].code_analysis.fix_completeness }}
+              </div>
+            </div>
+
+            <!-- Impact -->
+            <div v-if="stageData[4].impact" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.reasoning.impact') }}</div>
+              <div class="jv-reasoning-meta">
+                <span><span class="jv-field-label">{{ t('analysis.reasoning.severity') }}:</span> <span :class="severityClass(stageData[4].impact.severity)">{{ stageData[4].impact.severity }}</span></span>
+                <span><span class="jv-field-label">{{ t('analysis.reasoning.attackVector') }}:</span> {{ stageData[4].impact.attack_vector }}</span>
+              </div>
+              <div v-if="stageData[4].impact.prerequisites?.length" class="jv-reasoning-field">
+                <span class="jv-field-label">{{ t('analysis.reasoning.prerequisites') }}:</span>
+                <ul class="jv-inline-list"><li v-for="p in stageData[4].impact.prerequisites" :key="p">{{ p }}</li></ul>
+              </div>
+              <div v-if="stageData[4].impact.consequences?.length" class="jv-reasoning-field">
+                <span class="jv-field-label">{{ t('analysis.reasoning.consequences') }}:</span>
+                <ul class="jv-inline-list"><li v-for="c in stageData[4].impact.consequences" :key="c">{{ c }}</li></ul>
+              </div>
+              <div v-if="stageData[4].impact.real_world_scenarios?.length" class="jv-reasoning-field">
+                <span class="jv-field-label">{{ t('analysis.reasoning.realWorldScenarios') }}:</span>
+                <ul class="jv-inline-list"><li v-for="s in stageData[4].impact.real_world_scenarios" :key="s">{{ s }}</li></ul>
+              </div>
+            </div>
+
+            <!-- Secure Coding -->
+            <div v-if="stageData[4].secure_coding" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.reasoning.secureCoding') }}</div>
+              <div v-if="stageData[4].secure_coding.violated_principles?.length" class="jv-reasoning-field">
+                <span class="jv-field-label">{{ t('analysis.reasoning.violatedPrinciples') }}:</span>
+                <ul class="jv-inline-list"><li v-for="v in stageData[4].secure_coding.violated_principles" :key="v">{{ v }}</li></ul>
+              </div>
+              <div v-if="stageData[4].secure_coding.recommendations?.length" class="jv-reasoning-field">
+                <span class="jv-field-label">{{ t('analysis.reasoning.recommendations') }}:</span>
+                <ul class="jv-inline-list"><li v-for="r in stageData[4].secure_coding.recommendations" :key="r">{{ r }}</li></ul>
+              </div>
+              <div v-if="stageData[4].secure_coding.similar_patterns?.length" class="jv-reasoning-field">
+                <span class="jv-field-label">{{ t('analysis.reasoning.similarPatterns') }}:</span>
+                <ul class="jv-inline-list"><li v-for="s in stageData[4].secure_coding.similar_patterns" :key="s">{{ s }}</li></ul>
+              </div>
+            </div>
+
+            <!-- Detection Points -->
+            <div v-if="stageData[4].detection_points?.length" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.reasoning.detectionPoints') }} ({{ stageData[4].detection_points.length }})</div>
+              <div v-for="dp in stageData[4].detection_points" :key="dp.id" class="jv-dp-card">
+                <div class="jv-dp-header">
+                  <span class="jv-dp-id">{{ dp.id }}</span>
+                  <span :class="'jv-dp-type jv-dp-type-' + dp.type">{{ t(`analysis.reasoning.dpTypes.${dp.type}`) }}</span>
+                </div>
+                <div class="jv-dp-desc">{{ dp.description }}</div>
+
+                <!-- dependency -->
+                <div v-if="dp.type === 'dependency'" class="jv-dp-details">
+                  <span><span class="jv-field-label">{{ t('analysis.reasoning.dpArtifact') }}:</span> <code>{{ dp.artifact }}</code></span>
+                  <span><span class="jv-field-label">{{ t('analysis.reasoning.dpAffectedRange') }}:</span> <code>{{ dp.affectedVersionRange }}</code></span>
+                  <span><span class="jv-field-label">{{ t('analysis.reasoning.dpFixedVersion') }}:</span> <code>{{ dp.fixedVersion }}</code></span>
+                </div>
+
+                <!-- code_pattern -->
+                <div v-if="dp.type === 'code_pattern'" class="jv-dp-details">
+                  <span v-if="dp.cweId"><span class="jv-field-label">CWE:</span> <code>{{ dp.cweId }}</code></span>
+                  <span v-if="dp.className"><span class="jv-field-label">{{ t('analysis.reasoning.dpClass') }}:</span> <code>{{ dp.className }}</code></span>
+                  <span v-if="dp.methodName"><span class="jv-field-label">{{ t('analysis.reasoning.dpMethod') }}:</span> <code>{{ dp.methodName }}</code></span>
+                  <div v-if="dp.pattern" style="margin-top:4px">
+                    <span class="jv-field-label">{{ t('analysis.reasoning.dpPattern') }}:</span>
+                    <code class="jv-dp-pattern">{{ dp.pattern }}</code>
+                  </div>
+                </div>
+
+                <!-- config_risk -->
+                <div v-if="dp.type === 'config_risk' && dp.configKeys?.length" class="jv-dp-details">
+                  <div class="jv-field-label">{{ t('analysis.reasoning.dpConfigKeys') }}:</div>
+                  <div v-for="ck in dp.configKeys" :key="ck.key" class="jv-dp-config-row">
+                    <code>{{ ck.key }}</code> = <code class="jv-dp-risky">{{ ck.riskyValue }}</code>
+                  </div>
+                </div>
+
+                <!-- api_usage -->
+                <div v-if="dp.type === 'api_usage'" class="jv-dp-details">
+                  <div v-if="dp.dangerousApis?.length">
+                    <span class="jv-field-label">{{ t('analysis.reasoning.dpDangerousApis') }}:</span>
+                    <code v-for="a in dp.dangerousApis" :key="a" class="jv-dp-api-tag">{{ a }}</code>
+                  </div>
+                  <div v-if="dp.safeAlternatives?.length" style="margin-top:4px">
+                    <span class="jv-field-label">{{ t('analysis.reasoning.dpSafeAlternatives') }}:</span>
+                    <span v-for="s in dp.safeAlternatives" :key="s" class="jv-dp-safe-tag">{{ s }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Raw JSON fallback -->
+            <details style="margin-top:16px">
+              <summary style="color:var(--text-disabled); font-size:12px; cursor:pointer">JSON</summary>
+              <pre class="jv-json-view" style="margin-top:8px">{{ jsonStr(stageData[4]) }}</pre>
+            </details>
           </div>
           <div v-else style="text-align:center; padding:40px">
             <div v-if="stages.find(s => s.stageNum === 4 && s.status === 'FAILED')"
@@ -418,5 +562,178 @@ const cvssTag = (score: number) => {
   overflow-y: auto;
   border-left: 3px solid var(--border);
   margin: 0;
+}
+
+/* Reasoning view */
+.jv-reasoning-section {
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.jv-reasoning-section:last-of-type { border-bottom: none; }
+.jv-reasoning-section .jv-section-label { margin-bottom: 12px; }
+.jv-reasoning-field {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 6px;
+}
+.jv-field-label {
+  color: var(--text-disabled);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.jv-reasoning-text {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.jv-reasoning-meta {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+.jv-inline-list {
+  margin: 4px 0 0 18px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.jv-inline-list li { margin-bottom: 2px; }
+
+/* Trigger chain steps */
+.jv-trigger-steps { margin: 10px 0; }
+.jv-trigger-step {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-left: 2px solid var(--border-subtle);
+  padding-left: 12px;
+  margin-left: 8px;
+}
+.jv-step-seq {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(15,98,254,.12);
+  padding: 1px 6px;
+  min-width: 18px;
+  text-align: center;
+}
+.jv-step-class {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-light);
+  white-space: nowrap;
+}
+.jv-step-desc {
+  color: var(--text-secondary);
+}
+
+/* Code walkthrough */
+.jv-walkthrough-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-base);
+  border-left: 2px solid var(--critical);
+}
+.jv-walkthrough-line {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.jv-walkthrough-expl {
+  font-size: 12px;
+  color: var(--text-disabled);
+}
+
+/* Detection point cards */
+.jv-dp-card {
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  padding: 12px 16px;
+  margin-bottom: 10px;
+}
+.jv-dp-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.jv-dp-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-disabled);
+}
+.jv-dp-type {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.jv-dp-type-dependency   { background: rgba(15,98,254,.15); color: var(--accent-light); border: 1px solid rgba(15,98,254,.3); }
+.jv-dp-type-code_pattern { background: rgba(250,77,86,.12);  color: #fa4d56; border: 1px solid rgba(250,77,86,.3); }
+.jv-dp-type-config_risk  { background: rgba(241,194,27,.12); color: #f1c21b; border: 1px solid rgba(241,194,27,.3); }
+.jv-dp-type-api_usage    { background: rgba(190,98,255,.12); color: #be62ff; border: 1px solid rgba(190,98,255,.3); }
+.jv-dp-desc {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.jv-dp-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.jv-dp-details code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-light);
+  background: rgba(15,98,254,.08);
+  padding: 1px 5px;
+}
+.jv-dp-pattern {
+  display: inline-block;
+  background: var(--bg-code) !important;
+  padding: 4px 8px !important;
+  word-break: break-all;
+}
+.jv-dp-risky {
+  color: #fa4d56 !important;
+  background: rgba(250,77,86,.08) !important;
+}
+.jv-dp-config-row {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 2px 0;
+}
+.jv-dp-api-tag {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 2px 8px !important;
+  background: rgba(250,77,86,.08) !important;
+  color: #fa4d56 !important;
+  border: 1px solid rgba(250,77,86,.2);
+}
+.jv-dp-safe-tag {
+  display: inline-block;
+  font-size: 12px;
+  margin: 2px 4px 2px 0;
+  padding: 2px 8px;
+  background: rgba(66,190,101,.08);
+  color: #42be65;
+  border: 1px solid rgba(66,190,101,.2);
+  font-family: var(--font-mono);
 }
 </style>
