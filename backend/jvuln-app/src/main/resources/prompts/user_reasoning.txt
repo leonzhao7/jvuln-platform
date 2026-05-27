@@ -75,9 +75,22 @@
 }
 
 detection_points 说明：
-- 每个检测要点用于在其他 Java 项目中检测是否受该漏洞影响
-- type=dependency：检查 pom.xml/build.gradle 中是否使用了受影响版本的依赖
-- type=code_pattern：检查源码中是否存在与漏洞相同的代码模式（pattern 为 Java 正则）
-- type=config_risk：检查配置文件中是否存在触发漏洞的配置项
-- type=api_usage：检查是否调用了无安全防护的危险 API
-- 请根据实际漏洞特征生成 2-6 个检测要点，覆盖依赖、代码、配置和 API 各维度（不必每种类型都有，根据漏洞特性选择最相关的）
+
+检测目标是【使用了该漏洞组件的用户项目】，不是漏洞组件自身的源码。
+用户项目通常只是通过 Maven/Gradle 依赖引入了漏洞组件，自身代码中不会包含组件内部的实现类（如 Tomcat 的 DefaultServlet、Spring 的 AbstractAutowireCapableBeanFactory 等）
+
+生成规则：
+- type=dependency：几乎所有 CVE 都应包含。检查用户 pom.xml/build.gradle 中是否依赖了受影响版本
+- type=config_risk：当漏洞需要特定配置才能触发时使用。检查用户项目的 application.yml/properties、web.xml、server.xml 等配置文件
+- type=code_pattern：仅当漏洞模式可能出现在用户自己编写的代码中时才使用。例如 SQL 拼接注入（用户代码会写 SQL）、不安全反序列化（用户代码会调用 readObject）。不要为漏洞组件内部的实现细节生成 code_pattern
+- type=api_usage：仅当用户代码可能直接调用漏洞组件暴露的危险 API 时才使用。例如用户代码调用 ObjectInputStream.readObject()、用户代码调用 Runtime.exec()。不要列举漏洞组件内部的私有方法调用
+
+反面示例（不要生成）：
+- 为 Tomcat CVE 生成检测 DefaultServlet.executePartialPut() 中 path.replace('/', '.') 的 code_pattern → 错误，这是 Tomcat 内部代码，用户项目中不存在
+- 为 Spring CVE 生成检测 CachedIntrospectionResults 内部调用的 api_usage → 错误，用户代码不会直接调用这些内部类
+
+正面示例（应该生成）：
+- 为 MyBatis SQL 注入 CVE 生成检测用户 Mapper XML 中 ${} 拼接的 code_pattern → 正确，这是用户自己写的代码
+- 为反序列化 CVE 生成检测用户代码中 ObjectInputStream.readObject() 调用的 api_usage → 正确，用户可能在自己的代码中调用
+
+请根据实际漏洞特征生成 2-6 个检测要点，覆盖依赖、代码、配置和 API 各维度（不必每种类型都有，根据漏洞特性选择最相关的），宁可少而准，不要多而泛。
