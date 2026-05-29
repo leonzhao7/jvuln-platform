@@ -14,6 +14,7 @@ const detail = ref<TaskDetail | null>(null)
 const activeTab = ref('overview')
 const stageData = ref<Record<number, any>>({})
 const diffText = ref('')
+const reportMarkdown = ref('')
 const sseActive = ref(false)
 const sseMessages = ref<string[]>([])
 let evtSource: EventSource | null = null
@@ -58,6 +59,10 @@ const loadStageData = async () => {
         if (s.stageNum === 2) stageData.value[2] = await api.getPatch(cveId)
         if (s.stageNum === 3) stageData.value[3] = await api.getCodeAnalysis(cveId)
         if (s.stageNum === 4) stageData.value[4] = await api.getReasoning(cveId)
+        if (s.stageNum === 5) {
+          stageData.value[5] = await api.getArtifacts(cveId)
+          try { const r = await api.getReport(cveId); reportMarkdown.value = r.markdown } catch {}
+        }
       } catch { /* stage data may not exist yet */ }
     }
   }
@@ -105,6 +110,30 @@ onUnmounted(() => evtSource?.close())
 
 const jsonStr = (obj: any) => JSON.stringify(obj, null, 2)
 
+const vstClass = (status?: string) => {
+  if (!status) return 'jv-vstatus-unknown'
+  if (status.includes('ok') || status === 'verified' || status === 'generated') return 'jv-vstatus-ok'
+  if (status.includes('failed') || status === 'error') return 'jv-vstatus-fail'
+  if (status === 'skipped' || status === 'unverified') return 'jv-vstatus-skip'
+  return 'jv-vstatus-unknown'
+}
+
+const vstLabel = (status?: string) => {
+  if (!status) return '-'
+  const map: Record<string, string> = {
+    compile_ok: t('analysis.artifacts.verified'),
+    startup_ok: t('analysis.artifacts.verified'),
+    compile_failed: t('analysis.artifacts.failed'),
+    startup_failed: t('analysis.artifacts.failed'),
+    verified: t('analysis.artifacts.verified'),
+    unverified: t('analysis.artifacts.skipped'),
+    skipped: t('analysis.artifacts.skipped'),
+    generated: t('analysis.artifacts.verified'),
+    error: t('analysis.artifacts.failed'),
+  }
+  return map[status] ?? status
+}
+
 const severityClass = (s: string) => {
   const v = (s || '').toUpperCase()
   if (v.includes('CRITICAL') || v.includes('严重')) return 'jv-tag jv-tag-critical'
@@ -118,6 +147,19 @@ const cvssTag = (score: number) => {
   if (score >= 7) return 'jv-tag jv-tag-high'
   if (score >= 4) return 'jv-tag jv-tag-medium'
   return 'jv-tag jv-tag-low'
+}
+
+const renderMarkdown = (md: string) => {
+  return md
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^### (.+)$/gm, '<h4 style="color:var(--text-primary);margin:16px 0 8px">$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3 style="color:var(--text-primary);margin:20px 0 10px">$1</h3>')
+    .replace(/^# (.+)$/gm, '<h2 style="color:var(--text-primary);margin:24px 0 12px">$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code style="font-family:var(--font-mono);font-size:12px;background:var(--bg-code);padding:1px 5px">$1</code>')
+    .replace(/^- (.+)$/gm, '<li style="margin-left:20px;color:var(--text-secondary)">$1</li>')
+    .replace(/\n\n/g, '<br/><br/>')
+    .replace(/\n/g, '<br/>')
 }
 </script>
 
@@ -415,6 +457,76 @@ const cvssTag = (score: number) => {
         <el-tab-pane :label="t('analysis.tabs.intelligence')" name="intel">
           <pre v-if="stageData[1]" class="jv-json-view">{{ jsonStr(stageData[1]) }}</pre>
           <el-empty v-else :description="t('analysis.intelligenceRawUnavailable')" />
+        </el-tab-pane>
+
+        <!-- Artifacts / Education Lab -->
+        <el-tab-pane :label="t('analysis.tabs.artifacts')" name="artifacts">
+          <div v-if="stageData[5] && stageData[5].status === 'generated'">
+
+            <!-- Verification Status -->
+            <div class="jv-artifacts-status">
+              <span class="jv-vstatus" :class="vstClass(stageData[5].vulnDemo?.compileStatus)">
+                {{ t('analysis.artifacts.compileStatus') }}: {{ vstLabel(stageData[5].vulnDemo?.compileStatus) }}
+              </span>
+              <span class="jv-vstatus" :class="vstClass(stageData[5].vulnDemo?.startupStatus)">
+                {{ t('analysis.artifacts.startupStatus') }}: {{ vstLabel(stageData[5].vulnDemo?.startupStatus) }}
+              </span>
+              <span class="jv-vstatus" :class="vstClass(stageData[5].poc?.status)">
+                {{ t('analysis.artifacts.pocStatus') }}: {{ vstLabel(stageData[5].poc?.status) }}
+              </span>
+            </div>
+
+            <!-- File count summary -->
+            <div class="jv-artifacts-summary">
+              {{ t('analysis.artifacts.fileCount', { count: stageData[5].fileCount ?? 0 }) }}
+            </div>
+
+            <!-- File list -->
+            <div class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.artifacts.fileList') }}</div>
+              <div class="jv-artifacts-files">
+                <div v-for="f in stageData[5].files" :key="f.path" class="jv-artifact-file">
+                  <span :class="'jv-artifact-type jv-artifact-type-' + f.type">{{ f.type }}</span>
+                  <code>{{ f.path }}</code>
+                </div>
+              </div>
+            </div>
+
+            <!-- Report preview -->
+            <div v-if="reportMarkdown" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
+              <div class="jv-report-preview" v-html="renderMarkdown(reportMarkdown)"></div>
+            </div>
+            <div v-else-if="stageData[5].report?.status === 'generated'" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
+              <div style="color:var(--text-disabled); font-size:13px">{{ t('analysis.artifacts.noReport') }}</div>
+            </div>
+
+            <!-- PoC files -->
+            <div v-if="stageData[5].poc?.files?.length" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.artifacts.pocPreview') }}</div>
+              <div v-for="f in stageData[5].files?.filter((x: any) => x.type === 'poc')" :key="f.path" class="jv-poc-block">
+                <div class="jv-file-header">
+                  <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">{{ f.path }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Raw JSON -->
+            <details style="margin-top:16px">
+              <summary style="color:var(--text-disabled); font-size:12px; cursor:pointer">JSON</summary>
+              <pre class="jv-json-view" style="margin-top:8px">{{ jsonStr(stageData[5]) }}</pre>
+            </details>
+          </div>
+          <div v-else style="text-align:center; padding:40px">
+            <div v-if="stages.find(s => s.stageNum === 5 && s.status === 'FAILED')"
+              style="color:var(--critical)">
+              {{ t('analysis.stage5Failed', { error: stages.find(s => s.stageNum === 5)?.errorMsg ?? '' }) }}
+              <br/>
+              <el-button style="margin-top:12px" @click="rerun(5)">{{ t('analysis.retryArtifacts') }}</el-button>
+            </div>
+            <div v-else style="color:var(--text-disabled)">{{ t('analysis.artifactsUnavailable') }}</div>
+          </div>
         </el-tab-pane>
 
         <!-- Stage Logs -->
@@ -735,5 +847,80 @@ const cvssTag = (score: number) => {
   color: #42be65;
   border: 1px solid rgba(66,190,101,.2);
   font-family: var(--font-mono);
+}
+
+/* Artifacts tab */
+.jv-artifacts-summary {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  padding: 10px 14px;
+  background: var(--bg-base);
+  border-left: 3px solid #42be65;
+}
+.jv-artifacts-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.jv-artifact-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-base);
+  font-size: 13px;
+}
+.jv-artifact-file code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.jv-artifact-type {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  min-width: 80px;
+  text-align: center;
+}
+.jv-artifact-type-vuln-demo     { background: rgba(15,98,254,.15); color: var(--accent-light); border: 1px solid rgba(15,98,254,.3); }
+.jv-artifact-type-poc           { background: rgba(250,77,86,.12);  color: #fa4d56; border: 1px solid rgba(250,77,86,.3); }
+.jv-artifact-type-report        { background: rgba(66,190,101,.12); color: #42be65; border: 1px solid rgba(66,190,101,.3); }
+.jv-artifact-type-docker-compose { background: rgba(241,194,27,.12); color: #f1c21b; border: 1px solid rgba(241,194,27,.3); }
+.jv-artifacts-status {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.jv-vstatus {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+.jv-vstatus-ok   { background: rgba(66,190,101,.12); color: #42be65; border: 1px solid rgba(66,190,101,.3); }
+.jv-vstatus-fail { background: rgba(250,77,86,.12);  color: #fa4d56; border: 1px solid rgba(250,77,86,.3); }
+.jv-vstatus-skip { background: rgba(141,141,141,.12); color: #8d8d8d; border: 1px solid rgba(141,141,141,.3); }
+.jv-vstatus-unknown { background: rgba(141,141,141,.08); color: #6f6f6f; border: 1px solid rgba(141,141,141,.2); }
+.jv-report-preview {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  max-height: 600px;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--bg-base);
+  border-left: 3px solid var(--border);
+}
+.jv-report-preview h2, .jv-report-preview h3, .jv-report-preview h4 {
+  font-family: var(--font-mono);
+}
+.jv-poc-block {
+  margin-bottom: 10px;
 }
 </style>

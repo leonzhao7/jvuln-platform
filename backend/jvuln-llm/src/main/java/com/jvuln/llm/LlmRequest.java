@@ -31,6 +31,10 @@ public class LlmRequest {
                 0.3, 16384, false);
     }
 
+    public static LlmRequest generation(String systemPrompt, List<Message> messages) {
+        return new LlmRequest(systemPrompt, messages, 0.3, 16384, false);
+    }
+
     public String getSystemPrompt() { return systemPrompt; }
     public List<Message> getMessages() { return messages; }
     public double getTemperature() { return temperature; }

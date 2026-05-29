@@ -1,0 +1,27 @@
+Generate an educational vulnerability analysis report for the following CVE:
+
+## CVE Intelligence
+{{intelligence}}
+
+## Trigger Chain
+{{trigger_chain}}
+
+## Root Cause Analysis
+{{root_cause}}
+
+## Patch Diff
+{{patch_diff}}
+
+## Report Structure
+Please generate a comprehensive Markdown report with these sections:
+
+1. **概述** — CVE ID, CVSS score, affected component, one-paragraph summary
+2. **漏洞原理** — Technical root cause explanation with code walkthrough
+3. **触发链分析** — Step-by-step exploitation path from entry point to sink
+4. **影响范围** — Affected versions, attack prerequisites, potential consequences
+5. **漏洞复现** — How to trigger the vulnerability in the demo environment (port 18080)
+6. **修复方案** — What the patch does, recommended remediation steps
+7. **安全编码建议** — Lessons learned, secure coding principles violated
+8. **参考资料** — CVE links, advisory URLs
+
+Keep total length under 3000 words. Use code blocks for any source code snippets.

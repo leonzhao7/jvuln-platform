@@ -72,7 +72,8 @@ public class PipelineEngine {
             ctx.setProgressCallback(buildSseCallback(cveId));
 
             for (Stage stage : stages) {
-                if (stage.number() < fromStage && workspaceManager.isStageComplete(cveId, stage.number())) {
+                boolean shouldSkip = stage.number() < fromStage && workspaceManager.isStageComplete(cveId, stage.number());
+                if (shouldSkip) {
                     log.info("Stage {} skipped (checkpoint exists), loading cached data", stage.number());
                     try {
                         Object data = workspaceManager.readStageData(cveId, stage.number(), Object.class);
