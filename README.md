@@ -109,7 +109,7 @@ The language switcher is in the header. The selected language is persisted in `l
 | 2 | Patch Locating | Locate fixing commits and extract unified diff |
 | 3 | Code Analysis | Filter relevant diff files, parse Java AST, and match CWE patterns |
 | 4 | Vulnerability Reasoning | Use the active LLM to reason about trigger chain, root cause, fix quality, and generate machine-executable detection points |
-| 5 | Vulnerability Education Lab | Generate local educational demo project, PoC, Docker Compose environment, and report |
+| 5 | Vulnerability Education Lab | Generate local educational demo project (Spring Boot with vulnerable library configuration), PoC scripts, and educational report. Uses multi-step generation with compile/startup/PoC verification loops. |
 | 6 | Product Vulnerability Detection | Scan project source code using Stage 4 detection points, generate project-specific trigger chains and verification PoCs |
 
 The Pipeline supports resume and rerun. Completed stages can be loaded from workspace files, and `fromStage` can force rerun from a selected stage.
@@ -165,6 +165,38 @@ backend/workspace/CVE-xxxx-xxxxx/
     ├── verify-exploit.py
     └── remediation.md
 ```
+
+## Stage 5: Education Lab Generation
+
+Stage 5 generates a complete educational environment for vulnerability reproduction:
+
+**Design Philosophy:** The vulnerability lives in the library/container, not in application code. Generated demos configure the vulnerable component to expose its natural code path, rather than simulating vulnerability behavior in custom controllers.
+
+**Multi-step Generation:**
+1. **SubStage A: Vuln-Demo Project**
+   - Local skeleton: `pom.xml` (with vulnerable dependency version), `Application.java`, build/run scripts
+   - LLM generates: Configuration classes (e.g., `TomcatConfig` to enable DefaultServlet PUT + FileStore sessions) and normal business code (e.g., `NoteController` CRUD API)
+   - Compile verification loop (max 2 fix rounds)
+   - Startup verification loop (max 2 fix rounds)
+
+2. **SubStage B: PoC Scripts**
+   - LLM generates: Exploit scripts that target the library's vulnerable code path directly (e.g., partial PUT to Tomcat's DefaultServlet)
+   - Includes verification command (exit code 0 = success)
+   - PoC verification loop (max 2 fix rounds, can modify both PoC and vuln-demo)
+
+3. **SubStage C: Educational Report**
+   - LLM generates: Markdown report covering vulnerability mechanics, exploitation steps, and mitigation strategies
+
+**Version Resolution:**
+- Spring Boot managed dependencies (e.g., `tomcat-embed-core`) → override version property (e.g., `<tomcat.version>9.0.98</tomcat.version>`)
+- Non-managed dependencies → add explicit `<dependency>` with version
+- Derives vulnerable version from `fixedVersion` when not explicit (e.g., 9.0.99 → 9.0.98)
+
+**Example Output (CVE-2025-24813):**
+- `TomcatConfig.java` — Configures Tomcat DefaultServlet with `readonly=false` and FileStore session persistence
+- `NoteController.java` — Normal CRUD REST API (not vulnerability-related)
+- `exploit.sh` — Sends partial PUT with `Content-Range` to Tomcat's DefaultServlet
+- `report.md` — Educational analysis of the vulnerability
 
 ## Verified CVEs
 
