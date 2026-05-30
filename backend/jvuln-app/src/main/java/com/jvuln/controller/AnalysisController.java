@@ -207,6 +207,11 @@ public class AnalysisController {
         return readStageJson(cveId, 4);
     }
 
+    @GetMapping("/{cveId}/artifacts")
+    public ResponseEntity<?> getArtifacts(@PathVariable String cveId) {
+        return readStageJson(cveId, 5);
+    }
+
     @GetMapping("/{cveId}/code-analysis")
     public ResponseEntity<?> getCodeAnalysis(@PathVariable String cveId) {
         return readStageJson(cveId, 3);

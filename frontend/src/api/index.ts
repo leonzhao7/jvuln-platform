@@ -63,6 +63,9 @@ export const api = {
   getReport: (cveId: string) =>
     http.get<{ markdown: string }>(`/analysis/${cveId}/report`).then(r => r.data),
 
+  getArtifacts: (cveId: string) =>
+    http.get(`/analysis/${cveId}/artifacts`).then(r => r.data),
+
   listLlmConfigs: () => http.get<LlmConfig[]>('/config/llm').then(r => r.data),
   createLlmConfig: (cfg: Omit<LlmConfig, 'id' | 'active'>) => http.post<LlmConfig>('/config/llm', cfg).then(r => r.data),
   updateLlmConfig: (id: number, cfg: Partial<LlmConfig>) => http.put<LlmConfig>(`/config/llm/${id}`, cfg).then(r => r.data),
