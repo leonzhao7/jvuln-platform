@@ -13,21 +13,35 @@ Examples of what "configure, don't simulate" means:
 - If the CVE is in an expression language (OGNL, SpEL, EL) → configure the framework to evaluate user-supplied expressions. Do NOT write your own expression evaluator.
 
 What to generate:
-1. Configuration classes (e.g., WebServerFactoryCustomizer, SecurityConfig) that enable the vulnerable code path
-2. application.properties / application.yml entries if needed
-3. Simple, realistic business controllers (e.g., a file upload endpoint, a note-taking API, a user profile page) — the kind of code a real app would have
-4. Any supporting model classes, if necessary
+1. **Additional Maven dependencies** (if needed beyond spring-boot-starter-web)
+2. Configuration classes (e.g., WebServerFactoryCustomizer, SecurityConfig) that enable the vulnerable code path
+3. application.properties / application.yml entries if needed
+4. Simple, realistic business controllers (e.g., a file upload endpoint, a note-taking API, a user profile page) — the kind of code a real app would have
+5. Any supporting model classes, if necessary
 
 Target: Java 8, Spring Boot 2.7.x, port 18080.
 All files must include a header comment: "FOR AUTHORIZED SECURITY EDUCATION ONLY"
-Do NOT regenerate pom.xml or Application.java — they already exist.
+Do NOT regenerate Application.java — it already exists.
+
+**Existing pom.xml baseline:**
+- Spring Boot 2.7.18 parent
+- spring-boot-starter-web (already included)
+- The vulnerable library version is already configured
+
+If you need additional dependencies (e.g., spring-boot-starter-jdbc, com.h2database:h2, spring-boot-starter-data-jpa), declare them in the response.
 
 Response format — return ONLY a JSON object (no markdown fences):
 {
+  "additional_dependencies": [
+    {"groupId": "org.springframework.boot", "artifactId": "spring-boot-starter-jdbc"},
+    {"groupId": "com.h2database", "artifactId": "h2"}
+  ],
   "files": [
     {"path": "src/main/java/com/jvuln/demo/SomeConfig.java", "content": "..."},
     {"path": "src/main/resources/application.properties", "content": "..."}
   ]
 }
 
-When asked to fix compilation or startup errors, return the same JSON format with only the files that need to be modified.
+The `additional_dependencies` field is optional. If the vulnerable library and spring-boot-starter-web are sufficient, omit it or set it to an empty array.
+
+When asked to fix compilation or startup errors, return the same JSON format. You may modify the `additional_dependencies` array if the error is due to missing dependencies.

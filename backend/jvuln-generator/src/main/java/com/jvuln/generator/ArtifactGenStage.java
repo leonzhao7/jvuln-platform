@@ -593,6 +593,13 @@ public class ArtifactGenStage implements Stage {
     private List<String> writeVulnDemoFiles(Path vulnDemoPath, String llmContent) throws Exception {
         String json = stripMarkdownFence(llmContent);
         JsonNode root = mapper.readTree(json);
+
+        // Process additional_dependencies if present
+        JsonNode additionalDeps = root.path("additional_dependencies");
+        if (additionalDeps.isArray() && additionalDeps.size() > 0) {
+            appendDependenciesToPom(vulnDemoPath, additionalDeps);
+        }
+
         JsonNode filesNode = root.path("files");
         List<String> written = new ArrayList<>();
         if (filesNode.isArray()) {
@@ -752,6 +759,105 @@ public class ArtifactGenStage implements Stage {
             messages.add(LlmRequest.Message.assistant(content));
         }
         return content;
+    }
+
+    private void appendDependenciesToPom(Path vulnDemoPath, JsonNode additionalDeps) throws IOException {
+        Path pomPath = vulnDemoPath.resolve("pom.xml");
+        if (!Files.exists(pomPath)) {
+            log.warn("pom.xml not found, cannot append dependencies");
+            return;
+        }
+
+        String pomContent = new String(Files.readAllBytes(pomPath), StandardCharsets.UTF_8);
+
+        // Track existing dependencies with their positions
+        Map<String, Integer> existingDeps = new HashMap<>();
+        String depPattern = "<dependency>\\s*<groupId>([^<]+)</groupId>\\s*<artifactId>([^<]+)</artifactId>";
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(depPattern);
+        java.util.regex.Matcher matcher = pattern.matcher(pomContent);
+        while (matcher.find()) {
+            String depKey = matcher.group(1) + ":" + matcher.group(2);
+            existingDeps.put(depKey, matcher.start());
+        }
+
+        // Build dependency XML snippets for new dependencies, or update existing ones
+        StringBuilder depsXml = new StringBuilder();
+        int addedCount = 0;
+        Set<String> toUpdate = new HashSet<>();
+
+        for (JsonNode dep : additionalDeps) {
+            String groupId = dep.path("groupId").asText("");
+            String artifactId = dep.path("artifactId").asText("");
+            String version = dep.path("version").asText("");
+
+            if (groupId.isEmpty() || artifactId.isEmpty()) continue;
+
+            String depKey = groupId + ":" + artifactId;
+
+            if (existingDeps.containsKey(depKey)) {
+                // Dependency exists - if new version is specified, mark for update
+                if (!version.isEmpty()) {
+                    toUpdate.add(depKey);
+                    log.info("Marking dependency for version update: {}:{}", depKey, version);
+                } else {
+                    log.debug("Dependency already exists, skipping: {}", depKey);
+                }
+                continue;
+            }
+
+            // New dependency - add to XML
+            depsXml.append("        <dependency>\n");
+            depsXml.append("            <groupId>").append(groupId).append("</groupId>\n");
+            depsXml.append("            <artifactId>").append(artifactId).append("</artifactId>\n");
+            if (!version.isEmpty()) {
+                depsXml.append("            <version>").append(version).append("</version>\n");
+            }
+            depsXml.append("        </dependency>\n");
+
+            addedCount++;
+            log.info("Appending dependency: {}:{}{}", groupId, artifactId,
+                    version.isEmpty() ? "" : ":" + version);
+        }
+
+        // Update existing dependencies with new versions
+        for (JsonNode dep : additionalDeps) {
+            String groupId = dep.path("groupId").asText("");
+            String artifactId = dep.path("artifactId").asText("");
+            String version = dep.path("version").asText("");
+            String depKey = groupId + ":" + artifactId;
+
+            if (toUpdate.contains(depKey) && !version.isEmpty()) {
+                // Find and update the version in existing dependency
+                String depRegex = "(<dependency>\\s*<groupId>" + java.util.regex.Pattern.quote(groupId)
+                        + "</groupId>\\s*<artifactId>" + java.util.regex.Pattern.quote(artifactId)
+                        + "</artifactId>\\s*)(?:<version>[^<]*</version>\\s*)?(</dependency>)";
+                String replacement = "$1<version>" + version + "</version>\n        $2";
+                pomContent = pomContent.replaceFirst(depRegex, replacement);
+                log.info("Updated dependency version: {}:{}", depKey, version);
+            }
+        }
+
+        if (addedCount == 0 && toUpdate.isEmpty()) {
+            log.info("No new dependencies to add or update");
+            return;
+        }
+
+        // Insert new dependencies before </dependencies>
+        if (addedCount > 0) {
+            String marker = "    </dependencies>";
+            int insertPos = pomContent.lastIndexOf(marker);
+            if (insertPos == -1) {
+                log.warn("Could not find </dependencies> marker in pom.xml");
+                return;
+            }
+
+            pomContent = pomContent.substring(0, insertPos)
+                    + depsXml.toString()
+                    + pomContent.substring(insertPos);
+        }
+
+        Files.write(pomPath, pomContent.getBytes(StandardCharsets.UTF_8));
+        log.info("Updated pom.xml: {} new, {} updated", addedCount, toUpdate.size());
     }
 
     private void copyField(JsonNode src, ObjectNode dst, String field) {
