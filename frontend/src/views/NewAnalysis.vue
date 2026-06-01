@@ -55,9 +55,14 @@ const submit = async () => {
           {{ t('newAnalysis.description') }}
         </p>
 
-        <el-button type="primary" :loading="loading" @click="submit" style="width:100%">
-          {{ t('newAnalysis.start') }}
-        </el-button>
+        <div style="display:flex; gap:12px">
+          <el-button @click="router.back()" style="flex:1">
+            {{ t('common.cancel') }}
+          </el-button>
+          <el-button type="primary" :loading="loading" @click="submit" style="flex:2">
+            {{ t('newAnalysis.start') }}
+          </el-button>
+        </div>
       </el-form>
     </el-card>
   </div>
