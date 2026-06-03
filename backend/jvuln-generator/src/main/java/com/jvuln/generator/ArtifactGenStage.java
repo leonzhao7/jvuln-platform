@@ -97,10 +97,14 @@ public class ArtifactGenStage implements Stage {
 
                 // Inject urgency reminder when nearing the turn limit
                 int remaining = MAX_AGENT_TURNS - turn;
-                if (remaining == 3) {
+                if (remaining == 5) {
                     messages.add(LlmRequest.Message.user(
-                            "NOTICE: Only 3 turns remaining. Write the report now and call finish(). "
-                            + "If the PoC is not verified, set poc_status to 'unverified'."));
+                            "NOTICE: Only 5 turns remaining. Wrap up now: if the PoC is not yet verified, "
+                            + "set poc_status to 'unverified'. Write the report and call finish()."));
+                } else if (remaining == 2) {
+                    messages.add(LlmRequest.Message.user(
+                            "FINAL WARNING: 2 turns left. You MUST call finish() on your next response. "
+                            + "Skip any remaining debugging."));
                 }
 
                 LlmResponse response = chatWithRetry(ctx,
@@ -560,23 +564,43 @@ public class ArtifactGenStage implements Stage {
                 if (!vulnDemoFiles.contains(sk)) vulnDemoFiles.add(0, sk);
             }
 
-            // VulnDemo status
+            // VulnDemo status — infer from files if finish() was not called
             Map<String, Object> vulnDemo = new LinkedHashMap<>();
-            String vdStatus = summary != null ? summary.path("vuln_demo_status").asText("unknown") : "unknown";
+            String vdStatus;
+            if (summary != null) {
+                vdStatus = summary.path("vuln_demo_status").asText("unknown");
+            } else {
+                // Infer: has pom.xml + jar exists = at least compile_ok
+                boolean hasPom = writtenFiles.contains("vuln-demo/pom.xml");
+                boolean jarExists = Files.exists(cvePath.resolve("vuln-demo/target"))
+                        && cvePath.resolve("vuln-demo/target").toFile().listFiles(f -> f.getName().endsWith(".jar")) != null
+                        && cvePath.resolve("vuln-demo/target").toFile().listFiles(f -> f.getName().endsWith(".jar")).length > 0;
+                vdStatus = jarExists ? "compile_ok" : (hasPom ? "compile_failed" : "not_started");
+            }
             vulnDemo.put("status", vdStatus);
             vulnDemo.put("files", vulnDemoFiles);
             output.put("vulnDemo", vulnDemo);
 
-            // PoC status
+            // PoC status — infer from files if finish() was not called
             Map<String, Object> poc = new LinkedHashMap<>();
-            String pocStatus = summary != null ? summary.path("poc_status").asText("unknown") : "unknown";
+            String pocStatus;
+            if (summary != null) {
+                pocStatus = summary.path("poc_status").asText("unknown");
+            } else {
+                pocStatus = !pocFiles.isEmpty() ? "unverified" : "skipped";
+            }
             poc.put("status", pocStatus);
             poc.put("files", pocFiles);
             output.put("poc", poc);
 
-            // Report status
+            // Report status — infer from files if finish() was not called
             Map<String, Object> report = new LinkedHashMap<>();
-            String rptStatus = summary != null ? summary.path("report_status").asText("unknown") : "unknown";
+            String rptStatus;
+            if (summary != null) {
+                rptStatus = summary.path("report_status").asText("unknown");
+            } else {
+                rptStatus = reportFile != null ? "generated" : "skipped";
+            }
             report.put("status", rptStatus);
             if (reportFile != null) report.put("file", reportFile);
             output.put("report", report);
