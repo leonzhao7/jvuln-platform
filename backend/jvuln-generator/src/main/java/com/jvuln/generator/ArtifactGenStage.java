@@ -581,9 +581,16 @@ public class ArtifactGenStage implements Stage {
             if (reportFile != null) report.put("file", reportFile);
             output.put("report", report);
 
-            // All files list (for frontend compatibility)
+            // All files list (for frontend compatibility) — include skeleton files
+            Set<String> allPaths = new LinkedHashSet<>();
+            for (String sk : Arrays.asList(
+                    "vuln-demo/src/main/java/com/jvuln/demo/Application.java",
+                    "vuln-demo/build.sh", "vuln-demo/run.sh")) {
+                allPaths.add(sk);
+            }
+            allPaths.addAll(writtenFiles);
             List<Map<String, String>> allFiles = new ArrayList<>();
-            for (String f : writtenFiles) {
+            for (String f : allPaths) {
                 Map<String, String> entry = new HashMap<>();
                 entry.put("path", f);
                 if (f.startsWith("vuln-demo/")) entry.put("type", "vuln-demo");
