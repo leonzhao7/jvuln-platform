@@ -114,7 +114,8 @@ public class LlmCaller {
         for (LlmRequest.Message msg : request.getMessages()) {
             ObjectNode m = mapper.createObjectNode();
             m.put("role", msg.getRole());
-            m.put("content", msg.getContent());
+            String text = msg.getTextContent();
+            m.put("content", text != null ? text : "");
             messages.add(m);
         }
         body.set("messages", messages);

@@ -1,0 +1,24 @@
+Build a vulnerability reproduction environment for the following CVE.
+
+## CVE Intelligence
+{{intelligence}}
+
+## Trigger Chain (how the vulnerability is triggered)
+{{trigger_chain}}
+
+## Root Cause Analysis
+{{root_cause}}
+
+## Patch Diff (showing what was fixed)
+{{patch_diff}}
+
+## Affected Component
+{{artifact}}
+
+## Pre-existing Files (DO NOT overwrite these)
+- `vuln-demo/src/main/java/com/jvuln/demo/Application.java` — standard @SpringBootApplication main class
+- `vuln-demo/build.sh` — runs `mvn package -DskipTests -q`
+- `vuln-demo/run.sh` — runs `java -jar target/*.jar --server.port=18080`
+
+## Instructions
+Start by writing `vuln-demo/pom.xml` with all required dependencies, then write the configuration and source files. Compile, fix any errors, start the app, write and verify the PoC, then write the report. Call `finish` when done.

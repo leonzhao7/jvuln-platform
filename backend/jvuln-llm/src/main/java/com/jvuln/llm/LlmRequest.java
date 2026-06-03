@@ -1,8 +1,8 @@
 package com.jvuln.llm;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import com.fasterxml.jackson.databind.JsonNode;
+
+import java.util.*;
 
 public class LlmRequest {
 
@@ -11,14 +11,23 @@ public class LlmRequest {
     private final double temperature;
     private final int maxTokens;
     private final boolean jsonMode;
+    private final List<ToolDef> tools;
+    private final String toolChoice;
 
     public LlmRequest(String systemPrompt, List<Message> messages, double temperature,
                       int maxTokens, boolean jsonMode) {
+        this(systemPrompt, messages, temperature, maxTokens, jsonMode, null, null);
+    }
+
+    public LlmRequest(String systemPrompt, List<Message> messages, double temperature,
+                      int maxTokens, boolean jsonMode, List<ToolDef> tools, String toolChoice) {
         this.systemPrompt = systemPrompt;
         this.messages = messages;
         this.temperature = temperature;
         this.maxTokens = maxTokens;
         this.jsonMode = jsonMode;
+        this.tools = tools;
+        this.toolChoice = toolChoice;
     }
 
     public static LlmRequest reasoning(String systemPrompt, String userContent) {
@@ -35,17 +44,26 @@ public class LlmRequest {
         return new LlmRequest(systemPrompt, messages, 0.3, 16384, false);
     }
 
+    public static LlmRequest agent(String systemPrompt, List<Message> messages, List<ToolDef> tools) {
+        return new LlmRequest(systemPrompt, messages, 0.3, 16384, false, tools, "auto");
+    }
+
     public String getSystemPrompt() { return systemPrompt; }
     public List<Message> getMessages() { return messages; }
     public double getTemperature() { return temperature; }
     public int getMaxTokens() { return maxTokens; }
     public boolean isJsonMode() { return jsonMode; }
+    public List<ToolDef> getTools() { return tools; }
+    public String getToolChoice() { return toolChoice; }
+    public boolean hasTools() { return tools != null && !tools.isEmpty(); }
+
+    // ==================== Message ====================
 
     public static class Message {
         private final String role;
-        private final String content;
+        private final Object content; // String or List<ContentBlock>
 
-        public Message(String role, String content) {
+        public Message(String role, Object content) {
             this.role = role;
             this.content = content;
         }
@@ -53,7 +71,96 @@ public class LlmRequest {
         public static Message user(String content) { return new Message("user", content); }
         public static Message assistant(String content) { return new Message("assistant", content); }
 
+        public static Message assistantWithBlocks(List<ContentBlock> blocks) {
+            return new Message("assistant", blocks);
+        }
+
+        public static Message toolResults(List<ContentBlock> toolResultBlocks) {
+            return new Message("user", toolResultBlocks);
+        }
+
         public String getRole() { return role; }
-        public String getContent() { return content; }
+        public Object getContent() { return content; }
+
+        @SuppressWarnings("unchecked")
+        public List<ContentBlock> getContentBlocks() {
+            if (content instanceof List) return (List<ContentBlock>) content;
+            return null;
+        }
+
+        public String getTextContent() {
+            if (content instanceof String) return (String) content;
+            return null;
+        }
+    }
+
+    // ==================== ContentBlock ====================
+
+    public static class ContentBlock {
+        private final String type;
+        private String text;
+        private String toolUseId;
+        private String toolName;
+        private JsonNode toolInput;
+        private String toolResultContent;
+        private boolean isError;
+
+        private ContentBlock(String type) { this.type = type; }
+
+        public static ContentBlock text(String text) {
+            ContentBlock b = new ContentBlock("text");
+            b.text = text;
+            return b;
+        }
+
+        public static ContentBlock toolUse(String id, String name, JsonNode input) {
+            ContentBlock b = new ContentBlock("tool_use");
+            b.toolUseId = id;
+            b.toolName = name;
+            b.toolInput = input;
+            return b;
+        }
+
+        public static ContentBlock toolResult(String toolUseId, String content) {
+            ContentBlock b = new ContentBlock("tool_result");
+            b.toolUseId = toolUseId;
+            b.toolResultContent = content;
+            b.isError = false;
+            return b;
+        }
+
+        public static ContentBlock toolResultError(String toolUseId, String content) {
+            ContentBlock b = new ContentBlock("tool_result");
+            b.toolUseId = toolUseId;
+            b.toolResultContent = content;
+            b.isError = true;
+            return b;
+        }
+
+        public String getType() { return type; }
+        public String getText() { return text; }
+        public String getToolUseId() { return toolUseId; }
+        public String getToolName() { return toolName; }
+        public JsonNode getToolInput() { return toolInput; }
+        public String getToolResultContent() { return toolResultContent; }
+        public boolean isError() { return isError; }
+    }
+
+    // ==================== ToolDef ====================
+
+    public static class ToolDef {
+        private final String name;
+        private final String description;
+        private final Map<String, Object> inputSchema;
+
+        public ToolDef(String name, String description, Map<String, Object> inputSchema) {
+            this.name = name;
+            this.description = description;
+            this.inputSchema = inputSchema;
+        }
+
+        public String getName() { return name; }
+        public String getDescription() { return description; }
+        public Map<String, Object> getInputSchema() { return inputSchema; }
     }
 }

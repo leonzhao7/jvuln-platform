@@ -28,13 +28,18 @@ import java.util.concurrent.TimeUnit;
 public class ArtifactGenStage implements Stage {
 
     private static final Logger log = LoggerFactory.getLogger(ArtifactGenStage.class);
-    private static final int MAX_FIX_ROUNDS = 2;
+    private static final int MAX_AGENT_TURNS = 25;
     private static final int VULN_DEMO_PORT = 18080;
     private static final int COMPILE_TIMEOUT = 120;
     private static final int STARTUP_WAIT = 30;
-    private static final int POC_TIMEOUT = 60;
-    private static final int VERIFY_TIMEOUT = 30;
-    private static final int LOG_TRUNCATE = 3000;
+    private static final int COMMAND_TIMEOUT = 60;
+    private static final int OUTPUT_TRUNCATE = 4000;
+
+    private static final Set<String> COMMAND_WHITELIST = new HashSet<>(Arrays.asList(
+            "curl", "wget", "grep", "cat", "ls", "find", "head", "tail",
+            "bash", "test", "echo", "java", "mvn", "wc", "sort", "uniq",
+            "chmod", "mkdir", "pwd", "diff", "file", "xxd", "base64", "sha256sum", "md5sum"
+    ));
 
     private final PromptRegistry promptRegistry;
     private final ObjectMapper mapper;
@@ -52,357 +57,323 @@ public class ArtifactGenStage implements Stage {
 
     @Override
     public StageResult execute(PipelineContext ctx) throws Exception {
-        ctx.reportProgress("Starting multi-step artifact generation");
+        ctx.reportProgress("Starting agent-based artifact generation");
 
         Object rawIntelligence = ctx.getCompletedStages().get(1).getData();
         String intelligence = trimIntelligence(rawIntelligence);
         String patchDiff = extractDiff(ctx.getCompletedStages().get(2).getData(), 4000);
         String triggerChain = extractTriggerChain(ctx.getCompletedStages().get(4).getData());
         String rootCause = extractRootCause(ctx.getCompletedStages().get(4).getData());
+        String artifact = extractArtifact(rawIntelligence);
 
         Path cvePath = ctx.getWorkspaceManager().getCvePath(ctx.getCveId());
-        Process vulnDemoProcess = null;
+        AgentContext agentCtx = new AgentContext(cvePath, ctx);
 
         try {
-            // SubStage A: Vuln-Demo Project
-            ctx.reportProgress("SubStage A: Generating vuln-demo project");
-            Map<String, Object> vulnDemoResult = generateVulnDemo(ctx, cvePath, intelligence,
-                    triggerChain, rootCause, patchDiff, rawIntelligence);
+            // Write minimal skeleton (Application.java, build.sh, run.sh — no pom.xml)
+            writeMinimalSkeleton(cvePath.resolve("vuln-demo"));
 
-            // SubStage B: PoC Script
-            boolean vulnDemoRunning = "startup_ok".equals(vulnDemoResult.get("status"));
-            if (vulnDemoRunning) {
-                vulnDemoProcess = (Process) vulnDemoResult.get("process");
+            // Build prompts
+            String systemPrompt = promptRegistry.getSystemPrompt("gen_agent");
+            String userTemplate = promptRegistry.getUserPrompt("gen_agent");
+            Map<String, String> vars = new HashMap<>();
+            vars.put("intelligence", intelligence);
+            vars.put("trigger_chain", triggerChain);
+            vars.put("root_cause", rootCause);
+            vars.put("patch_diff", patchDiff);
+            vars.put("artifact", artifact);
+            String userPrompt = promptRegistry.render(userTemplate, vars);
+
+            // Build tools
+            List<LlmRequest.ToolDef> tools = buildToolDefinitions();
+
+            // Agent loop
+            List<LlmRequest.Message> messages = new ArrayList<>();
+            messages.add(LlmRequest.Message.user(userPrompt));
+
+            for (int turn = 0; turn < MAX_AGENT_TURNS; turn++) {
+                ctx.reportProgress("Agent turn " + (turn + 1));
+                log.info("Agent turn {}/{}", turn + 1, MAX_AGENT_TURNS);
+
+                // Inject urgency reminder when nearing the turn limit
+                int remaining = MAX_AGENT_TURNS - turn;
+                if (remaining == 3) {
+                    messages.add(LlmRequest.Message.user(
+                            "NOTICE: Only 3 turns remaining. Write the report now and call finish(). "
+                            + "If the PoC is not verified, set poc_status to 'unverified'."));
+                }
+
+                LlmResponse response = chatWithRetry(ctx,
+                        LlmRequest.agent(systemPrompt, messages, tools), 3);
+
+                messages.add(LlmRequest.Message.assistantWithBlocks(response.getContentBlocks()));
+
+                if (!response.hasToolUse()) {
+                    log.info("Agent returned no tool calls — ending loop");
+                    break;
+                }
+
+                List<LlmRequest.ContentBlock> toolResults = new ArrayList<>();
+                boolean finished = false;
+
+                for (LlmRequest.ContentBlock block : response.getToolUses()) {
+                    if ("finish".equals(block.getToolName())) {
+                        finished = true;
+                        agentCtx.summary = block.getToolInput();
+                        toolResults.add(LlmRequest.ContentBlock.toolResult(block.getToolUseId(), "ok"));
+                        log.info("Agent called finish()");
+                        break;
+                    }
+
+                    String result = executeToolCall(agentCtx, block);
+                    toolResults.add(LlmRequest.ContentBlock.toolResult(block.getToolUseId(), result));
+                }
+
+                messages.add(LlmRequest.Message.toolResults(toolResults));
+
+                agentCtx.turns = turn + 1;
+
+                if (finished) break;
             }
-            ctx.reportProgress("SubStage B: Generating PoC scripts");
-            Map<String, Object> pocResult = generatePoc(ctx, cvePath, intelligence, triggerChain, vulnDemoRunning);
 
-            // SubStage C: Report
-            ctx.reportProgress("SubStage C: Generating educational report");
-            Map<String, Object> reportResult = generateReport(ctx, cvePath, intelligence, triggerChain, rootCause, patchDiff);
-
-            // Build summary
-            List<Map<String, String>> allFiles = new ArrayList<>();
-            addFiles(allFiles, vulnDemoResult, "vuln-demo");
-            addFiles(allFiles, pocResult, "poc");
-            addFiles(allFiles, reportResult, "report");
-
-            Map<String, Object> summary = new LinkedHashMap<>();
-            summary.put("status", "generated");
-            summary.put("vulnDemo", stripProcess(vulnDemoResult));
-            summary.put("poc", pocResult);
-            summary.put("report", reportResult);
-            summary.put("fileCount", allFiles.size());
-            summary.put("files", allFiles);
-
-            ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 5, summary);
-            ctx.reportProgress("Artifact generation completed");
-            return StageResult.success(5, name(), summary);
+            // Build output
+            Map<String, Object> output = agentCtx.buildOutput();
+            ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 5, output);
+            ctx.reportProgress("Agent completed in " + agentCtx.turns + " turns");
+            return StageResult.success(5, name(), output);
 
         } finally {
-            if (vulnDemoProcess != null) {
-                vulnDemoProcess.destroyForcibly();
-                log.info("Stopped vuln-demo process");
-            }
+            agentCtx.cleanup();
         }
     }
 
-    // ==================== SubStage A: Vuln-Demo ====================
+    // ==================== LLM Call with Retry ====================
 
-    private Map<String, Object> generateVulnDemo(PipelineContext ctx, Path cvePath,
-            String intelligence, String triggerChain, String rootCause,
-            String patchDiff, Object rawIntelligence) {
-
-        Path vulnDemoPath = cvePath.resolve("vuln-demo");
-        Map<String, Object> result = new LinkedHashMap<>();
-        List<String> files = new ArrayList<>();
-
-        try {
-            // Clean old AI-generated source files (keep skeleton)
-            cleanOldGeneratedFiles(vulnDemoPath);
-
-            // A1: Write local skeleton
-            writeLocalSkeleton(vulnDemoPath, rawIntelligence);
-            files.addAll(Arrays.asList("pom.xml", "src/main/java/com/jvuln/demo/Application.java", "build.sh", "run.sh"));
-
-            // A2: LLM generates configuration + business code
-            String systemPrompt = promptRegistry.getSystemPrompt("gen_vulndemo");
-            String userTemplate = promptRegistry.getUserPrompt("gen_vulndemo");
-            Map<String, String> vars = new HashMap<>();
-            vars.put("intelligence", intelligence);
-            vars.put("trigger_chain", triggerChain);
-            vars.put("root_cause", rootCause);
-            vars.put("patch_diff", patchDiff);
-            vars.put("artifact", extractArtifact(rawIntelligence));
-            String userPrompt = promptRegistry.render(userTemplate, vars);
-
-            List<LlmRequest.Message> messages = new ArrayList<>();
-            messages.add(LlmRequest.Message.user(userPrompt));
-
-            ctx.reportProgress("SubStage A: LLM generating vuln-specific code");
-            String content = requestJsonResponse(ctx, systemPrompt, messages);
-
-            List<String> genFiles = writeVulnDemoFiles(vulnDemoPath, content);
-            files.addAll(genFiles);
-
-            // A3: Compile fix loop
-            ctx.reportProgress("SubStage A: Compiling vuln-demo");
-            String compileStatus = compileFixLoop(ctx, vulnDemoPath, messages, systemPrompt);
-            result.put("compileStatus", compileStatus);
-            int compileAttempts = countFixRounds(messages, "compile");
-
-            // A4: Startup fix loop (only if compile succeeded)
-            if ("compile_ok".equals(compileStatus)) {
-                ctx.reportProgress("SubStage A: Starting vuln-demo");
-                Object[] startupResult = startupFixLoop(ctx, vulnDemoPath, messages, systemPrompt);
-                String startupStatus = (String) startupResult[0];
-                Process process = (Process) startupResult[1];
-                result.put("startupStatus", startupStatus);
-                result.put("status", startupStatus);
-                if (process != null) {
-                    result.put("process", process);
+    private LlmResponse chatWithRetry(PipelineContext ctx, LlmRequest request, int maxAttempts) throws Exception {
+        Exception lastErr = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return ctx.getLlmClient().chat(request);
+            } catch (Exception e) {
+                lastErr = e;
+                String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                boolean retryable = msg.contains("500") || msg.contains("502") || msg.contains("503")
+                        || msg.contains("429") || msg.contains("403") || msg.contains("overloaded")
+                        || msg.contains("Internal Server Error") || msg.contains("returned no content");
+                if (!retryable || attempt == maxAttempts) {
+                    throw e;
                 }
-            } else {
-                result.put("startupStatus", "skipped");
-                result.put("status", compileStatus);
+                long delay = attempt * 10_000L; // 10s, 20s
+                log.warn("LLM call failed (attempt {}/{}), retrying in {}s: {}",
+                        attempt, maxAttempts, delay / 1000, msg);
+                Thread.sleep(delay);
             }
-
-            result.put("compileAttempts", compileAttempts);
-            result.put("files", files);
-
-        } catch (Exception e) {
-            log.error("SubStage A failed: {}", e.getMessage(), e);
-            result.put("status", "error");
-            result.put("error", e.getMessage());
-            result.put("files", files);
         }
-        return result;
+        throw lastErr;
     }
 
-    // ==================== SubStage B: PoC ====================
+    // ==================== Tool Definitions ====================
 
-    private Map<String, Object> generatePoc(PipelineContext ctx, Path cvePath,
-            String intelligence, String triggerChain, boolean vulnDemoRunning) {
+    private List<LlmRequest.ToolDef> buildToolDefinitions() {
+        List<LlmRequest.ToolDef> tools = new ArrayList<>();
 
-        Path pocPath = cvePath.resolve("poc");
-        Map<String, Object> result = new LinkedHashMap<>();
+        Map<String, Object> writeSchema = new LinkedHashMap<>();
+        writeSchema.put("type", "object");
+        Map<String, Object> writeProps = new LinkedHashMap<>();
+        writeProps.put("path", prop("string", "File path relative to workspace (e.g. vuln-demo/pom.xml, poc/exploit.sh, report/report.md)"));
+        writeProps.put("content", prop("string", "Full file content"));
+        writeSchema.put("properties", writeProps);
+        writeSchema.put("required", Arrays.asList("path", "content"));
+        tools.add(new LlmRequest.ToolDef("write_file",
+                "Write a file to the workspace. Path must start with vuln-demo/, poc/, or report/.",
+                writeSchema));
+
+        Map<String, Object> readSchema = new LinkedHashMap<>();
+        readSchema.put("type", "object");
+        Map<String, Object> readProps = new LinkedHashMap<>();
+        readProps.put("path", prop("string", "File path relative to workspace"));
+        readSchema.put("properties", readProps);
+        readSchema.put("required", Collections.singletonList("path"));
+        tools.add(new LlmRequest.ToolDef("read_file",
+                "Read a file from the workspace.",
+                readSchema));
+
+        Map<String, Object> buildSchema = new LinkedHashMap<>();
+        buildSchema.put("type", "object");
+        buildSchema.put("properties", Collections.emptyMap());
+        tools.add(new LlmRequest.ToolDef("run_build",
+                "Compile the vuln-demo project (mvn package -DskipTests). Returns stdout+stderr.",
+                buildSchema));
+
+        Map<String, Object> startSchema = new LinkedHashMap<>();
+        startSchema.put("type", "object");
+        startSchema.put("properties", Collections.emptyMap());
+        tools.add(new LlmRequest.ToolDef("start_app",
+                "Start the vuln-demo application on port 18080. Returns status. If already running, stops and restarts.",
+                startSchema));
+
+        Map<String, Object> cmdSchema = new LinkedHashMap<>();
+        cmdSchema.put("type", "object");
+        Map<String, Object> cmdProps = new LinkedHashMap<>();
+        cmdProps.put("command", prop("string", "Shell command to execute (curl, grep, bash, etc.)"));
+        cmdSchema.put("properties", cmdProps);
+        cmdSchema.put("required", Collections.singletonList("command"));
+        tools.add(new LlmRequest.ToolDef("run_command",
+                "Execute a shell command in the workspace directory. Use for curl, grep, bash scripts, etc.",
+                cmdSchema));
+
+        Map<String, Object> finishSchema = new LinkedHashMap<>();
+        finishSchema.put("type", "object");
+        Map<String, Object> finishProps = new LinkedHashMap<>();
+        finishProps.put("vuln_demo_status", prop("string", "Status: startup_ok, compile_ok, compile_failed"));
+        finishProps.put("poc_status", prop("string", "Status: verified, unverified, skipped"));
+        finishProps.put("report_status", prop("string", "Status: generated, skipped"));
+        finishProps.put("notes", prop("string", "Any notes about the generation"));
+        finishSchema.put("properties", finishProps);
+        tools.add(new LlmRequest.ToolDef("finish",
+                "Call when all deliverables are ready. Provide a summary of what was generated.",
+                finishSchema));
+
+        return tools;
+    }
+
+    private Map<String, Object> prop(String type, String description) {
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("type", type);
+        p.put("description", description);
+        return p;
+    }
+
+    // ==================== Tool Execution ====================
+
+    private String executeToolCall(AgentContext ctx, LlmRequest.ContentBlock toolUse) {
+        String toolName = toolUse.getToolName();
+        JsonNode input = toolUse.getToolInput();
+        log.info("Executing tool: {}", toolName);
 
         try {
-            String systemPrompt = promptRegistry.getSystemPrompt("gen_poc");
-            String userTemplate = promptRegistry.getUserPrompt("gen_poc");
-            Map<String, String> vars = new HashMap<>();
-            vars.put("intelligence", intelligence);
-            vars.put("trigger_chain", triggerChain);
-            vars.put("vuln_demo_info", vulnDemoRunning
-                    ? "The application is running and accessible."
-                    : "The application is NOT running (compilation/startup failed). Generate the PoC anyway for reference.");
-            String userPrompt = promptRegistry.render(userTemplate, vars);
-
-            List<LlmRequest.Message> messages = new ArrayList<>();
-            messages.add(LlmRequest.Message.user(userPrompt));
-
-            ctx.reportProgress("SubStage B: LLM generating PoC");
-            String content = requestJsonResponse(ctx, systemPrompt, messages);
-
-            String json = stripMarkdownFence(content);
-            JsonNode root = mapper.readTree(json);
-
-            List<String> pocFiles = writePocFiles(pocPath, root);
-            result.put("files", pocFiles);
-
-            String verifyCmd = "";
-            JsonNode verification = root.path("verification");
-            if (!verification.isMissingNode()) {
-                verifyCmd = verification.path("command").asText("");
-                Map<String, String> verifyMap = new HashMap<>();
-                verifyMap.put("command", verifyCmd);
-                verifyMap.put("description", verification.path("description").asText(""));
-                result.put("verification", verifyMap);
-            }
-
-            // B3: Verify if vuln-demo is running
-            if (vulnDemoRunning && !verifyCmd.isEmpty()) {
-                ctx.reportProgress("SubStage B: Executing and verifying PoC");
-                String pocStatus = pocFixLoop(ctx, pocPath, cvePath.resolve("vuln-demo"),
-                        messages, systemPrompt, pocFiles, verifyCmd);
-                result.put("status", pocStatus);
-            } else {
-                result.put("status", vulnDemoRunning ? "unverified" : "skipped");
-            }
-
-            result.put("pocAttempts", countFixRounds(messages, "poc"));
-
-        } catch (Exception e) {
-            log.error("SubStage B failed: {}", e.getMessage(), e);
-            result.put("status", "error");
-            result.put("error", e.getMessage());
-        }
-        return result;
-    }
-
-    // ==================== SubStage C: Report ====================
-
-    private Map<String, Object> generateReport(PipelineContext ctx, Path cvePath,
-            String intelligence, String triggerChain, String rootCause, String patchDiff) {
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        try {
-            String systemPrompt = promptRegistry.getSystemPrompt("gen_report");
-            String userTemplate = promptRegistry.getUserPrompt("gen_report");
-            Map<String, String> vars = new HashMap<>();
-            vars.put("intelligence", intelligence);
-            vars.put("trigger_chain", triggerChain);
-            vars.put("root_cause", rootCause);
-            vars.put("patch_diff", patchDiff);
-            String userPrompt = promptRegistry.render(userTemplate, vars);
-
-            ctx.reportProgress("SubStage C: LLM generating report");
-            LlmResponse response = ctx.getLlmClient().chat(LlmRequest.generation(systemPrompt, userPrompt));
-            String content = response.getContent();
-
-            if (content != null && !content.trim().isEmpty()) {
-                Path reportFile = cvePath.resolve("report/report.md");
-                Files.createDirectories(reportFile.getParent());
-                Files.write(reportFile, content.getBytes(StandardCharsets.UTF_8));
-                result.put("status", "generated");
-                result.put("file", "report/report.md");
-                log.info("Wrote report: report/report.md");
-            } else {
-                result.put("status", "failed");
-                result.put("error", "LLM returned empty report");
+            switch (toolName) {
+                case "write_file":  return doWriteFile(ctx, input);
+                case "read_file":   return doReadFile(ctx, input);
+                case "run_build":   return doRunBuild(ctx);
+                case "start_app":   return doStartApp(ctx);
+                case "run_command": return doRunCommand(ctx, input);
+                default:            return "Unknown tool: " + toolName;
             }
         } catch (Exception e) {
-            log.error("SubStage C failed: {}", e.getMessage(), e);
-            result.put("status", "error");
-            result.put("error", e.getMessage());
+            log.error("Tool {} failed: {}", toolName, e.getMessage());
+            return "Error: " + e.getMessage();
         }
-        return result;
     }
 
-    // ==================== Verification Loops ====================
+    private String doWriteFile(AgentContext ctx, JsonNode input) throws IOException {
+        String path = input.path("path").asText("");
+        String content = input.path("content").asText("");
 
-    private String compileFixLoop(PipelineContext ctx, Path vulnDemoPath,
-            List<LlmRequest.Message> messages, String systemPrompt) throws Exception {
+        if (path.isEmpty() || content.isEmpty()) return "Error: path and content are required";
 
-        for (int round = 0; round <= MAX_FIX_ROUNDS; round++) {
-            ProcessResult pr = runProcess(vulnDemoPath, COMPILE_TIMEOUT, "bash", "build.sh");
-            if (pr.exitCode == 0) {
-                log.info("Compile succeeded (round {})", round);
-                return "compile_ok";
-            }
-            if (round == MAX_FIX_ROUNDS) break;
-
-            log.warn("Compile failed (round {}), requesting fix", round);
-            String errorTrunc = truncate(pr.output, LOG_TRUNCATE);
-            messages.add(LlmRequest.Message.user(
-                    "Compilation failed. Fix the code.\n\nError output:\n```\n" + errorTrunc + "\n```\n\n"
-                    + "Return the corrected files in the same JSON format."));
-
-            ctx.reportProgress("SubStage A: Fixing compile error (round " + (round + 1) + ")");
-            LlmResponse resp = ctx.getLlmClient().chat(LlmRequest.generation(systemPrompt, messages));
-            String fix = resp.getContent();
-            messages.add(LlmRequest.Message.assistant(fix));
-            writeVulnDemoFiles(vulnDemoPath, fix);
+        // Security: only allow paths under vuln-demo/, poc/, report/
+        if (!path.startsWith("vuln-demo/") && !path.startsWith("poc/") && !path.startsWith("report/")) {
+            return "Error: path must start with vuln-demo/, poc/, or report/";
         }
-        return "compile_failed";
+        if (path.contains("..")) return "Error: path traversal not allowed";
+
+        Path target = ctx.cvePath.resolve(path);
+        Files.createDirectories(target.getParent());
+        Files.write(target, content.getBytes(StandardCharsets.UTF_8));
+
+        if (path.endsWith(".sh")) {
+            target.toFile().setExecutable(true);
+        }
+
+        ctx.writtenFiles.add(path);
+        log.info("  Wrote: {} ({} bytes)", path, content.length());
+        return "ok";
     }
 
-    private Object[] startupFixLoop(PipelineContext ctx, Path vulnDemoPath,
-            List<LlmRequest.Message> messages, String systemPrompt) throws Exception {
+    private String doReadFile(AgentContext ctx, JsonNode input) throws IOException {
+        String path = input.path("path").asText("");
+        if (path.isEmpty()) return "Error: path is required";
+        if (path.contains("..")) return "Error: path traversal not allowed";
 
-        for (int round = 0; round <= MAX_FIX_ROUNDS; round++) {
-            Process proc = startBackground(vulnDemoPath);
-            boolean started = waitForStartup(proc, STARTUP_WAIT);
+        Path target = ctx.cvePath.resolve(path);
+        if (!Files.exists(target)) return "Error: file not found: " + path;
 
-            if (started) {
-                log.info("Startup succeeded (round {})", round);
-                return new Object[]{"startup_ok", proc};
-            }
-
-            proc.destroyForcibly();
-            if (round == MAX_FIX_ROUNDS) break;
-
-            String logOutput = readProcessOutput(proc, LOG_TRUNCATE);
-            log.warn("Startup failed (round {}), requesting fix", round);
-            messages.add(LlmRequest.Message.user(
-                    "Application failed to start on port " + VULN_DEMO_PORT + ". Fix the code.\n\n"
-                    + "Startup log:\n```\n" + logOutput + "\n```\n\n"
-                    + "Return the corrected files in the same JSON format."));
-
-            ctx.reportProgress("SubStage A: Fixing startup error (round " + (round + 1) + ")");
-            LlmResponse resp = ctx.getLlmClient().chat(LlmRequest.generation(systemPrompt, messages));
-            String fix = resp.getContent();
-            messages.add(LlmRequest.Message.assistant(fix));
-            writeVulnDemoFiles(vulnDemoPath, fix);
-
-            // Recompile after fix
-            ProcessResult compile = runProcess(vulnDemoPath, COMPILE_TIMEOUT, "bash", "build.sh");
-            if (compile.exitCode != 0) {
-                log.warn("Recompile after startup fix failed");
-            }
-        }
-        return new Object[]{"startup_failed", null};
+        byte[] bytes = Files.readAllBytes(target);
+        String content = new String(bytes, StandardCharsets.UTF_8);
+        return truncate(content, OUTPUT_TRUNCATE);
     }
 
-    private String pocFixLoop(PipelineContext ctx, Path pocPath, Path vulnDemoPath,
-            List<LlmRequest.Message> messages, String systemPrompt,
-            List<String> pocFiles, String verifyCmd) throws Exception {
+    private String doRunBuild(AgentContext ctx) {
+        ctx.pipeCtx.reportProgress("Agent: compiling vuln-demo");
+        ProcessResult pr = runProcess(ctx.cvePath.resolve("vuln-demo"), COMPILE_TIMEOUT, "bash", "build.sh");
+        String status = pr.exitCode == 0 ? "BUILD SUCCESS" : "BUILD FAILED (exit code " + pr.exitCode + ")";
+        log.info("  Build: {}", status);
+        return status + "\n\n" + truncate(pr.output, OUTPUT_TRUNCATE);
+    }
 
-        for (int round = 0; round <= MAX_FIX_ROUNDS; round++) {
-            // Execute PoC
-            String mainPoc = pocFiles.isEmpty() ? "exploit.sh" : pocFiles.get(0);
-            Path pocScript = pocPath.resolve(mainPoc);
-            ProcessResult pocRun = runProcess(pocPath, POC_TIMEOUT, "bash", pocScript.toString());
+    private String doStartApp(AgentContext ctx) throws Exception {
+        ctx.pipeCtx.reportProgress("Agent: starting vuln-demo");
 
-            // Execute verification
-            ProcessResult verify = runProcess(pocPath, VERIFY_TIMEOUT, "bash", "-c", verifyCmd);
-            if (verify.exitCode == 0) {
-                log.info("PoC verified (round {})", round);
-                return "verified";
+        // Stop existing process if running
+        if (ctx.appProcess != null && ctx.appProcess.isAlive()) {
+            ctx.appProcess.destroyForcibly();
+            ctx.appProcess.waitFor(5, TimeUnit.SECONDS);
+            log.info("  Stopped previous vuln-demo process");
+        }
+
+        Path vulnDemoPath = ctx.cvePath.resolve("vuln-demo");
+        ProcessBuilder pb = new ProcessBuilder("bash", "run.sh");
+        pb.directory(vulnDemoPath.toFile());
+        pb.redirectErrorStream(true);
+        ctx.appProcess = pb.start();
+
+        // Wait for startup
+        long deadline = System.currentTimeMillis() + STARTUP_WAIT * 1000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (!ctx.appProcess.isAlive()) {
+                String output = readProcessOutput(ctx.appProcess);
+                return "STARTUP FAILED — process exited\n\n" + truncate(output, OUTPUT_TRUNCATE);
             }
-
-            if (round == MAX_FIX_ROUNDS) break;
-
-            log.warn("PoC verification failed (round {}), requesting fix", round);
-            messages.add(LlmRequest.Message.user(
-                    "PoC verification failed.\n\nPoC output:\n```\n" + truncate(pocRun.output, 2000)
-                    + "\n```\n\nVerification command: " + verifyCmd
-                    + "\nVerification output:\n```\n" + truncate(verify.output, 1000)
-                    + "\n```\n\nFix the PoC or the vuln-demo application. Return the same JSON format."));
-
-            ctx.reportProgress("SubStage B: Fixing PoC (round " + (round + 1) + ")");
-            LlmResponse resp = ctx.getLlmClient().chat(LlmRequest.generation(systemPrompt, messages));
-            String fix = resp.getContent();
-            messages.add(LlmRequest.Message.assistant(fix));
-
-            String fixJson = stripMarkdownFence(fix);
-            JsonNode fixRoot = mapper.readTree(fixJson);
-
-            // Apply PoC fixes
-            if (fixRoot.has("poc_files")) {
-                pocFiles.clear();
-                pocFiles.addAll(writePocFiles(pocPath, fixRoot));
-            }
-
-            // Apply vuln-demo fixes if present
-            if (fixRoot.has("vulndemo_fixes")) {
-                JsonNode fixes = fixRoot.path("vulndemo_fixes");
-                if (fixes.isArray()) {
-                    for (JsonNode f : fixes) {
-                        String path = f.path("path").asText("");
-                        String content = f.path("content").asText("");
-                        if (!path.isEmpty() && !content.isEmpty()) {
-                            Path target = vulnDemoPath.resolve(path);
-                            Files.createDirectories(target.getParent());
-                            Files.write(target, content.getBytes(StandardCharsets.UTF_8));
-                        }
-                    }
-                    // Recompile and restart
-                    runProcess(vulnDemoPath, COMPILE_TIMEOUT, "bash", "build.sh");
+            try {
+                HttpURLConnection conn = (HttpURLConnection) new URL(
+                        "http://localhost:" + VULN_DEMO_PORT + "/").openConnection();
+                conn.setConnectTimeout(1000);
+                conn.setReadTimeout(1000);
+                conn.setRequestMethod("GET");
+                int code = conn.getResponseCode();
+                conn.disconnect();
+                if (code > 0) {
+                    log.info("  App started on port {}", VULN_DEMO_PORT);
+                    return "Application started on port " + VULN_DEMO_PORT + " (HTTP " + code + ")";
                 }
-            }
+            } catch (Exception ignored) {}
+            Thread.sleep(1000);
         }
-        return "unverified";
+
+        // Timeout — read whatever output we can get
+        String output = readProcessOutput(ctx.appProcess);
+        if (ctx.appProcess.isAlive()) {
+            return "STARTUP TIMEOUT after " + STARTUP_WAIT + "s — app process still running but port not responding\n\n" + truncate(output, 2000);
+        } else {
+            return "STARTUP FAILED — process died during startup\n\n" + truncate(output, OUTPUT_TRUNCATE);
+        }
+    }
+
+    private String doRunCommand(AgentContext ctx, JsonNode input) {
+        String command = input.path("command").asText("");
+        if (command.isEmpty()) return "Error: command is required";
+
+        // Security check
+        String firstWord = command.trim().split("\\s+")[0];
+        if (!COMMAND_WHITELIST.contains(firstWord)) {
+            return "Error: command '" + firstWord + "' is not allowed. Allowed: " + COMMAND_WHITELIST;
+        }
+
+        ctx.pipeCtx.reportProgress("Agent: " + truncate(command, 80));
+        ProcessResult pr = runProcess(ctx.cvePath, COMMAND_TIMEOUT, "bash", "-c", command);
+        log.info("  Command exit={}: {}", pr.exitCode, truncate(command, 100));
+        return "Exit code: " + pr.exitCode + "\n\n" + truncate(pr.output, OUTPUT_TRUNCATE);
     }
 
     // ==================== Process Management ====================
@@ -425,142 +396,21 @@ public class ArtifactGenStage implements Stage {
         }
     }
 
-    private Process startBackground(Path vulnDemoPath) throws IOException {
-        ProcessBuilder pb = new ProcessBuilder("bash", "run.sh");
-        pb.directory(vulnDemoPath.toFile());
-        pb.redirectErrorStream(true);
-        return pb.start();
-    }
-
-    private boolean waitForStartup(Process proc, int maxWaitSec) {
-        long deadline = System.currentTimeMillis() + maxWaitSec * 1000L;
-        while (System.currentTimeMillis() < deadline) {
-            if (!proc.isAlive()) return false;
-            try {
-                HttpURLConnection conn = (HttpURLConnection) new URL("http://localhost:" + VULN_DEMO_PORT + "/").openConnection();
-                conn.setConnectTimeout(1000);
-                conn.setReadTimeout(1000);
-                conn.setRequestMethod("GET");
-                int code = conn.getResponseCode();
-                conn.disconnect();
-                if (code > 0) return true;
-            } catch (Exception ignored) {}
-            try { Thread.sleep(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
-        }
-        return false;
-    }
-
-    private String readProcessOutput(Process proc, int maxLen) {
+    private String readProcessOutput(Process proc) {
         try {
             byte[] bytes = readStream(proc.getInputStream());
-            String s = new String(bytes, StandardCharsets.UTF_8);
-            return truncate(s, maxLen);
+            return new String(bytes, StandardCharsets.UTF_8);
         } catch (Exception e) {
             return "Could not read output: " + e.getMessage();
         }
     }
 
-    // ==================== Skeleton Generation ====================
+    // ==================== Skeleton ====================
 
-    private void cleanOldGeneratedFiles(Path vulnDemoPath) throws IOException {
-        Path srcDir = vulnDemoPath.resolve("src");
-        if (Files.exists(srcDir)) {
-            // Delete all Java files except Application.java, and all resource files
-            Files.walk(srcDir)
-                    .filter(Files::isRegularFile)
-                    .filter(p -> {
-                        String name = p.getFileName().toString();
-                        return !name.equals("Application.java");
-                    })
-                    .forEach(p -> {
-                        try { Files.delete(p); } catch (IOException ignored) {}
-                    });
-            log.info("Cleaned old generated files from vuln-demo/src");
-        }
-        Path target = vulnDemoPath.resolve("target");
-        if (Files.exists(target)) {
-            Files.walk(target).sorted(Comparator.reverseOrder())
-                    .forEach(p -> {
-                        try { Files.delete(p); } catch (IOException ignored) {}
-                    });
-            log.info("Cleaned vuln-demo/target");
-        }
-    }
-
-    private void writeLocalSkeleton(Path vulnDemoPath, Object intelligenceData) throws Exception {
+    private void writeMinimalSkeleton(Path vulnDemoPath) throws IOException {
         Files.createDirectories(vulnDemoPath.resolve("src/main/java/com/jvuln/demo"));
         Files.createDirectories(vulnDemoPath.resolve("src/main/resources"));
 
-        JsonNode intel = mapper.valueToTree(intelligenceData);
-        JsonNode art = intel.path("artifact");
-        String groupId = art.path("groupId").asText("");
-        String artifactId = art.path("artifactId").asText("");
-        String version = art.path("version").asText("");
-
-        // Derive vulnerable version from fixedVersion if not explicit
-        if (version.isEmpty()) {
-            String fixed = intel.path("fixedVersion").asText("");
-            version = deriveVulnerableVersion(fixed);
-        }
-
-        // Determine if this is a Spring Boot managed dependency
-        String versionProperty = resolveBootManagedProperty(groupId, artifactId);
-
-        // Build pom.xml
-        StringBuilder props = new StringBuilder();
-        props.append("        <java.version>1.8</java.version>\n");
-        if (versionProperty != null && !version.isEmpty()) {
-            props.append("        <").append(versionProperty).append(">")
-                 .append(version).append("</").append(versionProperty).append(">\n");
-            log.info("Overriding Spring Boot managed version: {}={}", versionProperty, version);
-        }
-
-        StringBuilder deps = new StringBuilder();
-        deps.append("        <dependency>\n")
-            .append("            <groupId>org.springframework.boot</groupId>\n")
-            .append("            <artifactId>spring-boot-starter-web</artifactId>\n")
-            .append("        </dependency>\n");
-
-        if (versionProperty == null && !groupId.isEmpty() && !artifactId.isEmpty() && !version.isEmpty()) {
-            deps.append("        <dependency>\n")
-                .append("            <groupId>").append(groupId).append("</groupId>\n")
-                .append("            <artifactId>").append(artifactId).append("</artifactId>\n")
-                .append("            <version>").append(version).append("</version>\n")
-                .append("        </dependency>\n");
-            log.info("Added explicit dependency: {}:{}:{}", groupId, artifactId, version);
-        }
-
-        String pom = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                + "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n"
-                + "         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n"
-                + "         xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n"
-                + "    <modelVersion>4.0.0</modelVersion>\n"
-                + "    <parent>\n"
-                + "        <groupId>org.springframework.boot</groupId>\n"
-                + "        <artifactId>spring-boot-starter-parent</artifactId>\n"
-                + "        <version>2.7.18</version>\n"
-                + "    </parent>\n"
-                + "    <groupId>com.jvuln</groupId>\n"
-                + "    <artifactId>vuln-demo</artifactId>\n"
-                + "    <version>1.0.0</version>\n"
-                + "    <properties>\n"
-                + props.toString()
-                + "    </properties>\n"
-                + "    <dependencies>\n"
-                + deps.toString()
-                + "    </dependencies>\n"
-                + "    <build>\n"
-                + "        <plugins>\n"
-                + "            <plugin>\n"
-                + "                <groupId>org.springframework.boot</groupId>\n"
-                + "                <artifactId>spring-boot-maven-plugin</artifactId>\n"
-                + "            </plugin>\n"
-                + "        </plugins>\n"
-                + "    </build>\n"
-                + "</project>\n";
-        Files.write(vulnDemoPath.resolve("pom.xml"), pom.getBytes(StandardCharsets.UTF_8));
-
-        // Application.java
         String app = "package com.jvuln.demo;\n\n"
                 + "import org.springframework.boot.SpringApplication;\n"
                 + "import org.springframework.boot.autoconfigure.SpringBootApplication;\n\n"
@@ -573,72 +423,20 @@ public class ArtifactGenStage implements Stage {
         Files.write(vulnDemoPath.resolve("src/main/java/com/jvuln/demo/Application.java"),
                 app.getBytes(StandardCharsets.UTF_8));
 
-        // build.sh
         String build = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\nmvn package -DskipTests -q\n";
         Path buildSh = vulnDemoPath.resolve("build.sh");
         Files.write(buildSh, build.getBytes(StandardCharsets.UTF_8));
         buildSh.toFile().setExecutable(true);
 
-        // run.sh
         String run = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\nexec java -jar target/*.jar --server.port=" + VULN_DEMO_PORT + "\n";
         Path runSh = vulnDemoPath.resolve("run.sh");
         Files.write(runSh, run.getBytes(StandardCharsets.UTF_8));
         runSh.toFile().setExecutable(true);
 
-        log.info("Wrote local skeleton: pom.xml, Application.java, build.sh, run.sh");
+        log.info("Wrote minimal skeleton: Application.java, build.sh, run.sh");
     }
 
-    // ==================== File Writing ====================
-
-    private List<String> writeVulnDemoFiles(Path vulnDemoPath, String llmContent) throws Exception {
-        String json = stripMarkdownFence(llmContent);
-        JsonNode root = mapper.readTree(json);
-
-        // Process additional_dependencies if present
-        JsonNode additionalDeps = root.path("additional_dependencies");
-        if (additionalDeps.isArray() && additionalDeps.size() > 0) {
-            appendDependenciesToPom(vulnDemoPath, additionalDeps);
-        }
-
-        JsonNode filesNode = root.path("files");
-        List<String> written = new ArrayList<>();
-        if (filesNode.isArray()) {
-            for (JsonNode file : filesNode) {
-                String path = file.path("path").asText("");
-                String content = file.path("content").asText("");
-                if (!path.isEmpty() && !content.isEmpty()) {
-                    Path target = vulnDemoPath.resolve(path);
-                    Files.createDirectories(target.getParent());
-                    Files.write(target, content.getBytes(StandardCharsets.UTF_8));
-                    written.add(path);
-                    log.info("Wrote vuln-demo file: {}", path);
-                }
-            }
-        }
-        return written;
-    }
-
-    private List<String> writePocFiles(Path pocPath, JsonNode root) throws IOException {
-        List<String> written = new ArrayList<>();
-        JsonNode pocFiles = root.path("poc_files");
-        if (pocFiles.isArray()) {
-            for (JsonNode file : pocFiles) {
-                String path = file.path("path").asText("");
-                String content = file.path("content").asText("");
-                if (!path.isEmpty() && !content.isEmpty()) {
-                    Path target = pocPath.resolve(path);
-                    Files.createDirectories(target.getParent());
-                    Files.write(target, content.getBytes(StandardCharsets.UTF_8));
-                    target.toFile().setExecutable(true);
-                    written.add(path);
-                    log.info("Wrote PoC file: {}", path);
-                }
-            }
-        }
-        return written;
-    }
-
-    // ==================== Data Extraction (from upstream stages) ====================
+    // ==================== Data Extraction ====================
 
     private String trimIntelligence(Object data) throws Exception {
         JsonNode root = mapper.valueToTree(data);
@@ -667,10 +465,7 @@ public class ArtifactGenStage implements Stage {
     private String extractTriggerChain(Object data) throws Exception {
         JsonNode root = mapper.valueToTree(data);
         JsonNode chain = root.path("trigger_chain");
-        if (!chain.isMissingNode()) {
-            return mapper.writeValueAsString(chain);
-        }
-        return "{}";
+        return !chain.isMissingNode() ? mapper.writeValueAsString(chain) : "{}";
     }
 
     private String extractRootCause(Object data) throws Exception {
@@ -694,171 +489,7 @@ public class ArtifactGenStage implements Stage {
         return "";
     }
 
-    // ==================== Version Resolution ====================
-
-    private static final Map<String, String> BOOT_MANAGED_PROPERTIES = new LinkedHashMap<>();
-    static {
-        BOOT_MANAGED_PROPERTIES.put("org.apache.tomcat.embed:tomcat-embed-core", "tomcat.version");
-        BOOT_MANAGED_PROPERTIES.put("org.apache.tomcat.embed:tomcat-embed-websocket", "tomcat.version");
-        BOOT_MANAGED_PROPERTIES.put("org.apache.tomcat:tomcat-catalina", "tomcat.version");
-        BOOT_MANAGED_PROPERTIES.put("org.apache.tomcat:tomcat-coyote", "tomcat.version");
-        BOOT_MANAGED_PROPERTIES.put("com.fasterxml.jackson.core:jackson-databind", "jackson-bom.version");
-        BOOT_MANAGED_PROPERTIES.put("com.fasterxml.jackson.core:jackson-core", "jackson-bom.version");
-        BOOT_MANAGED_PROPERTIES.put("io.netty:netty-codec-http", "netty.version");
-        BOOT_MANAGED_PROPERTIES.put("io.netty:netty-handler", "netty.version");
-        BOOT_MANAGED_PROPERTIES.put("org.yaml:snakeyaml", "snakeyaml.version");
-        BOOT_MANAGED_PROPERTIES.put("ch.qos.logback:logback-classic", "logback.version");
-        BOOT_MANAGED_PROPERTIES.put("org.apache.logging.log4j:log4j-core", "log4j2.version");
-        BOOT_MANAGED_PROPERTIES.put("org.springframework:spring-webmvc", "spring-framework.version");
-        BOOT_MANAGED_PROPERTIES.put("org.springframework:spring-beans", "spring-framework.version");
-        BOOT_MANAGED_PROPERTIES.put("org.springframework:spring-core", "spring-framework.version");
-        BOOT_MANAGED_PROPERTIES.put("org.thymeleaf:thymeleaf", "thymeleaf.version");
-        BOOT_MANAGED_PROPERTIES.put("com.h2database:h2", "h2.version");
-        BOOT_MANAGED_PROPERTIES.put("org.postgresql:postgresql", "postgresql.version");
-    }
-
-    private String resolveBootManagedProperty(String groupId, String artifactId) {
-        if (groupId == null || artifactId == null) return null;
-        return BOOT_MANAGED_PROPERTIES.get(groupId + ":" + artifactId);
-    }
-
-    private String deriveVulnerableVersion(String fixedVersion) {
-        if (fixedVersion == null || fixedVersion.isEmpty()) return "";
-        // Parse major.minor.patch and decrement patch by 1
-        String[] parts = fixedVersion.split("\\.");
-        if (parts.length < 3) return "";
-        try {
-            int major = Integer.parseInt(parts[0]);
-            int minor = Integer.parseInt(parts[1]);
-            int patch = Integer.parseInt(parts[2]);
-            if (patch > 0) {
-                return major + "." + minor + "." + (patch - 1);
-            } else if (minor > 0) {
-                return major + "." + (minor - 1) + ".99";
-            }
-        } catch (NumberFormatException ignored) {}
-        return "";
-    }
-
     // ==================== Utilities ====================
-
-    private String requestJsonResponse(PipelineContext ctx, String systemPrompt,
-            List<LlmRequest.Message> messages) throws Exception {
-        LlmResponse response = ctx.getLlmClient().chat(LlmRequest.generation(systemPrompt, messages));
-        String content = response.getContent();
-        messages.add(LlmRequest.Message.assistant(content));
-
-        // If response doesn't contain JSON, ask the model to retry
-        if (content != null && !content.contains("{")) {
-            log.warn("LLM response has no JSON, requesting retry. First 100 chars: {}",
-                    content.substring(0, Math.min(100, content.length())));
-            messages.add(LlmRequest.Message.user(
-                    "Your response must be ONLY a JSON object. No explanation text. Return the JSON now."));
-            response = ctx.getLlmClient().chat(LlmRequest.generation(systemPrompt, messages));
-            content = response.getContent();
-            messages.add(LlmRequest.Message.assistant(content));
-        }
-        return content;
-    }
-
-    private void appendDependenciesToPom(Path vulnDemoPath, JsonNode additionalDeps) throws IOException {
-        Path pomPath = vulnDemoPath.resolve("pom.xml");
-        if (!Files.exists(pomPath)) {
-            log.warn("pom.xml not found, cannot append dependencies");
-            return;
-        }
-
-        String pomContent = new String(Files.readAllBytes(pomPath), StandardCharsets.UTF_8);
-
-        // Track existing dependencies with their positions
-        Map<String, Integer> existingDeps = new HashMap<>();
-        String depPattern = "<dependency>\\s*<groupId>([^<]+)</groupId>\\s*<artifactId>([^<]+)</artifactId>";
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(depPattern);
-        java.util.regex.Matcher matcher = pattern.matcher(pomContent);
-        while (matcher.find()) {
-            String depKey = matcher.group(1) + ":" + matcher.group(2);
-            existingDeps.put(depKey, matcher.start());
-        }
-
-        // Build dependency XML snippets for new dependencies, or update existing ones
-        StringBuilder depsXml = new StringBuilder();
-        int addedCount = 0;
-        Set<String> toUpdate = new HashSet<>();
-
-        for (JsonNode dep : additionalDeps) {
-            String groupId = dep.path("groupId").asText("");
-            String artifactId = dep.path("artifactId").asText("");
-            String version = dep.path("version").asText("");
-
-            if (groupId.isEmpty() || artifactId.isEmpty()) continue;
-
-            String depKey = groupId + ":" + artifactId;
-
-            if (existingDeps.containsKey(depKey)) {
-                // Dependency exists - if new version is specified, mark for update
-                if (!version.isEmpty()) {
-                    toUpdate.add(depKey);
-                    log.info("Marking dependency for version update: {}:{}", depKey, version);
-                } else {
-                    log.debug("Dependency already exists, skipping: {}", depKey);
-                }
-                continue;
-            }
-
-            // New dependency - add to XML
-            depsXml.append("        <dependency>\n");
-            depsXml.append("            <groupId>").append(groupId).append("</groupId>\n");
-            depsXml.append("            <artifactId>").append(artifactId).append("</artifactId>\n");
-            if (!version.isEmpty()) {
-                depsXml.append("            <version>").append(version).append("</version>\n");
-            }
-            depsXml.append("        </dependency>\n");
-
-            addedCount++;
-            log.info("Appending dependency: {}:{}{}", groupId, artifactId,
-                    version.isEmpty() ? "" : ":" + version);
-        }
-
-        // Update existing dependencies with new versions
-        for (JsonNode dep : additionalDeps) {
-            String groupId = dep.path("groupId").asText("");
-            String artifactId = dep.path("artifactId").asText("");
-            String version = dep.path("version").asText("");
-            String depKey = groupId + ":" + artifactId;
-
-            if (toUpdate.contains(depKey) && !version.isEmpty()) {
-                // Find and update the version in existing dependency
-                String depRegex = "(<dependency>\\s*<groupId>" + java.util.regex.Pattern.quote(groupId)
-                        + "</groupId>\\s*<artifactId>" + java.util.regex.Pattern.quote(artifactId)
-                        + "</artifactId>\\s*)(?:<version>[^<]*</version>\\s*)?(</dependency>)";
-                String replacement = "$1<version>" + version + "</version>\n        $2";
-                pomContent = pomContent.replaceFirst(depRegex, replacement);
-                log.info("Updated dependency version: {}:{}", depKey, version);
-            }
-        }
-
-        if (addedCount == 0 && toUpdate.isEmpty()) {
-            log.info("No new dependencies to add or update");
-            return;
-        }
-
-        // Insert new dependencies before </dependencies>
-        if (addedCount > 0) {
-            String marker = "    </dependencies>";
-            int insertPos = pomContent.lastIndexOf(marker);
-            if (insertPos == -1) {
-                log.warn("Could not find </dependencies> marker in pom.xml");
-                return;
-            }
-
-            pomContent = pomContent.substring(0, insertPos)
-                    + depsXml.toString()
-                    + pomContent.substring(insertPos);
-        }
-
-        Files.write(pomPath, pomContent.getBytes(StandardCharsets.UTF_8));
-        log.info("Updated pom.xml: {} new, {} updated", addedCount, toUpdate.size());
-    }
 
     private void copyField(JsonNode src, ObjectNode dst, String field) {
         JsonNode v = src.path(field);
@@ -873,80 +504,12 @@ public class ArtifactGenStage implements Stage {
         return buf.toByteArray();
     }
 
-    private String stripMarkdownFence(String raw) {
-        if (raw == null) return "{}";
-        String s = raw.trim();
-        // Remove markdown code fences
-        if (s.startsWith("```")) {
-            int firstNewline = s.indexOf('\n');
-            if (firstNewline < 0) return s;
-            s = s.substring(firstNewline + 1);
-            if (s.endsWith("```")) s = s.substring(0, s.length() - 3);
-            s = s.trim();
-        }
-        // If the string doesn't start with '{', try to find the first JSON object
-        if (!s.startsWith("{")) {
-            int braceStart = s.indexOf('{');
-            if (braceStart >= 0) {
-                // Find the matching closing brace
-                int depth = 0;
-                int braceEnd = -1;
-                for (int i = braceStart; i < s.length(); i++) {
-                    char c = s.charAt(i);
-                    if (c == '{') depth++;
-                    else if (c == '}') {
-                        depth--;
-                        if (depth == 0) { braceEnd = i; break; }
-                    }
-                }
-                if (braceEnd > braceStart) {
-                    s = s.substring(braceStart, braceEnd + 1);
-                } else {
-                    s = s.substring(braceStart);
-                }
-            }
-        }
-        return s;
-    }
-
     private String truncate(String s, int max) {
         if (s == null) return "";
         return s.length() > max ? s.substring(s.length() - max) : s;
     }
 
-    private int countFixRounds(List<LlmRequest.Message> messages, String type) {
-        int count = 0;
-        for (LlmRequest.Message m : messages) {
-            if ("user".equals(m.getRole()) && m.getContent().contains("failed")) count++;
-        }
-        return count;
-    }
-
-    @SuppressWarnings("unchecked")
-    private void addFiles(List<Map<String, String>> allFiles, Map<String, Object> result, String type) {
-        Object filesObj = result.get("files");
-        if (filesObj instanceof List) {
-            for (Object f : (List<?>) filesObj) {
-                Map<String, String> entry = new HashMap<>();
-                entry.put("path", type + "/" + f.toString());
-                entry.put("type", type);
-                allFiles.add(entry);
-            }
-        }
-        Object fileObj = result.get("file");
-        if (fileObj instanceof String) {
-            Map<String, String> entry = new HashMap<>();
-            entry.put("path", (String) fileObj);
-            entry.put("type", type);
-            allFiles.add(entry);
-        }
-    }
-
-    private Map<String, Object> stripProcess(Map<String, Object> result) {
-        Map<String, Object> clean = new LinkedHashMap<>(result);
-        clean.remove("process");
-        return clean;
-    }
+    // ==================== Inner Classes ====================
 
     private static class ProcessResult {
         final int exitCode;
@@ -954,6 +517,84 @@ public class ArtifactGenStage implements Stage {
         ProcessResult(int exitCode, String output) {
             this.exitCode = exitCode;
             this.output = output;
+        }
+    }
+
+    private class AgentContext {
+        final Path cvePath;
+        final PipelineContext pipeCtx;
+        final Set<String> writtenFiles = new LinkedHashSet<>();
+        Process appProcess;
+        JsonNode summary;
+        int turns;
+
+        AgentContext(Path cvePath, PipelineContext pipeCtx) {
+            this.cvePath = cvePath;
+            this.pipeCtx = pipeCtx;
+        }
+
+        void cleanup() {
+            if (appProcess != null) {
+                appProcess.destroyForcibly();
+                log.info("Stopped vuln-demo process");
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> buildOutput() {
+            Map<String, Object> output = new LinkedHashMap<>();
+            output.put("status", "generated");
+            output.put("agentTurns", turns);
+
+            // Categorize files
+            List<String> vulnDemoFiles = new ArrayList<>();
+            List<String> pocFiles = new ArrayList<>();
+            String reportFile = null;
+            for (String f : writtenFiles) {
+                if (f.startsWith("vuln-demo/")) vulnDemoFiles.add(f.substring("vuln-demo/".length()));
+                else if (f.startsWith("poc/")) pocFiles.add(f.substring("poc/".length()));
+                else if (f.startsWith("report/")) reportFile = f;
+            }
+            // Always include skeleton files
+            for (String sk : Arrays.asList("src/main/java/com/jvuln/demo/Application.java", "build.sh", "run.sh")) {
+                if (!vulnDemoFiles.contains(sk)) vulnDemoFiles.add(0, sk);
+            }
+
+            // VulnDemo status
+            Map<String, Object> vulnDemo = new LinkedHashMap<>();
+            String vdStatus = summary != null ? summary.path("vuln_demo_status").asText("unknown") : "unknown";
+            vulnDemo.put("status", vdStatus);
+            vulnDemo.put("files", vulnDemoFiles);
+            output.put("vulnDemo", vulnDemo);
+
+            // PoC status
+            Map<String, Object> poc = new LinkedHashMap<>();
+            String pocStatus = summary != null ? summary.path("poc_status").asText("unknown") : "unknown";
+            poc.put("status", pocStatus);
+            poc.put("files", pocFiles);
+            output.put("poc", poc);
+
+            // Report status
+            Map<String, Object> report = new LinkedHashMap<>();
+            String rptStatus = summary != null ? summary.path("report_status").asText("unknown") : "unknown";
+            report.put("status", rptStatus);
+            if (reportFile != null) report.put("file", reportFile);
+            output.put("report", report);
+
+            // All files list (for frontend compatibility)
+            List<Map<String, String>> allFiles = new ArrayList<>();
+            for (String f : writtenFiles) {
+                Map<String, String> entry = new HashMap<>();
+                entry.put("path", f);
+                if (f.startsWith("vuln-demo/")) entry.put("type", "vuln-demo");
+                else if (f.startsWith("poc/")) entry.put("type", "poc");
+                else if (f.startsWith("report/")) entry.put("type", "report");
+                allFiles.add(entry);
+            }
+            output.put("fileCount", allFiles.size());
+            output.put("files", allFiles);
+
+            return output;
         }
     }
 }
