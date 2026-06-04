@@ -106,6 +106,10 @@ const enUS = {
       verified: '✓ Passed',
       failed: '✗ Failed',
       skipped: '— Skipped',
+      pausedTitle: 'Agent paused due to API error',
+      pausedAt: 'Paused at turn {turn}',
+      pausedReason: 'Error',
+      continueAgent: 'Continue',
     },
     reasoning: {
       triggerChain: 'Trigger Chain',

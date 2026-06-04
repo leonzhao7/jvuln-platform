@@ -461,7 +461,19 @@ const renderMarkdown = (md: string) => {
 
         <!-- Artifacts / Education Lab -->
         <el-tab-pane :label="t('analysis.tabs.artifacts')" name="artifacts">
-          <div v-if="stageData[5] && stageData[5].status === 'generated'">
+          <div v-if="stageData[5] && (stageData[5].status === 'generated' || stageData[5].status === 'paused')">
+
+            <!-- Paused banner -->
+            <div v-if="stageData[5].status === 'paused'" class="jv-paused-banner">
+              <div class="jv-paused-title">{{ t('analysis.artifacts.pausedTitle') }}</div>
+              <div class="jv-paused-reason">{{ stageData[5].pauseReason }}</div>
+              <div style="margin-top:8px; font-size:12px; color:var(--text-secondary)">
+                {{ t('analysis.artifacts.pausedAt', { turn: stageData[5].pausedAtTurn }) }}
+              </div>
+              <el-button type="primary" size="small" style="margin-top:10px" @click="rerun(5)">
+                {{ t('analysis.artifacts.continueAgent') }}
+              </el-button>
+            </div>
 
             <!-- Verification Status -->
             <div class="jv-artifacts-status">
@@ -991,5 +1003,24 @@ const renderMarkdown = (md: string) => {
 .jv-repro-step-desc {
   font-size: 12px;
   color: var(--text-secondary);
+}
+.jv-paused-banner {
+  background: rgba(250,77,86,.08);
+  border: 1px solid rgba(250,77,86,.3);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.jv-paused-title {
+  font-weight: 600;
+  color: var(--critical);
+  margin-bottom: 6px;
+}
+.jv-paused-reason {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 </style>

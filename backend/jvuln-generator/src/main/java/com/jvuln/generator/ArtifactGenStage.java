@@ -70,10 +70,9 @@ public class ArtifactGenStage implements Stage {
         AgentContext agentCtx = new AgentContext(cvePath, ctx);
 
         try {
-            // Write minimal skeleton (Application.java, build.sh, run.sh — no pom.xml)
             writeMinimalSkeleton(cvePath.resolve("vuln-demo"));
+            agentCtx.discoverExistingFiles();
 
-            // Build prompts
             String systemPrompt = promptRegistry.getSystemPrompt("gen_agent");
             String userTemplate = promptRegistry.getUserPrompt("gen_agent");
             Map<String, String> vars = new HashMap<>();
@@ -82,9 +81,37 @@ public class ArtifactGenStage implements Stage {
             vars.put("root_cause", rootCause);
             vars.put("patch_diff", patchDiff);
             vars.put("artifact", artifact);
-            String userPrompt = promptRegistry.render(userTemplate, vars);
+            String baseUserPrompt = promptRegistry.render(userTemplate, vars);
 
-            // Build tools
+            // Check if resuming from a paused state
+            Path checkpointFile = cvePath.resolve("stages/5_checkpoint.json");
+            int startTurn = 0;
+            if (Files.exists(checkpointFile)) {
+                try {
+                    JsonNode ckpt = mapper.readTree(checkpointFile.toFile());
+                    startTurn = ckpt.path("completedTurns").asInt(0);
+                    log.info("Resuming agent from turn {} (checkpoint found)", startTurn);
+                    ctx.reportProgress("Resuming from turn " + startTurn);
+                } catch (Exception e) {
+                    log.warn("Could not read checkpoint, starting fresh: {}", e.getMessage());
+                }
+                Files.deleteIfExists(checkpointFile);
+            }
+
+            // Build user prompt — append resume context if continuing after a pause
+            String userPrompt;
+            if (startTurn > 0 && !agentCtx.existingFiles.isEmpty()) {
+                StringBuilder sb = new StringBuilder(baseUserPrompt);
+                sb.append("\n\n## RESUME CONTEXT\n");
+                sb.append("A previous run completed ").append(startTurn).append(" turns before an API error interrupted it.\n");
+                sb.append("The following files already exist — inspect them with read_file before rewriting:\n");
+                for (String f : agentCtx.existingFiles) sb.append("- ").append(f).append("\n");
+                sb.append("\nContinue from where it left off. Check compilation status and proceed.");
+                userPrompt = sb.toString();
+            } else {
+                userPrompt = baseUserPrompt;
+            }
+
             List<LlmRequest.ToolDef> tools = buildToolDefinitions();
 
             // Agent loop
@@ -107,8 +134,24 @@ public class ArtifactGenStage implements Stage {
                             + "Skip any remaining debugging."));
                 }
 
-                LlmResponse response = chatWithRetry(ctx,
-                        LlmRequest.agent(systemPrompt, messages, tools), 3);
+                LlmResponse response;
+                try {
+                    response = chatWithRetry(ctx,
+                            LlmRequest.agent(systemPrompt, messages, tools), 3);
+                } catch (Exception e) {
+                    // LLM call failed after all retries — save checkpoint and return paused
+                    String errMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                    log.warn("Agent paused at turn {} due to LLM error: {}", turn + 1, errMsg);
+                    agentCtx.turns = turn;
+                    saveCheckpoint(cvePath, agentCtx, errMsg);
+                    Map<String, Object> output = agentCtx.buildOutput();
+                    output.put("status", "paused");
+                    output.put("pauseReason", errMsg);
+                    output.put("pausedAtTurn", turn);
+                    ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 5, output);
+                    ctx.reportProgress("Agent paused: " + errMsg);
+                    return StageResult.success(5, name(), output);
+                }
 
                 messages.add(LlmRequest.Message.assistantWithBlocks(response.getContentBlocks()));
 
@@ -148,6 +191,24 @@ public class ArtifactGenStage implements Stage {
 
         } finally {
             agentCtx.cleanup();
+        }
+    }
+
+    // ==================== Checkpoint ====================
+
+    private void saveCheckpoint(Path cvePath, AgentContext ctx, String error) {
+        try {
+            Map<String, Object> ckpt = new LinkedHashMap<>();
+            ckpt.put("completedTurns", ctx.turns);
+            ckpt.put("error", error);
+            ckpt.put("writtenFiles", new ArrayList<>(ctx.writtenFiles));
+            ckpt.put("timestamp", System.currentTimeMillis());
+            Path file = cvePath.resolve("stages/5_checkpoint.json");
+            Files.createDirectories(file.getParent());
+            mapper.writeValue(file.toFile(), ckpt);
+            log.info("Saved checkpoint at turn {}", ctx.turns);
+        } catch (Exception e) {
+            log.error("Failed to save checkpoint: {}", e.getMessage());
         }
     }
 
@@ -528,6 +589,7 @@ public class ArtifactGenStage implements Stage {
         final Path cvePath;
         final PipelineContext pipeCtx;
         final Set<String> writtenFiles = new LinkedHashSet<>();
+        final List<String> existingFiles = new ArrayList<>();
         Process appProcess;
         JsonNode summary;
         int turns;
@@ -535,6 +597,22 @@ public class ArtifactGenStage implements Stage {
         AgentContext(Path cvePath, PipelineContext pipeCtx) {
             this.cvePath = cvePath;
             this.pipeCtx = pipeCtx;
+        }
+
+        void discoverExistingFiles() {
+            for (String prefix : Arrays.asList("vuln-demo", "poc", "report")) {
+                Path dir = cvePath.resolve(prefix);
+                if (!Files.exists(dir)) continue;
+                try {
+                    Files.walk(dir)
+                            .filter(p -> Files.isRegularFile(p) && !p.toString().contains("/target/"))
+                            .forEach(p -> {
+                                String rel = cvePath.relativize(p).toString();
+                                existingFiles.add(rel);
+                                writtenFiles.add(rel); // count as "written" so buildOutput includes them
+                            });
+                } catch (Exception ignored) {}
+            }
         }
 
         void cleanup() {

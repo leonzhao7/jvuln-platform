@@ -106,6 +106,10 @@ const zhCN = {
       verified: '✓ 通过',
       failed: '✗ 失败',
       skipped: '— 跳过',
+      pausedTitle: 'Agent 因 API 错误暂停',
+      pausedAt: '已完成 {turn} 轮',
+      pausedReason: '错误信息',
+      continueAgent: '继续',
     },
     reasoning: {
       triggerChain: '触发链',
