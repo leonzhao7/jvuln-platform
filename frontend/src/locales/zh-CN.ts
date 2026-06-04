@@ -94,6 +94,7 @@ const zhCN = {
       fileList: '生成文件列表',
       reportPreview: '报告预览',
       pocPreview: 'PoC 脚本',
+      reproductionSteps: '复现步骤',
       vulnDemo: '漏洞复现项目',
       dockerCompose: 'Docker Compose',
       fileCount: '共生成 {count} 个文件',

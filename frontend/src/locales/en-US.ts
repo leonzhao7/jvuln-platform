@@ -94,6 +94,7 @@ const enUS = {
       fileList: 'Generated Files',
       reportPreview: 'Report Preview',
       pocPreview: 'PoC Scripts',
+      reproductionSteps: 'Reproduction Steps',
       vulnDemo: 'Vuln Demo Project',
       dockerCompose: 'Docker Compose',
       fileCount: '{count} file(s) generated',

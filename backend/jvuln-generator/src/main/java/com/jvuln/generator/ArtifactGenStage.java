@@ -625,6 +625,52 @@ public class ArtifactGenStage implements Stage {
             output.put("fileCount", allFiles.size());
             output.put("files", allFiles);
 
+            // Reproduction steps — only when vuln-demo compiled successfully
+            boolean compiled = "startup_ok".equals(vdStatus) || "compile_ok".equals(vdStatus);
+            if (compiled) {
+                List<Map<String, String>> steps = new ArrayList<>();
+                int stepNum = 1;
+
+                // Step 1: Build
+                Map<String, String> buildStep = new LinkedHashMap<>();
+                buildStep.put("step", String.valueOf(stepNum++));
+                buildStep.put("title", "Build the vulnerable demo project");
+                buildStep.put("command", "cd vuln-demo && mvn package -DskipTests -q");
+                buildStep.put("description", "Compile the Spring Boot application with the vulnerable component");
+                steps.add(buildStep);
+
+                // Step 2: Start
+                Map<String, String> startStep = new LinkedHashMap<>();
+                startStep.put("step", String.valueOf(stepNum++));
+                startStep.put("title", "Start the application");
+                startStep.put("command", "cd vuln-demo && java -jar target/*.jar --server.port=18080");
+                startStep.put("description", "Launch the application on port 18080. Wait for 'Started Application' in the console output");
+                steps.add(startStep);
+
+                // Step 3: PoC (if exists)
+                if (!pocFiles.isEmpty()) {
+                    Map<String, String> pocStep = new LinkedHashMap<>();
+                    pocStep.put("step", String.valueOf(stepNum++));
+                    pocStep.put("title", "Execute the PoC exploit");
+                    pocStep.put("command", "bash poc/" + pocFiles.get(0));
+                    pocStep.put("description", "Run the proof-of-concept script against the running application"
+                            + ("unverified".equals(pocStatus) ? " (auto-generated, may require manual adjustment)" : ""));
+                    steps.add(pocStep);
+                }
+
+                // Step 4: Report (if exists)
+                if (reportFile != null) {
+                    Map<String, String> reportStep = new LinkedHashMap<>();
+                    reportStep.put("step", String.valueOf(stepNum++));
+                    reportStep.put("title", "Read the vulnerability report");
+                    reportStep.put("command", "cat " + reportFile);
+                    reportStep.put("description", "Review the educational report explaining the vulnerability, root cause, and remediation");
+                    steps.add(reportStep);
+                }
+
+                output.put("reproductionSteps", steps);
+            }
+
             return output;
         }
     }

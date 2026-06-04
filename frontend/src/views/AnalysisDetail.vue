@@ -512,6 +512,21 @@ const renderMarkdown = (md: string) => {
               </div>
             </div>
 
+            <!-- Reproduction Steps -->
+            <div v-if="stageData[5].reproductionSteps?.length" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.artifacts.reproductionSteps') }}</div>
+              <div class="jv-reproduction-steps">
+                <div v-for="s in stageData[5].reproductionSteps" :key="s.step" class="jv-repro-step">
+                  <div class="jv-repro-step-header">
+                    <span class="jv-repro-step-num">{{ s.step }}</span>
+                    <span class="jv-repro-step-title">{{ s.title }}</span>
+                  </div>
+                  <code class="jv-repro-step-cmd">{{ s.command }}</code>
+                  <div class="jv-repro-step-desc">{{ s.description }}</div>
+                </div>
+              </div>
+            </div>
+
             <!-- Raw JSON -->
             <details style="margin-top:16px">
               <summary style="color:var(--text-disabled); font-size:12px; cursor:pointer">JSON</summary>
@@ -922,5 +937,59 @@ const renderMarkdown = (md: string) => {
 }
 .jv-poc-block {
   margin-bottom: 10px;
+}
+
+.jv-reproduction-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.jv-repro-step {
+  background: rgba(0,0,0,.15);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.jv-repro-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.jv-repro-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.jv-repro-step-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.jv-repro-step-cmd {
+  display: block;
+  background: rgba(0,0,0,.3);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent-light);
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+}
+.jv-repro-step-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 </style>
