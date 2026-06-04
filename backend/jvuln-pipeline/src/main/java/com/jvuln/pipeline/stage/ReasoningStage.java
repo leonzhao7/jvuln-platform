@@ -12,6 +12,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -56,7 +59,7 @@ public class ReasoningStage implements Stage {
             }
 
             int diffCap = DIFF_CAPS[Math.min(attempt, DIFF_CAPS.length - 1)];
-            String patchDiff = extractDiff(rawDiffData, diffCap);
+            String patchDiff = extractDiff(ctx, rawDiffData, diffCap);
 
             log.info("Reasoning attempt {}: intel={}c diff={}c (cap={}) code={}c",
                     attempt + 1, intelligence.length(), patchDiff.length(), diffCap, codeAnalysis.length());
@@ -111,12 +114,16 @@ public class ReasoningStage implements Stage {
     }
 
     /** Extract just the raw diff text from the patch stage result. */
-    private String extractDiff(Object data, int cap) throws Exception {
+    private String extractDiff(PipelineContext ctx, Object data, int cap) throws Exception {
         JsonNode root = mapper.valueToTree(data);
-        // patch stage stores {rawDiff, diffs, commitInfo, ...}
         JsonNode rawDiff = root.path("rawDiff");
         if (!rawDiff.isMissingNode() && rawDiff.isTextual()) {
             String d = rawDiff.asText();
+            return d.length() > cap ? d.substring(0, cap) + "\n...[truncated]" : d;
+        }
+        Path diffFile = ctx.getWorkspacePath().resolve("patches/fix.diff");
+        if (Files.exists(diffFile)) {
+            String d = new String(Files.readAllBytes(diffFile), StandardCharsets.UTF_8);
             return d.length() > cap ? d.substring(0, cap) + "\n...[truncated]" : d;
         }
         // fallback: full JSON but capped

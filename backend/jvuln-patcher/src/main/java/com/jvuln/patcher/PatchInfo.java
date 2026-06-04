@@ -8,14 +8,21 @@ public class PatchInfo {
     private final String commitMessage;
     private final String parentHash;
     private final List<FileDiff> diffs;
+    private final String rawDiff;
     private final String strategy;
 
     public PatchInfo(String commitHash, String commitMessage, String parentHash,
                      List<FileDiff> diffs, String strategy) {
+        this(commitHash, commitMessage, parentHash, diffs, null, strategy);
+    }
+
+    public PatchInfo(String commitHash, String commitMessage, String parentHash,
+                     List<FileDiff> diffs, String rawDiff, String strategy) {
         this.commitHash = commitHash;
         this.commitMessage = commitMessage;
         this.parentHash = parentHash;
         this.diffs = diffs;
+        this.rawDiff = rawDiff;
         this.strategy = strategy;
     }
 
@@ -23,6 +30,7 @@ public class PatchInfo {
     public String getCommitMessage() { return commitMessage; }
     public String getParentHash() { return parentHash; }
     public List<FileDiff> getDiffs() { return diffs; }
+    public String getRawDiff() { return rawDiff; }
     public String getStrategy() { return strategy; }
 
     public static class FileDiff {

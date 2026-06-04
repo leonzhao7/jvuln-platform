@@ -73,7 +73,11 @@ public class AnalysisController {
 
         String fromStageStr = body.getOrDefault("fromStage", "1");
         int fromStage = Integer.parseInt(fromStageStr);
-        pipelineEngine.execute(cveId, fromStage);
+        if (!pipelineEngine.execute(cveId, fromStage)) {
+            Map<String, String> err = new HashMap<>();
+            err.put("error", "Analysis already running for " + cveId);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(err);
+        }
 
         Map<String, String> result = new HashMap<>();
         result.put("cveId", cveId);
@@ -108,10 +112,21 @@ public class AnalysisController {
                                    @RequestParam(defaultValue = "1") int fromStage) {
         CveTask task = taskRepo.findByCveId(cveId).orElse(null);
         if (task == null) return ResponseEntity.notFound().build();
+        if (task.getStatus() == CveTask.TaskStatus.RUNNING) {
+            Map<String, String> err = new HashMap<>();
+            err.put("error", "Analysis already running for " + cveId);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(err);
+        }
 
         task.setStatus(CveTask.TaskStatus.PENDING);
         taskRepo.save(task);
-        pipelineEngine.execute(cveId, fromStage);
+        if (!pipelineEngine.execute(cveId, fromStage)) {
+            task.setStatus(CveTask.TaskStatus.RUNNING);
+            taskRepo.save(task);
+            Map<String, String> err = new HashMap<>();
+            err.put("error", "Analysis already running for " + cveId);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(err);
+        }
 
         Map<String, Object> resp = new HashMap<>();
         resp.put("cveId", cveId);

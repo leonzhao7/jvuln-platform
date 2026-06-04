@@ -13,7 +13,7 @@ import com.jvuln.store.entity.StageRecord;
 import com.jvuln.store.model.CveIntelligence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -23,6 +23,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -36,16 +38,20 @@ public class PipelineEngine {
     private final LlmClient llmClient;
     private final CveTaskRepository taskRepo;
     private final StageRecordRepository stageRepo;
+    private final Executor pipelineExecutor;
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
+    private final Map<String, AtomicBoolean> runningTasks = new ConcurrentHashMap<>();
 
     public PipelineEngine(List<Stage> stages, WorkspaceManager workspaceManager,
                           LlmClient llmClient, CveTaskRepository taskRepo,
-                          StageRecordRepository stageRepo) {
+                          StageRecordRepository stageRepo,
+                          @Qualifier("pipelineExecutor") Executor pipelineExecutor) {
         this.stages = stages.stream().sorted((a, b) -> a.number() - b.number()).collect(Collectors.toList());
         this.workspaceManager = workspaceManager;
         this.llmClient = llmClient;
         this.taskRepo = taskRepo;
         this.stageRepo = stageRepo;
+        this.pipelineExecutor = pipelineExecutor;
     }
 
     public SseEmitter subscribe(String cveId) {
@@ -56,8 +62,31 @@ public class PipelineEngine {
         return emitter;
     }
 
-    @Async("pipelineExecutor")
-    public void execute(String cveId, int fromStage) {
+    public boolean execute(final String cveId, final int fromStage) {
+        AtomicBoolean running = runningTasks.computeIfAbsent(cveId, key -> new AtomicBoolean(false));
+        if (!running.compareAndSet(false, true)) {
+            String message = "Pipeline already running for " + cveId;
+            log.warn(message);
+            sendEvent(cveId, new StageProgress("error", 0, message));
+            return false;
+        }
+
+        try {
+            pipelineExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    runPipeline(cveId, fromStage);
+                }
+            });
+            return true;
+        } catch (RuntimeException e) {
+            running.set(false);
+            runningTasks.remove(cveId, running);
+            throw e;
+        }
+    }
+
+    private void runPipeline(String cveId, int fromStage) {
         log.info("Pipeline started: cveId={}, fromStage={}", cveId, fromStage);
 
         try {
@@ -124,7 +153,9 @@ public class PipelineEngine {
 
                     if (!result.isSuccess()) {
                         log.warn("Stage {} failed: {}", stage.number(), result.getErrorMessage());
-                        break;
+                        task.setStatus(CveTask.TaskStatus.FAILED);
+                        taskRepo.save(task);
+                        return;
                     }
                 } catch (Exception e) {
                     log.error("Stage {} exception", stage.number(), e);
@@ -152,6 +183,11 @@ public class PipelineEngine {
             });
             sendEvent(cveId, new StageProgress("error", 0, e.getMessage()));
         } finally {
+            AtomicBoolean current = runningTasks.get(cveId);
+            if (current != null) {
+                current.set(false);
+                runningTasks.remove(cveId, current);
+            }
             SseEmitter emitter = emitters.remove(cveId);
             if (emitter != null) {
                 emitter.complete();

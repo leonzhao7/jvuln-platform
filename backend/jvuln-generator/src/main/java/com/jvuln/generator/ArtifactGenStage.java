@@ -34,6 +34,7 @@ public class ArtifactGenStage implements Stage {
     private static final int STARTUP_WAIT = 30;
     private static final int COMMAND_TIMEOUT = 60;
     private static final int OUTPUT_TRUNCATE = 4000;
+    private static final int PROCESS_OUTPUT_BUFFER = 64 * 1024;
 
     private static final Set<String> COMMAND_WHITELIST = new HashSet<>(Arrays.asList(
             "curl", "wget", "grep", "cat", "ls", "find", "head", "tail",
@@ -61,7 +62,7 @@ public class ArtifactGenStage implements Stage {
 
         Object rawIntelligence = ctx.getCompletedStages().get(1).getData();
         String intelligence = trimIntelligence(rawIntelligence);
-        String patchDiff = extractDiff(ctx.getCompletedStages().get(2).getData(), 4000);
+        String patchDiff = extractDiff(ctx, ctx.getCompletedStages().get(2).getData(), 4000);
         String triggerChain = extractTriggerChain(ctx.getCompletedStages().get(4).getData());
         String rootCause = extractRootCause(ctx.getCompletedStages().get(4).getData());
         String artifact = extractArtifact(rawIntelligence);
@@ -392,12 +393,14 @@ public class ArtifactGenStage implements Stage {
         pb.directory(vulnDemoPath.toFile());
         pb.redirectErrorStream(true);
         ctx.appProcess = pb.start();
+        ctx.appOutput = new ProcessOutputBuffer(ctx.appProcess.getInputStream(), PROCESS_OUTPUT_BUFFER);
 
         // Wait for startup
         long deadline = System.currentTimeMillis() + STARTUP_WAIT * 1000L;
         while (System.currentTimeMillis() < deadline) {
             if (!ctx.appProcess.isAlive()) {
-                String output = readProcessOutput(ctx.appProcess);
+                ctx.appOutput.await(1, TimeUnit.SECONDS);
+                String output = ctx.appOutput.content();
                 return "STARTUP FAILED — process exited\n\n" + truncate(output, OUTPUT_TRUNCATE);
             }
             try {
@@ -417,7 +420,7 @@ public class ArtifactGenStage implements Stage {
         }
 
         // Timeout — read whatever output we can get
-        String output = readProcessOutput(ctx.appProcess);
+        String output = ctx.appOutput != null ? ctx.appOutput.content() : "";
         if (ctx.appProcess.isAlive()) {
             return "STARTUP TIMEOUT after " + STARTUP_WAIT + "s — app process still running but port not responding\n\n" + truncate(output, 2000);
         } else {
@@ -449,24 +452,18 @@ public class ArtifactGenStage implements Stage {
             pb.directory(workDir.toFile());
             pb.redirectErrorStream(true);
             Process proc = pb.start();
-            byte[] output = readStream(proc.getInputStream());
+            ProcessOutputBuffer output = new ProcessOutputBuffer(proc.getInputStream(), PROCESS_OUTPUT_BUFFER);
             boolean finished = proc.waitFor(timeoutSec, TimeUnit.SECONDS);
             if (!finished) {
                 proc.destroyForcibly();
-                return new ProcessResult(124, "TIMEOUT after " + timeoutSec + "s\n" + new String(output, StandardCharsets.UTF_8));
+                proc.waitFor(5, TimeUnit.SECONDS);
+                output.await(1, TimeUnit.SECONDS);
+                return new ProcessResult(124, "TIMEOUT after " + timeoutSec + "s\n" + output.content());
             }
-            return new ProcessResult(proc.exitValue(), new String(output, StandardCharsets.UTF_8));
+            output.await(1, TimeUnit.SECONDS);
+            return new ProcessResult(proc.exitValue(), output.content());
         } catch (Exception e) {
             return new ProcessResult(-1, "Process error: " + e.getMessage());
-        }
-    }
-
-    private String readProcessOutput(Process proc) {
-        try {
-            byte[] bytes = readStream(proc.getInputStream());
-            return new String(bytes, StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            return "Could not read output: " + e.getMessage();
         }
     }
 
@@ -516,11 +513,16 @@ public class ArtifactGenStage implements Stage {
         return mapper.writeValueAsString(out);
     }
 
-    private String extractDiff(Object data, int cap) throws Exception {
+    private String extractDiff(PipelineContext ctx, Object data, int cap) throws Exception {
         JsonNode root = mapper.valueToTree(data);
         JsonNode rawDiff = root.path("rawDiff");
         if (!rawDiff.isMissingNode() && rawDiff.isTextual()) {
             String d = rawDiff.asText();
+            return d.length() > cap ? d.substring(0, cap) + "\n...[truncated]" : d;
+        }
+        Path diffFile = ctx.getWorkspacePath().resolve("patches/fix.diff");
+        if (Files.exists(diffFile)) {
+            String d = new String(Files.readAllBytes(diffFile), StandardCharsets.UTF_8);
             return d.length() > cap ? d.substring(0, cap) + "\n...[truncated]" : d;
         }
         String full = mapper.writeValueAsString(data);
@@ -561,14 +563,6 @@ public class ArtifactGenStage implements Stage {
         if (!v.isMissingNode()) dst.set(field, v);
     }
 
-    private byte[] readStream(InputStream is) throws IOException {
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        byte[] tmp = new byte[4096];
-        int n;
-        while ((n = is.read(tmp)) != -1) buf.write(tmp, 0, n);
-        return buf.toByteArray();
-    }
-
     private String truncate(String s, int max) {
         if (s == null) return "";
         return s.length() > max ? s.substring(s.length() - max) : s;
@@ -585,12 +579,69 @@ public class ArtifactGenStage implements Stage {
         }
     }
 
+    private static class ProcessOutputBuffer {
+        private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        private final int maxBytes;
+        private final Thread reader;
+
+        ProcessOutputBuffer(final InputStream input, int maxBytes) {
+            this.maxBytes = maxBytes;
+            this.reader = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    readLoop(input);
+                }
+            }, "jvuln-process-output");
+            this.reader.setDaemon(true);
+            this.reader.start();
+        }
+
+        private void readLoop(InputStream input) {
+            byte[] tmp = new byte[4096];
+            int n;
+            try {
+                while ((n = input.read(tmp)) != -1) {
+                    append(tmp, n);
+                }
+            } catch (IOException ignored) {
+                // Process termination commonly closes the stream while the reader is active.
+            }
+        }
+
+        private synchronized void append(byte[] bytes, int len) throws IOException {
+            if (len <= 0) return;
+            byte[] current = buffer.toByteArray();
+            int keepCurrent = Math.max(0, maxBytes - len);
+            if (current.length > keepCurrent) {
+                buffer.reset();
+                if (keepCurrent > 0) {
+                    buffer.write(current, current.length - keepCurrent, keepCurrent);
+                }
+            }
+            int offset = Math.max(0, len - maxBytes);
+            buffer.write(bytes, offset, len - offset);
+        }
+
+        synchronized String content() {
+            return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
+        }
+
+        void await(long timeout, TimeUnit unit) {
+            try {
+                reader.join(unit.toMillis(timeout));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
     private class AgentContext {
         final Path cvePath;
         final PipelineContext pipeCtx;
         final Set<String> writtenFiles = new LinkedHashSet<>();
         final List<String> existingFiles = new ArrayList<>();
         Process appProcess;
+        ProcessOutputBuffer appOutput;
         JsonNode summary;
         int turns;
 
@@ -618,6 +669,14 @@ public class ArtifactGenStage implements Stage {
         void cleanup() {
             if (appProcess != null) {
                 appProcess.destroyForcibly();
+                try {
+                    appProcess.waitFor(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                if (appOutput != null) {
+                    appOutput.await(1, TimeUnit.SECONDS);
+                }
                 log.info("Stopped vuln-demo process");
             }
         }

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { api, type LlmConfig } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from '../i18n'
 
+const router = useRouter()
 const { t } = useI18n()
 const configs = ref<LlmConfig[]>([])
 const loading = ref(false)
@@ -159,7 +161,10 @@ const providerLabel = (type: string) => {
 
 <template>
   <div style="max-width:900px; margin:0 auto">
-    <h2 style="margin:0 0 24px; font-family:var(--font-mono); font-size:18px">{{ t('settings.title') }}</h2>
+    <div class="jv-settings-header">
+      <span class="jv-back-btn" @click="router.back()">{{ t('common.back') }}</span>
+      <h2 style="margin:0; font-family:var(--font-mono); font-size:18px">{{ t('settings.title') }}</h2>
+    </div>
 
     <!-- LLM Configurations -->
     <el-card>
@@ -331,6 +336,22 @@ const providerLabel = (type: string) => {
 :deep(.active-row td) {
   background: #1c3a29 !important;
 }
+
+.jv-settings-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.jv-back-btn {
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+}
+
+.jv-back-btn:hover { color: var(--text-primary); }
 
 .jv-test-result {
   display: flex;
