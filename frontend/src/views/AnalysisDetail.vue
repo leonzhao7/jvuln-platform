@@ -11,7 +11,7 @@ const { t, array } = useI18n()
 const cveId = route.params.cveId as string
 
 const detail = ref<TaskDetail | null>(null)
-const activeTab = ref('overview')
+const selectedStage = ref(1)
 const stageData = ref<Record<number, any>>({})
 const diffText = ref('')
 const reportMarkdown = ref('')
@@ -25,6 +25,10 @@ const stages = computed(() => detail.value?.stages ?? [])
 const stageIcons = ['01', '02', '03', '04', '05']
 const stageNames = computed(() => array<string>('analysis.stageNames'))
 
+const selectedStageRecord = computed(() =>
+  stages.value.find(s => s.stageNum === selectedStage.value)
+)
+
 const stageClass = (status?: string) => {
   const map: Record<string, string> = {
     COMPLETED: 'jv-stage jv-stage-completed',
@@ -34,11 +38,16 @@ const stageClass = (status?: string) => {
   return map[status ?? ''] ?? 'jv-stage jv-stage-pending'
 }
 
+const selectStage = (stage: number) => {
+  selectedStage.value = stage
+}
+
 const taskStatusClass = (s: string) => ({
   COMPLETED: 'jv-tag jv-tag-completed',
   RUNNING:   'jv-tag jv-tag-running',
   FAILED:    'jv-tag jv-tag-failed',
   PENDING:   'jv-tag jv-tag-pending',
+  SKIPPED:   'jv-tag jv-tag-pending',
 }[s] ?? 'jv-tag jv-tag-pending')
 
 const load = async () => {
@@ -183,9 +192,9 @@ const renderMarkdown = (md: string) => {
     <!-- Stage Pipeline -->
     <div class="jv-pipeline-row">
       <div v-for="(name, i) in stageNames" :key="i"
-        :class="stageClass(stages[i]?.status)"
-        @click="rerun(i + 1)"
-        :title="t('analysis.rerunFromStage', { stage: i + 1 })">
+        :class="[stageClass(stages[i]?.status), { 'jv-stage-selected': selectedStage === i + 1 }]"
+        @click="selectStage(i + 1)"
+        :title="t('analysis.viewStageResult', { stage: i + 1 })">
         <div class="jv-stage-num">{{ stageIcons[i] }}</div>
         <div class="jv-stage-name">{{ name }}</div>
         <div class="jv-stage-status">{{ t(`status.${stages[i]?.status ?? 'PENDING'}`) }}</div>
@@ -197,12 +206,28 @@ const renderMarkdown = (md: string) => {
       <div v-for="(msg, i) in sseMessages" :key="i">{{ msg }}</div>
     </div>
 
-    <!-- Stage Data Tabs -->
+    <!-- Selected stage result -->
     <el-card>
-      <el-tabs v-model="activeTab" type="border-card">
+      <div class="jv-result-header">
+        <div>
+          <div class="jv-section-label">{{ t('analysis.selectedStageResult') }}</div>
+          <div class="jv-result-title">
+            {{ stageIcons[selectedStage - 1] }} {{ stageNames[selectedStage - 1] }}
+          </div>
+        </div>
+        <div v-if="selectedStageRecord" class="jv-result-meta">
+          <span :class="taskStatusClass(selectedStageRecord.status)">{{ t(`status.${selectedStageRecord.status}`) }}</span>
+          <span>{{ t('analysis.startedAt') }}: {{ selectedStageRecord.startedAt?.replace('T', ' ').slice(0, 19) ?? '—' }}</span>
+          <span v-if="selectedStageRecord.finishedAt">{{ t('analysis.finishedAt') }}: {{ selectedStageRecord.finishedAt.replace('T', ' ').slice(0, 19) }}</span>
+        </div>
+      </div>
+      <div v-if="selectedStageRecord?.errorMsg" class="jv-stage-error">
+        {{ selectedStageRecord.errorMsg }}
+      </div>
+      <div class="jv-stage-result">
 
         <!-- Overview -->
-        <el-tab-pane :label="t('analysis.tabs.overview')" name="overview">
+        <div v-if="selectedStage === 1">
           <div v-if="stageData[1]">
             <el-descriptions :column="2" border size="small">
               <el-descriptions-item :label="t('analysis.fields.cveId')">
@@ -240,12 +265,73 @@ const renderMarkdown = (md: string) => {
                 <a :href="c" target="_blank" style="font-family:var(--font-mono); font-size:12px">{{ c }}</a>
               </div>
             </div>
+
+            <details style="margin-top:16px">
+              <summary style="color:var(--text-disabled); font-size:12px; cursor:pointer">JSON</summary>
+              <pre class="jv-json-view" style="margin-top:8px">{{ jsonStr(stageData[1]) }}</pre>
+            </details>
           </div>
           <el-empty v-else :description="t('analysis.intelligenceUnavailable')" />
-        </el-tab-pane>
+        </div>
+
+        <!-- Patch Locate -->
+        <div v-else-if="selectedStage === 2">
+          <div v-if="stageData[2]">
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item :label="t('analysis.patch.commitHash')">
+                <span style="font-family:var(--font-mono)">{{ stageData[2].commitHash || '—' }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item :label="t('analysis.patch.strategy')">
+                <span style="font-family:var(--font-mono)">{{ stageData[2].strategy || '—' }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item :label="t('analysis.patch.commitMessage')" :span="2">
+                {{ stageData[2].commitMessage || '—' }}
+              </el-descriptions-item>
+            </el-descriptions>
+
+            <div v-if="diffText" class="jv-patch-actions">
+              <el-button size="small" @click="router.push(`/analysis/${cveId}/diff`)">
+                {{ t('analysis.viewDiff') }}
+              </el-button>
+            </div>
+
+            <div v-if="stageData[2].diffs?.length" class="jv-patch-files">
+              <div class="jv-section-label">
+                {{ t('analysis.patch.changedFiles') }} ({{ stageData[2].diffs.length }})
+              </div>
+              <div v-for="file in stageData[2].diffs" :key="file.filePath" class="jv-patch-file">
+                <div class="jv-patch-file-header">
+                  <span>{{ file.filePath }}</span>
+                  <span class="jv-patch-file-stats">
+                    +{{ file.addedLines?.length ?? 0 }} / -{{ file.removedLines?.length ?? 0 }}
+                  </span>
+                </div>
+
+                <div v-if="file.methodChanges?.length" class="jv-patch-methods">
+                  <div class="jv-field-label">{{ t('analysis.patch.methodChanges') }}</div>
+                  <div v-for="m in file.methodChanges" :key="`${file.filePath}-${m.methodName}-${m.changeType}`" class="jv-patch-method">
+                    <span class="jv-patch-method-name">{{ m.methodName }}</span>
+                    <span class="jv-patch-method-type">{{ m.changeType }}</span>
+                  </div>
+                </div>
+
+                <details v-if="file.diffContent" class="jv-patch-diff-details">
+                  <summary>{{ t('analysis.patch.fileDiff') }}</summary>
+                  <pre class="jv-json-view" style="margin-top:8px">{{ file.diffContent }}</pre>
+                </details>
+              </div>
+            </div>
+
+            <details style="margin-top:16px">
+              <summary style="color:var(--text-disabled); font-size:12px; cursor:pointer">JSON</summary>
+              <pre class="jv-json-view" style="margin-top:8px">{{ jsonStr(stageData[2]) }}</pre>
+            </details>
+          </div>
+          <el-empty v-else :description="t('analysis.patchUnavailable')" />
+        </div>
 
         <!-- Code Analysis -->
-        <el-tab-pane :label="t('analysis.tabs.codeAnalysis')" name="analysis">
+        <div v-else-if="selectedStage === 3">
           <div v-if="stageData[3]?.analyzedFiles?.length">
             <div v-for="(file, fi) in stageData[3].analyzedFiles" :key="fi" class="jv-file-block">
               <div class="jv-file-header">
@@ -299,10 +385,10 @@ const renderMarkdown = (md: string) => {
             </div>
           </div>
           <el-empty v-else :description="t('analysis.codeAnalysisUnavailable')" />
-        </el-tab-pane>
+        </div>
 
         <!-- AI Reasoning -->
-        <el-tab-pane :label="t('analysis.tabs.aiReasoning')" name="reasoning">
+        <div v-else-if="selectedStage === 4">
           <div v-if="stageData[4]" class="jv-reasoning">
 
             <!-- Trigger Chain -->
@@ -451,16 +537,10 @@ const renderMarkdown = (md: string) => {
             </div>
             <div v-else style="color:var(--text-disabled)">{{ t('analysis.reasoningUnavailable') }}</div>
           </div>
-        </el-tab-pane>
-
-        <!-- Raw Intelligence -->
-        <el-tab-pane :label="t('analysis.tabs.intelligence')" name="intel">
-          <pre v-if="stageData[1]" class="jv-json-view">{{ jsonStr(stageData[1]) }}</pre>
-          <el-empty v-else :description="t('analysis.intelligenceRawUnavailable')" />
-        </el-tab-pane>
+        </div>
 
         <!-- Artifacts / Education Lab -->
-        <el-tab-pane :label="t('analysis.tabs.artifacts')" name="artifacts">
+        <div v-else-if="selectedStage === 5">
           <div v-if="stageData[5] && (stageData[5].status === 'generated' || stageData[5].status === 'paused')">
 
             <!-- Paused banner -->
@@ -554,26 +634,8 @@ const renderMarkdown = (md: string) => {
             </div>
             <div v-else style="color:var(--text-disabled)">{{ t('analysis.artifactsUnavailable') }}</div>
           </div>
-        </el-tab-pane>
-
-        <!-- Stage Logs -->
-        <el-tab-pane :label="t('analysis.tabs.stageLogs')" name="logs">
-          <el-timeline>
-            <el-timeline-item
-              v-for="s in stages" :key="s.stageNum"
-              :type="s.status === 'COMPLETED' ? 'success' : s.status === 'FAILED' ? 'danger' : 'primary'"
-              :timestamp="s.finishedAt?.replace('T', ' ').slice(0, 19) ?? ''">
-              <div style="font-weight:500">{{ t('common.stage') }} {{ s.stageNum }}: {{ s.stageName }}</div>
-              <div style="color:var(--text-disabled); font-size:12px; font-family:var(--font-mono)">
-                {{ t('analysis.startedAt') }}: {{ s.startedAt?.replace('T', ' ').slice(0, 19) ?? '—' }}
-              </div>
-              <div v-if="s.errorMsg" style="color:var(--critical); font-size:12px; margin-top:4px">
-                {{ s.errorMsg }}
-              </div>
-            </el-timeline-item>
-          </el-timeline>
-        </el-tab-pane>
-      </el-tabs>
+        </div>
+      </div>
     </el-card>
   </div>
   <el-skeleton v-else :rows="8" animated style="padding:20px" />
@@ -621,6 +683,11 @@ const renderMarkdown = (md: string) => {
   user-select: none;
 }
 .jv-stage:hover { filter: brightness(1.15); }
+.jv-stage-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  filter: brightness(1.12);
+}
 .jv-stage-completed { background: #1c3a29; border-top: 2px solid #42be65; }
 .jv-stage-running   { background: #2a1f00; border-top: 2px solid #f1c21b; }
 .jv-stage-failed    { background: #2a0000; border-top: 2px solid #fa4d56; }
@@ -652,6 +719,102 @@ const renderMarkdown = (md: string) => {
 .jv-stage-completed .jv-stage-status { color: #42be65; }
 .jv-stage-running   .jv-stage-status { color: #f1c21b; }
 .jv-stage-failed    .jv-stage-status { color: #fa4d56; }
+
+/* Result panel */
+.jv-result-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.jv-result-title {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  color: var(--text-primary);
+}
+.jv-result-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--text-disabled);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.jv-stage-error {
+  color: var(--critical);
+  background: rgba(250,77,86,.08);
+  border: 1px solid rgba(250,77,86,.25);
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+/* Patch locate view */
+.jv-patch-actions {
+  margin-top: 12px;
+}
+.jv-patch-files {
+  margin-top: 20px;
+}
+.jv-patch-files .jv-section-label {
+  margin-bottom: 10px;
+}
+.jv-patch-file {
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 10px;
+}
+.jv-patch-file-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-light);
+}
+.jv-patch-file-stats {
+  color: var(--text-disabled);
+  white-space: nowrap;
+}
+.jv-patch-methods {
+  padding: 0 12px 12px;
+}
+.jv-patch-method {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.jv-patch-method-name {
+  color: var(--text-primary);
+}
+.jv-patch-method-type {
+  color: var(--accent-light);
+  background: rgba(15,98,254,.1);
+  border: 1px solid rgba(15,98,254,.25);
+  padding: 1px 6px;
+}
+.jv-patch-diff-details {
+  padding: 0 12px 12px;
+}
+.jv-patch-diff-details summary {
+  color: var(--text-disabled);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
 
 /* Section label */
 .jv-section-label {

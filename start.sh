@@ -9,6 +9,8 @@ LOG_DIR="$SCRIPT_DIR/logs"
 BACKEND_PID_FILE="$SCRIPT_DIR/.backend.pid"
 FRONTEND_PID_FILE="$SCRIPT_DIR/.frontend.pid"
 JAR="$BACKEND_DIR/jvuln-app/target/jvuln-app-1.0.0-SNAPSHOT.jar"
+BACKEND_PORT=8080
+FRONTEND_PORT=5173
 
 mkdir -p "$LOG_DIR"
 
@@ -21,32 +23,46 @@ ok()      { echo -e "${GREEN}[ OK ]${NC}  $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERR ]${NC}  $*"; }
 
+stop_pidfile() {
+    local pidfile=$1 name=$2
+    if [ -f "$pidfile" ]; then
+        local pid
+        pid=$(cat "$pidfile")
+        if kill -0 "$pid" 2>/dev/null; then
+            if kill -TERM "-$pid" 2>/dev/null; then
+                ok "$name stopped (process group $pid)"
+            else
+                kill -TERM "$pid" 2>/dev/null && ok "$name stopped (PID $pid)"
+            fi
+        else
+            warn "$name PID $pid not running"
+        fi
+        rm -f "$pidfile"
+    else
+        warn "No $name PID file found"
+    fi
+}
+
+stop_port() {
+    local port=$1 name=$2
+    if command -v lsof >/dev/null 2>&1; then
+        local pids
+        pids=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+        if [ -n "$pids" ]; then
+            warn "$name port $port still in use, stopping leftover process(es): $pids"
+            kill $pids 2>/dev/null || true
+        fi
+    fi
+}
+
 # ── 停止服务 ─────────────────────────────────────────────────────────────────
 stop_services() {
     info "Stopping services..."
-    if [ -f "$BACKEND_PID_FILE" ]; then
-        PID=$(cat "$BACKEND_PID_FILE")
-        if kill -0 "$PID" 2>/dev/null; then
-            kill "$PID" && ok "Backend stopped (PID $PID)"
-        else
-            warn "Backend PID $PID not running"
-        fi
-        rm -f "$BACKEND_PID_FILE"
-    else
-        warn "No backend PID file found"
-    fi
-
-    if [ -f "$FRONTEND_PID_FILE" ]; then
-        PID=$(cat "$FRONTEND_PID_FILE")
-        if kill -0 "$PID" 2>/dev/null; then
-            kill "$PID" && ok "Frontend stopped (PID $PID)"
-        else
-            warn "Frontend PID $PID not running"
-        fi
-        rm -f "$FRONTEND_PID_FILE"
-    else
-        warn "No frontend PID file found"
-    fi
+    stop_pidfile "$BACKEND_PID_FILE"  "Backend"
+    stop_pidfile "$FRONTEND_PID_FILE" "Frontend"
+    sleep 1
+    stop_port "$BACKEND_PORT"  "Backend"
+    stop_port "$FRONTEND_PORT" "Frontend"
 }
 
 # ── 参数解析 ──────────────────────────────────────────────────────────────────
@@ -57,7 +73,7 @@ for arg in "$@"; do
         --stop)  stop_services; exit 0 ;;
         --help|-h)
             echo "Usage: $0 [--build] [--stop]"
-            echo "  --build   Build backend before starting (mvn install -DskipTests)"
+            echo "  --build   Build backend and validate frontend before starting"
             echo "  --stop    Stop running services"
             exit 0
             ;;
@@ -68,9 +84,10 @@ done
 check_running() {
     local pidfile=$1 name=$2
     if [ -f "$pidfile" ]; then
-        PID=$(cat "$pidfile")
-        if kill -0 "$PID" 2>/dev/null; then
-            warn "$name is already running (PID $PID). Use --stop first."
+        local pid
+        pid=$(cat "$pidfile")
+        if kill -0 "$pid" 2>/dev/null; then
+            warn "$name is already running (PID $pid). Use --stop first."
             return 1
         fi
         rm -f "$pidfile"
@@ -104,10 +121,22 @@ if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
     ok "Frontend dependencies installed"
 fi
 
+# ── 校验前端 ──────────────────────────────────────────────────────────────────
+if [ "$BUILD" = true ]; then
+    info "Validating frontend (--build)..."
+    cd "$FRONTEND_DIR" || exit 1
+    npm run build
+    if [ $? -ne 0 ]; then
+        error "Frontend build failed"
+        exit 1
+    fi
+    ok "Frontend build complete"
+fi
+
 # ── 启动后端 ──────────────────────────────────────────────────────────────────
 info "Starting backend..."
 cd "$BACKEND_DIR" || exit 1
-nohup java -jar "$JAR" \
+setsid java -jar "$JAR" \
     --spring.profiles.active=default \
     > "$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
@@ -117,8 +146,8 @@ info "Backend starting (PID $BACKEND_PID) — log: logs/backend.log"
 # 等待后端就绪（最多 30 秒）
 info "Waiting for backend to be ready..."
 for i in $(seq 1 30); do
-    if curl -sf http://localhost:8080/actuator/health > /dev/null 2>&1 || \
-       curl -sf http://localhost:8080/api/analysis     > /dev/null 2>&1; then
+    if curl -sf http://localhost:$BACKEND_PORT/actuator/health > /dev/null 2>&1 || \
+       curl -sf http://localhost:$BACKEND_PORT/api/analysis     > /dev/null 2>&1; then
         ok "Backend is ready (${i}s)"
         break
     fi
@@ -133,7 +162,11 @@ done
 # ── 启动前端 ──────────────────────────────────────────────────────────────────
 info "Starting frontend..."
 cd "$FRONTEND_DIR" || exit 1
-nohup npm run dev \
+if command -v lsof >/dev/null 2>&1 && lsof -tiTCP:"$FRONTEND_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    error "Frontend port $FRONTEND_PORT is already in use. Run ./start.sh --stop and retry."
+    exit 1
+fi
+setsid npm run dev -- --host 0.0.0.0 --strictPort --port "$FRONTEND_PORT" \
     > "$LOG_DIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 echo "$FRONTEND_PID" > "$FRONTEND_PID_FILE"
@@ -141,9 +174,14 @@ info "Frontend starting (PID $FRONTEND_PID) — log: logs/frontend.log"
 
 # 等待前端就绪（最多 15 秒）
 for i in $(seq 1 15); do
-    if curl -sf http://localhost:5173 > /dev/null 2>&1; then
+    if curl -sf http://localhost:$FRONTEND_PORT > /dev/null 2>&1; then
         ok "Frontend is ready (${i}s)"
         break
+    fi
+    if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+        error "Frontend process died. Check logs/frontend.log"
+        tail -20 "$LOG_DIR/frontend.log"
+        exit 1
     fi
     sleep 1
 done
@@ -153,8 +191,8 @@ echo ""
 echo -e "${GREEN}═══════════════════════════════════════${NC}"
 echo -e "${GREEN}  JVuln Platform started successfully${NC}"
 echo -e "${GREEN}═══════════════════════════════════════${NC}"
-echo -e "  Backend   http://localhost:8080   (PID $BACKEND_PID)"
-echo -e "  Frontend  http://localhost:5173   (PID $FRONTEND_PID)"
+echo -e "  Backend   http://localhost:$BACKEND_PORT   (PID $BACKEND_PID)"
+echo -e "  Frontend  http://localhost:$FRONTEND_PORT   (PID $FRONTEND_PID)"
 echo -e "  Logs      $LOG_DIR/"
 echo ""
 echo -e "  Stop:  ${YELLOW}./start.sh --stop${NC}"
