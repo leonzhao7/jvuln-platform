@@ -209,10 +209,14 @@ const renderMarkdown = (md: string) => {
     <!-- Selected stage result -->
     <el-card>
       <div class="jv-result-header">
-        <div>
-          <div class="jv-section-label">{{ t('analysis.selectedStageResult') }}</div>
+        <div class="jv-result-title-row">
           <div class="jv-result-title">
             {{ stageIcons[selectedStage - 1] }} {{ stageNames[selectedStage - 1] }}
+          </div>
+          <div v-if="selectedStageRecord" class="jv-result-meta">
+            <span :class="taskStatusClass(selectedStageRecord.status)">{{ t(`status.${selectedStageRecord.status}`) }}</span>
+            <span>{{ t('analysis.startedAt') }}: {{ selectedStageRecord.startedAt?.replace('T', ' ').slice(0, 19) ?? '—' }}</span>
+            <span v-if="selectedStageRecord.finishedAt">{{ t('analysis.finishedAt') }}: {{ selectedStageRecord.finishedAt.replace('T', ' ').slice(0, 19) }}</span>
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:12px">
@@ -228,11 +232,6 @@ const renderMarkdown = (md: string) => {
             @click="rerun(selectedStage)">
             {{ t('analysis.rerunStage') }}
           </el-button>
-          <div v-if="selectedStageRecord" class="jv-result-meta">
-            <span :class="taskStatusClass(selectedStageRecord.status)">{{ t(`status.${selectedStageRecord.status}`) }}</span>
-            <span>{{ t('analysis.startedAt') }}: {{ selectedStageRecord.startedAt?.replace('T', ' ').slice(0, 19) ?? '—' }}</span>
-            <span v-if="selectedStageRecord.finishedAt">{{ t('analysis.finishedAt') }}: {{ selectedStageRecord.finishedAt.replace('T', ' ').slice(0, 19) }}</span>
-          </div>
         </div>
       </div>
       <div v-if="selectedStageRecord?.errorMsg" class="jv-stage-error">
@@ -737,23 +736,29 @@ const renderMarkdown = (md: string) => {
 /* Result panel */
 .jv-result-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding-bottom: 16px;
   margin-bottom: 16px;
   border-bottom: 1px solid var(--border-subtle);
 }
+.jv-result-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
 .jv-result-title {
-  margin-top: 4px;
   font-family: var(--font-mono);
   font-size: 16px;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 .jv-result-meta {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
   color: var(--text-disabled);

@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.netty.http.client.HttpClient;
@@ -21,6 +22,7 @@ import java.time.Duration;
 public class LlmCaller {
 
     private static final Logger log = LoggerFactory.getLogger(LlmCaller.class);
+    private static final String CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
     private final WebClient webClient;
     private final String model;
     private final ObjectMapper mapper;
@@ -28,10 +30,11 @@ public class LlmCaller {
     public LlmCaller(String baseUrl, String apiKey, String model, ObjectMapper mapper) {
         this.model = model;
         this.mapper = mapper;
+        String base = normalizeBaseUrl(baseUrl);
         HttpClient httpClient = HttpClient.create()
                 .responseTimeout(Duration.ofSeconds(180));
         WebClient.Builder builder = WebClient.builder()
-                .baseUrl(baseUrl)
+                .baseUrl(base)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(10 * 1024 * 1024));
         if (apiKey != null && !apiKey.trim().isEmpty()) {
@@ -44,13 +47,7 @@ public class LlmCaller {
         ObjectNode body = buildBody(request, false);
         log.info("LLM chat: model={} maxTokens={}", model, request.getMaxTokens());
 
-        String raw = webClient.post()
-                .uri("/chat/completions")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body.toString())
-                .retrieve()
-                .bodyToMono(String.class)
-                .block();
+        String raw = postChatCompletions(body, false);
 
         try {
             JsonNode json = mapper.readTree(raw);
@@ -65,7 +62,8 @@ public class LlmCaller {
                     choice.path("finish_reason").asText("stop")
             );
         } catch (Exception e) {
-            throw new RuntimeException("Failed to parse LLM response: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to parse LLM response from " + CHAT_COMPLETIONS_PATH
+                    + ": " + describeRawResponse(raw), e);
         }
     }
 
@@ -73,7 +71,7 @@ public class LlmCaller {
         ObjectNode body = buildBody(request, true);
 
         return webClient.post()
-                .uri("/chat/completions")
+                .uri(CHAT_COMPLETIONS_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body.toString())
                 .retrieve()
@@ -120,5 +118,45 @@ public class LlmCaller {
         }
         body.set("messages", messages);
         return body;
+    }
+
+    private String postChatCompletions(ObjectNode body, boolean stream) {
+        try {
+            return webClient.post()
+                    .uri(CHAT_COMPLETIONS_PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(body.toString())
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+        } catch (WebClientResponseException e) {
+            throw new RuntimeException("LLM API error " + e.getRawStatusCode() + " from "
+                    + CHAT_COMPLETIONS_PATH + ": " + truncate(e.getResponseBodyAsString(), 1200), e);
+        }
+    }
+
+    private String normalizeBaseUrl(String baseUrl) {
+        String base = baseUrl == null ? "" : baseUrl.trim();
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        base = base.replaceAll("(?i)/v1/chat/completions$", "");
+        base = base.replaceAll("(?i)/chat/completions$", "");
+        base = base.replaceAll("(?i)/v1$", "");
+        return base;
+    }
+
+    private String describeRawResponse(String raw) {
+        if (raw == null) return "empty response";
+        String trimmed = raw.trim();
+        if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html") || trimmed.startsWith("<")) {
+            return "received HTML instead of JSON: " + truncate(trimmed, 400);
+        }
+        return truncate(trimmed, 800);
+    }
+
+    private String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() > max ? s.substring(0, max) + "..." : s;
     }
 }
