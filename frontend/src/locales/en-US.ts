@@ -79,6 +79,8 @@ const enUS = {
       sourceRepo: 'Source Repo',
       description: 'Description',
     },
+    codeDiff: 'Code Diff',
+    cweAnalysis: 'CWE Analysis',
     fixCommits: 'Fix Commits',
     cweMatches: 'CWE Matches',
     vulnerable: 'Vulnerable',

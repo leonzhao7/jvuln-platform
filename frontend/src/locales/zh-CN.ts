@@ -79,6 +79,8 @@ const zhCN = {
       sourceRepo: '源码仓库',
       description: '漏洞描述',
     },
+    codeDiff: '代码 Diff',
+    cweAnalysis: 'CWE 分析',
     fixCommits: '修复提交',
     cweMatches: 'CWE 匹配',
     vulnerable: '漏洞代码',

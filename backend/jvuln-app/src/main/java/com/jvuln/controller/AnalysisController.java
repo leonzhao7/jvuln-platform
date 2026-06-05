@@ -227,6 +227,17 @@ public class AnalysisController {
         return readStageJson(cveId, 5);
     }
 
+    @GetMapping("/{cveId}/stages/{stageNum}/json")
+    public ResponseEntity<?> getStageJson(@PathVariable String cveId,
+                                          @PathVariable int stageNum) {
+        if (stageNum < 1 || stageNum > 5) {
+            Map<String, String> err = new HashMap<>();
+            err.put("error", "stageNum must be between 1 and 5");
+            return ResponseEntity.badRequest().body(err);
+        }
+        return readStageJson(cveId, stageNum);
+    }
+
     @GetMapping("/{cveId}/code-analysis")
     public ResponseEntity<?> getCodeAnalysis(@PathVariable String cveId) {
         return readStageJson(cveId, 3);

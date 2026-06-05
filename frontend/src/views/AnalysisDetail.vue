@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type TaskDetail } from '../api'
 import { ElMessage } from 'element-plus'
+import DiffViewer from '../components/DiffViewer.vue'
 import { useI18n } from '../i18n'
 
 const route = useRoute()
@@ -13,7 +14,8 @@ const cveId = route.params.cveId as string
 const detail = ref<TaskDetail | null>(null)
 const selectedStage = ref(1)
 const stageData = ref<Record<number, any>>({})
-const diffText = ref('')
+const diffContent = ref('')
+const diffLoading = ref(false)
 const reportMarkdown = ref('')
 const sseActive = ref(false)
 const sseMessages = ref<string[]>([])
@@ -21,6 +23,10 @@ let evtSource: EventSource | null = null
 
 const task = computed(() => detail.value?.task)
 const stages = computed(() => detail.value?.stages ?? [])
+const stage3Files = computed<any[]>(() => stageData.value[3]?.analyzedFiles ?? [])
+const hasStage3CallChains = computed(() =>
+  stage3Files.value.some(file => Array.isArray(file.callChain) && file.callChain.length > 0)
+)
 
 const stageIcons = ['01', '02', '03', '04', '05']
 const stageNames = computed(() => array<string>('analysis.stageNames'))
@@ -60,6 +66,8 @@ const load = async () => {
 }
 
 const loadStageData = async () => {
+  diffContent.value = ''
+  diffLoading.value = false
   const stgs = detail.value?.stages ?? []
   for (const s of stgs) {
     if (s.status === 'COMPLETED') {
@@ -76,7 +84,15 @@ const loadStageData = async () => {
     }
   }
   if (detail.value?.stages.find(s => s.stageNum === 2 && s.status === 'COMPLETED')) {
-    try { const d = await api.getDiff(cveId); diffText.value = d.diff } catch {}
+    diffLoading.value = true
+    try {
+      const d = await api.getDiff(cveId)
+      diffContent.value = d.diff
+    } catch {
+      diffContent.value = ''
+    } finally {
+      diffLoading.value = false
+    }
   }
 }
 
@@ -116,8 +132,6 @@ onMounted(async () => {
 })
 
 onUnmounted(() => evtSource?.close())
-
-const jsonStr = (obj: any) => JSON.stringify(obj, null, 2)
 
 const vstClass = (status?: string) => {
   if (!status) return 'jv-vstatus-unknown'
@@ -183,9 +197,6 @@ const renderMarkdown = (md: string) => {
       </div>
       <div class="jv-detail-header-right">
         <el-button size="small" :loading="sseActive" @click="rerun()">{{ t('analysis.rerunAll') }}</el-button>
-        <el-button size="small" v-if="diffText" @click="router.push(`/analysis/${cveId}/diff`)">
-          {{ t('analysis.viewDiff') }}
-        </el-button>
       </div>
     </div>
 
@@ -279,10 +290,6 @@ const renderMarkdown = (md: string) => {
               </div>
             </div>
 
-            <details style="margin-top:16px">
-              <summary style="color:var(--text-disabled); font-size:12px; cursor:pointer">JSON</summary>
-              <pre class="jv-json-view" style="margin-top:8px">{{ jsonStr(stageData[1]) }}</pre>
-            </details>
           </div>
           <el-empty v-else :description="t('analysis.intelligenceUnavailable')" />
         </div>
@@ -301,12 +308,6 @@ const renderMarkdown = (md: string) => {
                 {{ stageData[2].commitMessage || '—' }}
               </el-descriptions-item>
             </el-descriptions>
-
-            <div v-if="diffText" class="jv-patch-actions">
-              <el-button size="small" @click="router.push(`/analysis/${cveId}/diff`)">
-                {{ t('analysis.viewDiff') }}
-              </el-button>
-            </div>
 
             <div v-if="stageData[2].diffs?.length" class="jv-patch-files">
               <div class="jv-section-label">
@@ -327,75 +328,85 @@ const renderMarkdown = (md: string) => {
                     <span class="jv-patch-method-type">{{ m.changeType }}</span>
                   </div>
                 </div>
-
-                <details v-if="file.diffContent" class="jv-patch-diff-details">
-                  <summary>{{ t('analysis.patch.fileDiff') }}</summary>
-                  <pre class="jv-json-view" style="margin-top:8px">{{ file.diffContent }}</pre>
-                </details>
               </div>
             </div>
 
-            <details style="margin-top:16px">
-              <summary style="color:var(--text-disabled); font-size:12px; cursor:pointer">JSON</summary>
-              <pre class="jv-json-view" style="margin-top:8px">{{ jsonStr(stageData[2]) }}</pre>
-            </details>
           </div>
           <el-empty v-else :description="t('analysis.patchUnavailable')" />
         </div>
 
         <!-- Code Analysis -->
         <div v-else-if="selectedStage === 3">
-          <div v-if="stageData[3]?.analyzedFiles?.length">
-            <div v-for="(file, fi) in stageData[3].analyzedFiles" :key="fi" class="jv-file-block">
-              <div class="jv-file-header">
-                <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">
-                  {{ file.fileName }}
-                </span>
-              </div>
+          <div v-if="stage3Files.length || diffContent">
+            <div v-if="diffContent || diffLoading" class="jv-stage3-section">
+              <DiffViewer
+                :diff-content="diffContent"
+                :loading="diffLoading"
+                :title="t('analysis.codeDiff')"
+                :empty-text="t('diff.empty')"
+              />
+            </div>
 
-              <!-- CWE Matches -->
-              <div v-if="file.cweMatches?.length" style="margin-bottom:16px">
-                <div class="jv-section-label" style="margin-bottom:8px">
-                  {{ t('analysis.cweMatches') }} ({{ file.cweMatches.length }})
-                </div>
-                <div v-for="c in file.cweMatches" :key="c.cweId + c.matchedCode" class="jv-cwe-block">
-                  <div class="cwe-id">{{ c.cweId }}: {{ c.cweName }}</div>
-                  <div class="cwe-code">{{ c.matchedCode }}</div>
-                  <div class="cwe-expl">{{ c.explanation }}</div>
-                </div>
-              </div>
-
-              <!-- Method Analysis -->
-              <div v-for="m in file.methods" :key="m.methodName" style="margin-bottom:16px">
-                <div style="color:var(--text-primary); font-weight:500; font-size:13px; margin-bottom:8px; font-family:var(--font-mono)">
-                  {{ m.methodName }}()
-                  <span style="color:var(--text-disabled); font-weight:400; font-size:11px; margin-left:8px">
-                    → {{ m.calledMethods?.join(', ') }}
+            <div v-if="stage3Files.length" class="jv-stage3-section">
+              <div class="jv-section-label" style="margin-bottom:12px">{{ t('analysis.cweAnalysis') }}</div>
+              <div v-for="(file, fi) in stage3Files" :key="fi" class="jv-file-block">
+                <div class="jv-file-header">
+                  <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">
+                    {{ file.fileName }}
                   </span>
                 </div>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
-                  <div>
-                    <div class="jv-code-label-vuln">{{ t('analysis.vulnerable') }}</div>
-                    <pre class="jv-code-vuln">{{ m.vulnerableCode }}</pre>
+
+                <div v-if="file.cweMatches?.length" style="margin-bottom:16px">
+                  <div class="jv-section-label" style="margin-bottom:8px">
+                    {{ t('analysis.cweMatches') }} ({{ file.cweMatches.length }})
                   </div>
-                  <div>
-                    <div class="jv-code-label-fixed">{{ t('analysis.fixed') }}</div>
-                    <pre class="jv-code-fixed">{{ m.fixedCode }}</pre>
+                  <div v-for="c in file.cweMatches" :key="c.cweId + c.matchedCode" class="jv-cwe-block">
+                    <div class="cwe-id">{{ c.cweId }}: {{ c.cweName }}</div>
+                    <div class="cwe-code">{{ c.matchedCode }}</div>
+                    <div class="cwe-expl">{{ c.explanation }}</div>
                   </div>
                 </div>
-              </div>
 
-              <!-- Call Chain -->
-              <div v-if="file.callChain?.length">
-                <div class="jv-section-label" style="margin-bottom:6px">{{ t('analysis.callChain') }}</div>
-                <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
-                  <span v-for="(c, ci) in file.callChain" :key="c" class="jv-chain-item">
-                    {{ c }}
-                    <span v-if="Number(ci) < file.callChain.length - 1" style="color:var(--text-disabled); margin-left:6px">→</span>
-                  </span>
+                <div v-for="m in file.methods" :key="m.methodName" style="margin-bottom:16px">
+                  <div style="color:var(--text-primary); font-weight:500; font-size:13px; margin-bottom:8px; font-family:var(--font-mono)">
+                    {{ m.methodName }}()
+                    <span style="color:var(--text-disabled); font-weight:400; font-size:11px; margin-left:8px">
+                      → {{ m.calledMethods?.join(', ') }}
+                    </span>
+                  </div>
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
+                    <div>
+                      <div class="jv-code-label-vuln">{{ t('analysis.vulnerable') }}</div>
+                      <pre class="jv-code-vuln">{{ m.vulnerableCode }}</pre>
+                    </div>
+                    <div>
+                      <div class="jv-code-label-fixed">{{ t('analysis.fixed') }}</div>
+                      <pre class="jv-code-fixed">{{ m.fixedCode }}</pre>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+
+            <div v-if="hasStage3CallChains" class="jv-stage3-section">
+              <div class="jv-section-label" style="margin-bottom:12px">{{ t('analysis.callChain') }}</div>
+              <template v-for="(file, fi) in stage3Files" :key="`chain-${fi}`">
+                <div v-if="file.callChain?.length" class="jv-file-block">
+                  <div class="jv-file-header">
+                    <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">
+                      {{ file.fileName }}
+                    </span>
+                  </div>
+                  <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+                    <span v-for="(c, ci) in file.callChain" :key="c" class="jv-chain-item">
+                      {{ c }}
+                      <span v-if="Number(ci) < file.callChain.length - 1" style="color:var(--text-disabled); margin-left:6px">→</span>
+                    </span>
+                  </div>
+                </div>
+              </template>
+            </div>
+
           </div>
           <el-empty v-else :description="t('analysis.codeAnalysisUnavailable')" />
         </div>
@@ -535,11 +546,6 @@ const renderMarkdown = (md: string) => {
               </div>
             </div>
 
-            <!-- Raw JSON fallback -->
-            <details style="margin-top:16px">
-              <summary style="color:var(--text-disabled); font-size:12px; cursor:pointer">JSON</summary>
-              <pre class="jv-json-view" style="margin-top:8px">{{ jsonStr(stageData[4]) }}</pre>
-            </details>
           </div>
           <div v-else style="text-align:center; padding:40px">
             <div v-if="stages.find(s => s.stageNum === 4 && s.status === 'FAILED')"
@@ -632,11 +638,6 @@ const renderMarkdown = (md: string) => {
               </div>
             </div>
 
-            <!-- Raw JSON -->
-            <details style="margin-top:16px">
-              <summary style="color:var(--text-disabled); font-size:12px; cursor:pointer">JSON</summary>
-              <pre class="jv-json-view" style="margin-top:8px">{{ jsonStr(stageData[5]) }}</pre>
-            </details>
           </div>
           <div v-else style="text-align:center; padding:40px">
             <div v-if="stages.find(s => s.stageNum === 5 && s.status === 'FAILED')"
@@ -776,9 +777,6 @@ const renderMarkdown = (md: string) => {
   white-space: pre-wrap;
 }
 /* Patch locate view */
-.jv-patch-actions {
-  margin-top: 12px;
-}
 .jv-patch-files {
   margin-top: 20px;
 }
@@ -825,16 +823,6 @@ const renderMarkdown = (md: string) => {
   border: 1px solid rgba(15,98,254,.25);
   padding: 1px 6px;
 }
-.jv-patch-diff-details {
-  padding: 0 12px 12px;
-}
-.jv-patch-diff-details summary {
-  color: var(--text-disabled);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  cursor: pointer;
-}
-
 /* Section label */
 .jv-section-label {
   font-family: var(--font-mono);
@@ -842,6 +830,10 @@ const renderMarkdown = (md: string) => {
   color: var(--text-disabled);
   letter-spacing: 1px;
   text-transform: uppercase;
+}
+
+.jv-stage3-section {
+  margin-bottom: 28px;
 }
 
 /* File block */
@@ -868,21 +860,6 @@ const renderMarkdown = (md: string) => {
   background: rgba(15,98,254,.1);
   padding: 3px 10px;
   border: 1px solid rgba(15,98,254,.25);
-}
-
-/* JSON view */
-.jv-json-view {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: var(--bg-code);
-  padding: 16px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  max-height: 600px;
-  overflow-y: auto;
-  border-left: 3px solid var(--border);
-  margin: 0;
 }
 
 /* Reasoning view */

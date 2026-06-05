@@ -51,6 +51,9 @@ export const api = {
   getPatch: (cveId: string) =>
     http.get(`/analysis/${cveId}/patch`).then(r => r.data),
 
+  getStageJson: (cveId: string, stageNum: number) =>
+    http.get(`/analysis/${cveId}/stages/${stageNum}/json`).then(r => r.data),
+
   getDiff: (cveId: string) =>
     http.get<{ diff: string }>(`/analysis/${cveId}/diff`).then(r => r.data),
 
