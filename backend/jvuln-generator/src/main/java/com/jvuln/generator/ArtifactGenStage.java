@@ -149,6 +149,7 @@ public class ArtifactGenStage implements Stage {
                     output.put("status", "paused");
                     output.put("pauseReason", errMsg);
                     output.put("pausedAtTurn", turn);
+                    output.remove("reproductionSteps");
                     ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 5, output);
                     ctx.reportProgress("Agent paused: " + errMsg);
                     return StageResult.success(5, name(), output);
