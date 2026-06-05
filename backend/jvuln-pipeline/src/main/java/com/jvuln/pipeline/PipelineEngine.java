@@ -119,6 +119,7 @@ public class PipelineEngine {
                 StageRecord record = getOrCreateRecord(cveId, stage);
                 record.setStatus(StageRecord.StageStatus.RUNNING);
                 record.setStartedAt(LocalDateTime.now());
+                record.setErrorMsg(null);
                 stageRepo.save(record);
 
                 task.setCurrentStage(stage.number());
@@ -132,7 +133,9 @@ public class PipelineEngine {
                             ? StageRecord.StageStatus.COMPLETED
                             : StageRecord.StageStatus.FAILED);
                     record.setFinishedAt(LocalDateTime.now());
-                    if (!result.isSuccess()) {
+                    if (result.isSuccess()) {
+                        record.setErrorMsg(null);
+                    } else {
                         record.setErrorMsg(result.getErrorMessage());
                     }
                     stageRepo.save(record);
