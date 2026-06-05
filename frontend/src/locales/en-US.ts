@@ -57,6 +57,8 @@ const enUS = {
     rerunAll: '↺ Rerun All',
     viewDiff: 'View Diff',
     rerunFromStage: 'Rerun from Stage {stage}',
+    rerunStage: '↺ Rerun This Stage',
+    continueStage: '▶ Continue',
     viewStageResult: 'View Stage {stage} result',
     selectedStageResult: 'Stage Result',
     stageNames: ['Intelligence', 'Patch Locate', 'Code Analysis', 'AI Reasoning', 'Artifacts'],

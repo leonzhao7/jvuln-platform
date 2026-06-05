@@ -215,10 +215,24 @@ const renderMarkdown = (md: string) => {
             {{ stageIcons[selectedStage - 1] }} {{ stageNames[selectedStage - 1] }}
           </div>
         </div>
-        <div v-if="selectedStageRecord" class="jv-result-meta">
-          <span :class="taskStatusClass(selectedStageRecord.status)">{{ t(`status.${selectedStageRecord.status}`) }}</span>
-          <span>{{ t('analysis.startedAt') }}: {{ selectedStageRecord.startedAt?.replace('T', ' ').slice(0, 19) ?? '—' }}</span>
-          <span v-if="selectedStageRecord.finishedAt">{{ t('analysis.finishedAt') }}: {{ selectedStageRecord.finishedAt.replace('T', ' ').slice(0, 19) }}</span>
+        <div style="display:flex; align-items:center; gap:12px">
+          <el-button
+            v-if="selectedStageRecord && selectedStageRecord.status === 'FAILED'"
+            type="warning" size="small" :loading="sseActive"
+            @click="rerun(selectedStage)">
+            {{ t('analysis.continueStage') }}
+          </el-button>
+          <el-button
+            v-else-if="selectedStageRecord && selectedStageRecord.status === 'COMPLETED'"
+            size="small" :loading="sseActive"
+            @click="rerun(selectedStage)">
+            {{ t('analysis.rerunStage') }}
+          </el-button>
+          <div v-if="selectedStageRecord" class="jv-result-meta">
+            <span :class="taskStatusClass(selectedStageRecord.status)">{{ t(`status.${selectedStageRecord.status}`) }}</span>
+            <span>{{ t('analysis.startedAt') }}: {{ selectedStageRecord.startedAt?.replace('T', ' ').slice(0, 19) ?? '—' }}</span>
+            <span v-if="selectedStageRecord.finishedAt">{{ t('analysis.finishedAt') }}: {{ selectedStageRecord.finishedAt.replace('T', ' ').slice(0, 19) }}</span>
+          </div>
         </div>
       </div>
       <div v-if="selectedStageRecord?.errorMsg" class="jv-stage-error">

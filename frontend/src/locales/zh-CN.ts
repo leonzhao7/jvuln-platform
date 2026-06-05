@@ -57,6 +57,8 @@ const zhCN = {
     rerunAll: '↺ 全部重跑',
     viewDiff: '查看 Diff',
     rerunFromStage: '从阶段 {stage} 开始重跑',
+    rerunStage: '↺ 重跑本阶段',
+    continueStage: '▶ 继续',
     viewStageResult: '查看阶段 {stage} 结果',
     selectedStageResult: '阶段结果',
     stageNames: ['情报采集', '补丁定位', '代码分析', 'AI 推理', '产物生成'],
