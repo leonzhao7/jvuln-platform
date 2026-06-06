@@ -17,6 +17,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
@@ -481,8 +482,19 @@ public class ArtifactGenStage implements Stage {
         readSchema.put("properties", readProps);
         readSchema.put("required", Collections.singletonList("path"));
         allTools.add(new LlmRequest.ToolDef("read_file",
-                "Read a file from the workspace.",
+                "Read a full source, config, or report file from the workspace.",
                 readSchema));
+
+        Map<String, Object> readLogSchema = new LinkedHashMap<>();
+        readLogSchema.put("type", "object");
+        Map<String, Object> readLogProps = new LinkedHashMap<>();
+        readLogProps.put("path", prop("string", "File path relative to workspace"));
+        readLogProps.put("tailBytes", prop("integer", "Optional number of bytes to return from the end of the file"));
+        readLogSchema.put("properties", readLogProps);
+        readLogSchema.put("required", Collections.singletonList("path"));
+        allTools.add(new LlmRequest.ToolDef("read_log",
+                "Read the tail of a log, build output, or runtime trace file from the workspace.",
+                readLogSchema));
 
         Map<String, Object> validateSchema = new LinkedHashMap<>();
         validateSchema.put("type", "object");
@@ -555,6 +567,7 @@ public class ArtifactGenStage implements Stage {
                 case "write_file":  return doWriteFile(ctx, input);
                 case "write_files": return doWriteFiles(ctx, input);
                 case "read_file":   return doReadFile(ctx, input);
+                case "read_log":    return doReadLog(ctx, input);
                 case "validate_artifacts": return doValidateArtifacts(ctx, input);
                 case "inspect_runtime": return doInspectRuntime(ctx);
                 default:            return "Unknown tool: " + toolName;
@@ -615,8 +628,50 @@ public class ArtifactGenStage implements Stage {
         if (!Files.exists(target)) return "Error: file not found: " + path;
 
         byte[] bytes = Files.readAllBytes(target);
-        String content = new String(bytes, StandardCharsets.UTF_8);
-        return truncate(content, OUTPUT_TRUNCATE);
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private String doReadLog(AgentContext ctx, JsonNode input) throws IOException {
+        String path = input.path("path").asText("");
+        if (path.isEmpty()) return "Error: path is required";
+        if (path.contains("..")) return "Error: path traversal not allowed";
+
+        Path target = ctx.cvePath.resolve(path);
+        if (!Files.exists(target)) return "Error: file not found: " + path;
+        if (Files.isDirectory(target)) return "Error: not a file: " + path;
+
+        int requestedTailBytes = input.path("tailBytes").asInt(OUTPUT_TRUNCATE);
+        int tailBytes = Math.max(1, Math.min(requestedTailBytes, PROCESS_OUTPUT_BUFFER));
+        return readTailBytes(target, tailBytes);
+    }
+
+    private String readTailBytes(Path target, int tailBytes) throws IOException {
+        long size = Files.size(target);
+        int bytesToRead = (int) Math.min(size, (long) tailBytes);
+        if (bytesToRead <= 0) {
+            return "";
+        }
+
+        byte[] bytes = new byte[bytesToRead];
+        try (RandomAccessFile raf = new RandomAccessFile(target.toFile(), "r")) {
+            if (size > bytesToRead) {
+                raf.seek(size - bytesToRead);
+            }
+            raf.readFully(bytes);
+        }
+
+        int offset = 0;
+        if (size > bytesToRead) {
+            while (offset < bytes.length && (bytes[offset] & 0xC0) == 0x80) {
+                offset++;
+            }
+        }
+
+        String content = new String(bytes, offset, bytes.length - offset, StandardCharsets.UTF_8);
+        if (size > bytesToRead) {
+            return "...[truncated]\n" + content;
+        }
+        return content;
     }
 
     private String doValidateArtifacts(AgentContext ctx, JsonNode input) throws Exception {
@@ -1273,6 +1328,10 @@ public class ArtifactGenStage implements Stage {
         if ("read_file".equals(toolName)) {
             return "{path=" + input.path("path").asText("") + "}";
         }
+        if ("read_log".equals(toolName)) {
+            return "{path=" + input.path("path").asText("")
+                    + ", tailBytes=" + input.path("tailBytes").asInt(OUTPUT_TRUNCATE) + "}";
+        }
         if ("validate_artifacts".equals(toolName)) {
             return "{focus=" + input.path("focus").asText("full") + "}";
         }
@@ -1551,27 +1610,28 @@ public class ArtifactGenStage implements Stage {
 
     private boolean isToolAllowed(AgentPhase phase, String toolName) {
         if (phase == null) {
-            return "submit_plan".equals(toolName) || "read_file".equals(toolName)
+            return "submit_plan".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName)
                     || "write_file".equals(toolName) || "write_files".equals(toolName);
         }
         switch (phase) {
             case PLAN:
-                return "submit_plan".equals(toolName) || "read_file".equals(toolName)
+                return "submit_plan".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName)
                         || "write_file".equals(toolName) || "write_files".equals(toolName);
             case GENERATE_MINIMAL:
-                return "write_file".equals(toolName) || "write_files".equals(toolName) || "read_file".equals(toolName);
+                return "write_file".equals(toolName) || "write_files".equals(toolName)
+                        || "read_file".equals(toolName) || "read_log".equals(toolName);
             case COMPILE_FIX:
             case STARTUP_FIX:
             case POC_FIX:
                 return "write_file".equals(toolName) || "write_files".equals(toolName)
-                        || "read_file".equals(toolName) || "inspect_runtime".equals(toolName)
+                        || "read_file".equals(toolName) || "read_log".equals(toolName) || "inspect_runtime".equals(toolName)
                         || "validate_artifacts".equals(toolName) || "finish".equals(toolName);
             case REPORT:
                 return "write_file".equals(toolName) || "write_files".equals(toolName)
-                        || "read_file".equals(toolName) || "inspect_runtime".equals(toolName)
+                        || "read_file".equals(toolName) || "read_log".equals(toolName) || "inspect_runtime".equals(toolName)
                         || "finish".equals(toolName);
             case FINISHED:
-                return "finish".equals(toolName) || "read_file".equals(toolName);
+                return "finish".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName);
             default:
                 return false;
         }
@@ -1659,15 +1719,15 @@ public class ArtifactGenStage implements Stage {
     private List<String> allowedActions(AgentPhase phase) {
         switch (phase) {
             case PLAN:
-                return Arrays.asList("submit_plan", "write_files", "write_file", "read_file");
+                return Arrays.asList("submit_plan", "write_files", "write_file", "read_file", "read_log");
             case GENERATE_MINIMAL:
-                return Arrays.asList("write_files", "write_file", "read_file");
+                return Arrays.asList("write_files", "write_file", "read_file", "read_log");
             case COMPILE_FIX:
             case STARTUP_FIX:
             case POC_FIX:
-                return Arrays.asList("write_files", "write_file", "read_file", "inspect_runtime", "validate_artifacts", "finish");
+                return Arrays.asList("write_files", "write_file", "read_file", "read_log", "inspect_runtime", "validate_artifacts", "finish");
             case REPORT:
-                return Arrays.asList("write_files", "write_file", "read_file", "inspect_runtime", "finish");
+                return Arrays.asList("write_files", "write_file", "read_file", "read_log", "inspect_runtime", "finish");
             default:
                 return Collections.singletonList("finish");
         }
@@ -1731,7 +1791,7 @@ public class ArtifactGenStage implements Stage {
     }
 
     private boolean requiresExecutionPlan(String toolName) {
-        return !("submit_plan".equals(toolName) || "read_file".equals(toolName));
+        return !("submit_plan".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName));
     }
 
     private WriteScope inspectWriteScope(String toolName, JsonNode input) {

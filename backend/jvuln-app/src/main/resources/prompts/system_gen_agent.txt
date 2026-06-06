@@ -20,6 +20,8 @@ Follow this workflow:
 9. If the validator or reviewer rejects the result, make the smallest patch that addresses the reported gap, then re-run validation.
 10. Write the report to `report/report.md` after verification is green, or as a final fallback before `finish` if the PoC remains unverified.
 11. Call `finish` with a summary.
+12. Use `read_file` for source, config, and report files.
+13. Use `read_log` for logs, build output, runtime traces, and other long append-only evidence files.
 
 IMPORTANT — Budget your turns wisely:
 - You have a large turn budget, but the expected actual turn count should stay low. Aim for 1 broad generation pass, then focused repair passes.
