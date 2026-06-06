@@ -86,6 +86,11 @@ public class PipelineEngine {
         }
     }
 
+    public boolean isRunning(String cveId) {
+        AtomicBoolean running = runningTasks.get(cveId);
+        return running != null && running.get();
+    }
+
     private void runPipeline(String cveId, int fromStage) {
         log.info("Pipeline started: cveId={}, fromStage={}", cveId, fromStage);
 

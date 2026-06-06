@@ -1,0 +1,27 @@
+Review whether the generated Stage 5 artifacts satisfy the CVE verification plan.
+
+## CVE Intelligence
+{{intelligence}}
+
+## Trigger Chain
+{{trigger_chain}}
+
+## Root Cause
+{{root_cause}}
+
+## Patch Diff
+{{patch_diff}}
+
+## Affected Component
+{{artifact}}
+
+## Verification Plan
+{{verification_plan}}
+
+## Agent Finish Summary
+{{finish_summary}}
+
+## Execution Evidence
+{{execution_evidence}}
+
+Return only the JSON object.

@@ -112,7 +112,7 @@ public class AnalysisController {
                                    @RequestParam(defaultValue = "1") int fromStage) {
         CveTask task = taskRepo.findByCveId(cveId).orElse(null);
         if (task == null) return ResponseEntity.notFound().build();
-        if (task.getStatus() == CveTask.TaskStatus.RUNNING) {
+        if (task.getStatus() == CveTask.TaskStatus.RUNNING && pipelineEngine.isRunning(cveId)) {
             Map<String, String> err = new HashMap<>();
             err.put("error", "Analysis already running for " + cveId);
             return ResponseEntity.status(HttpStatus.CONFLICT).body(err);
@@ -269,45 +269,184 @@ public class AnalysisController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Sync DB stage statuses to match what's actually on disk (files present = COMPLETED). */
+    /** Sync DB stage statuses to match what's actually on disk. Stage 5 inspects its JSON status. */
     @PostMapping("/{cveId}/sync-status")
     public ResponseEntity<?> syncStatus(@PathVariable String cveId) {
         CveTask task = taskRepo.findByCveId(cveId).orElse(null);
         if (task == null) return ResponseEntity.notFound().build();
+        if (task.getStatus() == CveTask.TaskStatus.RUNNING && pipelineEngine.isRunning(cveId)) {
+            Map<String, String> err = new HashMap<>();
+            err.put("error", "Analysis is currently running for " + cveId);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(err);
+        }
+
         int maxCompleted = 0;
+        int currentStage = 0;
+        boolean failed = false;
         for (int n = 1; n <= 5; n++) {
             final int stageNum = n;
-            boolean hasFile = workspaceManager.isStageComplete(cveId, n);
-            if (hasFile) {
+            StageFileStatus diskStatus = inspectStageFileStatus(cveId, n);
+            if (diskStatus.exists) {
+                currentStage = n;
                 stageRepo.findByCveIdAndStageNum(cveId, n).ifPresent(rec -> {
-                    if (rec.getStatus() != StageRecord.StageStatus.COMPLETED) {
-                        rec.setStatus(StageRecord.StageStatus.COMPLETED);
-                        rec.setErrorMsg(null);
-                        stageRepo.save(rec);
-                    }
+                    rec.setStatus(diskStatus.status);
+                    rec.setErrorMsg(diskStatus.error);
+                    stageRepo.save(rec);
                 });
-                maxCompleted = n;
+                if (diskStatus.status == StageRecord.StageStatus.COMPLETED) {
+                    maxCompleted = n;
+                } else if (diskStatus.status == StageRecord.StageStatus.FAILED) {
+                    failed = true;
+                }
             }
         }
-        task.setCurrentStage(maxCompleted);
-        if (maxCompleted == 5) task.setStatus(CveTask.TaskStatus.COMPLETED);
+        task.setCurrentStage(currentStage > 0 ? currentStage : maxCompleted);
+        if (failed) {
+            task.setStatus(CveTask.TaskStatus.FAILED);
+        } else if (maxCompleted == 5) {
+            task.setStatus(CveTask.TaskStatus.COMPLETED);
+        } else {
+            task.setStatus(CveTask.TaskStatus.PENDING);
+        }
         taskRepo.save(task);
         Map<String, Object> result = new HashMap<>();
         result.put("cveId", cveId);
         result.put("syncedToStage", maxCompleted);
+        result.put("currentStage", task.getCurrentStage());
+        result.put("status", task.getStatus());
         return ResponseEntity.ok(result);
+    }
+
+    @SuppressWarnings("unchecked")
+    private StageFileStatus inspectStageFileStatus(String cveId, int stageNum) {
+        if (!workspaceManager.isStageComplete(cveId, stageNum)) {
+            return StageFileStatus.missing();
+        }
+        if (stageNum != 5) {
+            return StageFileStatus.completed();
+        }
+        try {
+            Object data = workspaceManager.readStageData(cveId, stageNum, Object.class);
+            if (!(data instanceof Map)) {
+                return StageFileStatus.completed();
+            }
+            Map<String, Object> stage = (Map<String, Object>) data;
+            String status = String.valueOf(stage.getOrDefault("status", ""));
+            String failureReason = String.valueOf(stage.getOrDefault("failureReason", "")).trim();
+            if ("paused".equals(status)) {
+                String pauseReason = String.valueOf(stage.getOrDefault("pauseReason", "")).trim();
+                return StageFileStatus.failed("Agent paused"
+                        + (pauseReason.isEmpty() || "null".equals(pauseReason) ? "." : ": " + pauseReason));
+            }
+            if (!failureReason.isEmpty() && !"null".equals(failureReason)) {
+                return StageFileStatus.failed(failureReason);
+            }
+            Object pocObj = stage.get("poc");
+            if (pocObj instanceof Map) {
+                Map<String, Object> poc = (Map<String, Object>) pocObj;
+                String pocStatus = String.valueOf(poc.getOrDefault("status", ""));
+                if ("unverified".equals(pocStatus)) {
+                    String reason = String.valueOf(poc.getOrDefault("reason", "")).trim();
+                    return StageFileStatus.failed("PoC verification failed"
+                            + (reason.isEmpty() || "null".equals(reason) ? "." : ": " + reason));
+                }
+            }
+            return StageFileStatus.completed();
+        } catch (Exception e) {
+            return StageFileStatus.failed("Could not read Stage 5 data: " + e.getMessage());
+        }
+    }
+
+    private static class StageFileStatus {
+        final boolean exists;
+        final StageRecord.StageStatus status;
+        final String error;
+
+        private StageFileStatus(boolean exists, StageRecord.StageStatus status, String error) {
+            this.exists = exists;
+            this.status = status;
+            this.error = error;
+        }
+
+        static StageFileStatus missing() {
+            return new StageFileStatus(false, StageRecord.StageStatus.PENDING, null);
+        }
+
+        static StageFileStatus completed() {
+            return new StageFileStatus(true, StageRecord.StageStatus.COMPLETED, null);
+        }
+
+        static StageFileStatus failed(String error) {
+            return new StageFileStatus(true, StageRecord.StageStatus.FAILED, error);
+        }
     }
 
     private ResponseEntity<?> readStageJson(String cveId, int stageNum) {
         try {
             Object data = workspaceManager.readStageData(cveId, stageNum, Object.class);
-            if (data != null) return ResponseEntity.ok(data);
+            if (data != null) return ResponseEntity.ok(normalizeStageData(stageNum, data));
             return ResponseEntity.notFound().build();
         } catch (IOException e) {
             Map<String, String> err = new HashMap<>();
             err.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(err);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object normalizeStageData(int stageNum, Object data) {
+        if (stageNum != 5 || !(data instanceof Map)) {
+            return data;
+        }
+
+        Map<String, Object> stage = (Map<String, Object>) data;
+        Object vulnDemoObj = stage.get("vulnDemo");
+        if (!(vulnDemoObj instanceof Map)) {
+            return data;
+        }
+
+        Map<String, Object> vulnDemo = (Map<String, Object>) vulnDemoObj;
+        String status = stringValue(vulnDemo.get("status"));
+        if (!vulnDemo.containsKey("compileStatus")) {
+            vulnDemo.put("compileStatus", deriveCompileStatus(status));
+        }
+        if (!vulnDemo.containsKey("startupStatus")) {
+            vulnDemo.put("startupStatus", deriveStartupStatus(status));
+        }
+        return data;
+    }
+
+    private String deriveCompileStatus(String status) {
+        if ("startup_ok".equals(status) || "compile_ok".equals(status) || "startup_failed".equals(status)) {
+            return "compile_ok";
+        }
+        if ("compile_failed".equals(status)) {
+            return "compile_failed";
+        }
+        if ("not_started".equals(status)) {
+            return "not_started";
+        }
+        return "unknown";
+    }
+
+    private String deriveStartupStatus(String status) {
+        if ("startup_ok".equals(status)) {
+            return "startup_ok";
+        }
+        if ("startup_failed".equals(status)) {
+            return "startup_failed";
+        }
+        if ("compile_ok".equals(status) || "compile_failed".equals(status)) {
+            return "skipped";
+        }
+        if ("not_started".equals(status)) {
+            return "not_started";
+        }
+        return "unknown";
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private String stageName(int num) {

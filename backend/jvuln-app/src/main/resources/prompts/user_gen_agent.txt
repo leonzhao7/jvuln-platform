@@ -15,10 +15,13 @@ Build a vulnerability reproduction environment for the following CVE.
 ## Affected Component
 {{artifact}}
 
+## Verification Plan
+{{verification_plan}}
+
 ## Pre-existing Files (DO NOT overwrite these)
 - `vuln-demo/src/main/java/com/jvuln/demo/Application.java` — standard @SpringBootApplication main class
 - `vuln-demo/build.sh` — runs `mvn package -DskipTests -q`
 - `vuln-demo/run.sh` — runs `java -jar target/*.jar --server.port=18080`
 
 ## Instructions
-Start by writing `vuln-demo/pom.xml` with all required dependencies, then write the configuration and source files. Compile, fix any errors, start the app, write and verify the PoC, then write the report. Call `finish` when done.
+First call `submit_plan` with a concise execution plan. Then generate the smallest runnable candidate that can prove the vulnerable path. Batch related edits with `write_files`. Prefer creating `vuln-demo + poc` before spending time on `report/report.md`. After each broad file batch, expect backend auto-validation and respond with the smallest repair that closes the reported gap. Use `validate_artifacts` for targeted rechecks when needed. Only call `finish` when you have either satisfied the plan or can clearly explain the remaining gap with concrete evidence.

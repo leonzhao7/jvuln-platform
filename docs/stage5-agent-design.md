@@ -1,405 +1,452 @@
-# Stage 5 — Tool-Use Agent Design Document
+# Stage 5 — Agent Design Document
 
-**Version**: 2.0  
-**Last Updated**: 2026-06-05  
-**Purpose**: Architectural reference for code review, onboarding, and future modification.
+**Version**: 3.0  
+**Last Updated**: 2026-06-06  
+**Purpose**: Keep Stage 5 design, runtime behavior, and current implementation aligned for debugging and follow-on development.
 
 ---
 
 ## 1. Overview
 
-Stage 5 ("Artifact Generation") is the final stage of the jvuln-platform pipeline. It takes intelligence from stages 1–4 (CVE metadata, patch diff, trigger chain, root cause analysis) and produces three tangible deliverables:
+Stage 5 (`Artifact Generation`) is the final analysis stage in jvuln-platform. It consumes:
 
-| Deliverable | Description | Output Path |
-|-------------|-------------|-------------|
-| `vuln-demo` | A Spring Boot 2.7 Java 8 project containing the vulnerable library, configured so its vulnerable code path is reachable | `vuln-demo/` |
-| `poc` | A bash script that exploits the running application to prove the vulnerability exists | `poc/exploit.sh` |
-| `report` | A Markdown report explaining the vulnerability, root cause, and remediation | `report/report.md` |
+- Stage 1 intelligence
+- Stage 2 patch/diff data
+- Stage 4 trigger-chain/root-cause reasoning
 
-Unlike stages 1–4 which use a fixed "send prompt, parse JSON response" pattern, Stage 5 uses a **Tool-Use Agent loop** where the LLM autonomously decides what to do — write files, compile, start the app, run curl commands, debug errors, and call `finish()` when done.
+and produces three workspace deliverables:
+
+| Deliverable | Description | Path |
+|-------------|-------------|------|
+| `vuln-demo` | Runnable Spring Boot lab wired to the real vulnerable component path | `vuln-demo/` |
+| `poc` | PoC or verification script | `poc/exploit.sh` |
+| `report` | Educational Markdown report | `report/report.md` |
+
+Unlike Stages 1–4, Stage 5 is not a single prompt/JSON exchange. It is a backend-governed agent loop with:
+
+- explicit phases
+- tool restrictions per phase
+- backend-controlled compile/startup/PoC validation
+- persisted attempt memory
+- reviewer and validator reconciliation
+
+The implementation lives in [ArtifactGenStage.java](/root/workspace/jvuln-platform/backend/jvuln-generator/src/main/java/com/jvuln/generator/ArtifactGenStage.java).
 
 ---
 
-## 2. Architecture — Agent Loop
+## 2. Current Execution Model
 
 ### 2.1 High-Level Flow
 
-```
+```text
 ArtifactGenStage.execute(ctx)
-  │
-  ├── 1. Extract upstream data (intelligence, patchDiff, triggerChain, rootCause, artifact)
-  ├── 2. Write skeleton files: Application.java, build.sh, run.sh (NOT pom.xml)
-  ├── 3. discoverExistingFiles() — scan for files from a previous paused run
-  ├── 4. Check for 5_checkpoint.json → if present, build RESUME CONTEXT in user prompt
-  ├── 5. Build 6 tool definitions + system prompt + user prompt
-  ├── 6. Agent loop (max 25 turns):
-  │     ┌─────────────────────────────────────────────────────┐
-  │     │  a. Inject urgency messages at turn 20 and 23       │
-  │     │  b. Call LLM (Anthropic API) with tool_use mode    │
-  │     │     → on failure: retry up to 3x with backoff      │
-  │     │     → if all retries fail: save checkpoint,         │
-  │     │       write paused status, return success           │
-  │     │  c. Append assistant response to message history    │
-  │     │  d. If no tool_use blocks → break loop              │
-  │     │  e. Execute each tool_use block:                    │
-  │     │     - finish() → capture summary, break loop       │
-  │     │     - other → execute, capture tool_result          │
-  │     │  f. Append tool_results to message history          │
-  │     └─────────────────────────────────────────────────────┘
-  ├── 7. buildOutput() → 5_artifacts.json
-  └── 8. finally: stop vuln-demo process
+  1. Extract upstream context
+  2. Build CVE-specific verification plan
+  3. Write minimal skeleton (Application.java, build.sh, run.sh)
+  4. Discover existing files in vuln-demo/poc/report
+  5. Load attempt memory + transient checkpoint
+  6. Start fresh turn budget, but append prior-attempt memory to prompt
+  7. Run phase-driven agent loop (max 80 turns)
+  8. Auto-validate after writes
+  9. Review finish() summary against backend evidence
+ 10. Persist 5_artifacts.json + 5_memory.json
+ 11. Always stop the demo process in finally
 ```
 
-### 2.2 Key Design Decisions
+### 2.2 Runtime Intent
 
-| Decision | Rationale |
-|----------|-----------|
-| Agent writes its own pom.xml | LLM knows which vulnerable library + version to include based on Stage 1 intelligence. Skeleton provides Application.java but pom.xml is entirely LLM-authored. |
-| "Configure, don't simulate" | The vulnerability must live in the real library, not in hand-written simulation code. The LLM configures the real vulnerable component — e.g., enabling H2 Console via `application.properties`, not writing Java code that mimics H2 Console behavior. |
-| Skeleton files never overwritten | `writeMinimalSkeleton()` only runs once. On resumes, existing files are detected by `discoverExistingFiles()`. |
-| Agent returns `StageResult.success()` even when paused | If we return failure, PipelineEngine (line 125 of PipelineEngine.java) would `break` the pipeline and mark the task as FAILED. By returning success with `status: "paused"`, the frontend can show a "Continue" button. |
-| 25-turn cap | Empirical: CVE-2021-42392 (H2) finishes in ~9 turns; CVE-2025-24813 (Tomcat) takes ~20. 25 gives headroom without infinite loops. |
+The backend now pushes the model toward a "small Codex" workflow:
+
+1. plan once
+2. write a broad minimal candidate
+3. let backend validation decide compile/startup/PoC state
+4. patch only the current gap
+5. finish as soon as validation is green
+
+The backend is intentionally opinionated. It no longer lets the model drift through open-ended trial and error without phase, evidence, or convergence pressure.
 
 ---
 
-## 3. Tool Definitions
+## 3. Phase Model
 
-The agent is given 6 Claude Anthropic tools. Each has a JSON Schema input definition.
+Stage 5 uses explicit phases:
 
-### 3.1 Tool Catalog
+- `PLAN`
+- `GENERATE_MINIMAL`
+- `COMPILE_FIX`
+- `STARTUP_FIX`
+- `POC_FIX`
+- `REPORT`
+- `FINISHED`
 
-| Tool | Parameters | Returns | Security / Constraints |
-|------|-----------|---------|----------------------|
-| `write_file` | `path: string`, `content: string` | `"ok"` or error string | Path must start with `vuln-demo/`, `poc/`, or `report/`. Path traversal (`..`) rejected. `.sh` files auto-chmod +x. |
-| `read_file` | `path: string` | File content (truncated to 4000 chars) or error | Path traversal rejected. |
-| `run_build` | (none) | `BUILD SUCCESS` or `BUILD FAILED (exit code N)` + stdout/stderr (last 4000 chars) | Executes `build.sh` in vuln-demo dir. 120s timeout. |
-| `start_app` | (none) | Startup status + HTTP response code | Kills previous process if running. Polls `http://localhost:18080/` every 1s for 30s. Timeout = "STARTUP TIMEOUT". |
-| `run_command` | `command: string` | Exit code + stdout/stderr (last 4000 chars) | Only first word is checked against COMMAND_WHITELIST. Executes in CVE workspace dir. 60s timeout. |
-| `finish` | `vuln_demo_status`, `poc_status`, `report_status`, `notes` | Terminates the loop | LLM's self-reported status values. Used directly in output if provided. |
+Phase transitions are backend-controlled:
 
-### 3.2 Command Whitelist
+- `submit_plan` moves `PLAN -> GENERATE_MINIMAL`
+- auto/manual validation maps failures to `COMPILE_FIX`, `STARTUP_FIX`, or `POC_FIX`
+- fully green validation maps to `REPORT`
+- low remaining turn budget can force `REPORT`
 
-```
-curl, wget, grep, cat, ls, find, head, tail, bash, test, echo,
-java, mvn, wc, sort, uniq, chmod, mkdir, pwd, diff, file, xxd,
-base64, sha256sum, md5sum
-```
+### 3.1 Why the phase model exists
 
-The whitelist is checked against the **first word** of the command string only. Sub-commands (e.g., arguments to `bash -c`) bypass the check — this is intentional to allow the LLM to run PoC scripts.
+This addresses the original non-convergence problems:
 
-### 3.3 Tool Definition Code Location
-
-File: `backend/jvuln-generator/src/main/java/com/jvuln/generator/ArtifactGenStage.java`  
-Method: `buildToolDefinitions()` (lines 242–303)
+- repeated planning without writing files
+- debugging the wrong layer
+- continuing to edit after backend validation already passed
+- wasting turns on exploratory reads and ad-hoc curl loops
 
 ---
 
-## 4. LLM Layer
+## 4. Tool Surface
 
-### 4.1 Request Path
+### 4.1 Current Tool Catalog
 
-```
-ArtifactGenStage
-  → PipelineContext.getLlmClient()              // Returns LlmClient (OpenAiCompatClient)
-    → OpenAiCompatClient.chat(request)
-      → if providerType == "anthropic":
-          → new AnthropicCaller(...).chat(request)
-      → else:
-          → new LlmCaller(...).chat(request)    // OpenAI-compatible API
-```
+Stage 5 currently exposes 7 tools:
 
-### 4.2 LlmRequest Extensions for Tool Use
-
-File: `backend/jvuln-llm/src/main/java/com/jvuln/llm/LlmRequest.java`
-
-| Class | Purpose |
-|-------|---------|
-| `LlmRequest.ToolDef` | Holds `name`, `description`, `inputSchema` (JSON Schema as `Map<String, Object>`) |
-| `LlmRequest.ContentBlock` | Union type: `text`, `tool_use`, or `tool_result`. Used in both request (tool_result blocks in user messages) and response (text + tool_use blocks from assistant). |
-| `LlmRequest.Message` | `content` field is `Object` — can be `String` (plain text) or `List<ContentBlock>` (mixed content). Factory methods: `assistantWithBlocks()`, `toolResults()`. |
-| `LlmRequest.agent()` | Factory method setting temperature=0.3, maxTokens=16384, toolChoice="auto". |
-
-### 4.3 AnthropicCaller SSE Parsing
-
-File: `backend/jvuln-llm/src/main/java/com/jvuln/llm/impl/AnthropicCaller.java`
-
-The Anthropic API returns Server-Sent Events (SSE) when `stream: true`. The `chat()` method parses 6 event types:
-
-| SSE Event | Action |
-|-----------|--------|
-| `content_block_start` | Detects block type. If `tool_use`, captures `id` and `name`. Resets accumulators. |
-| `content_block_delta` | If `text_delta`: appends to text accumulators. If `input_json_delta`: appends `partial_json` to JSON accumulator. |
-| `content_block_stop` | Finalizes the block. For `text` blocks: creates ContentBlock.text(). For `tool_use` blocks: parses accumulated JSON into ContentBlock.toolUse(). |
-| `message_delta` | Captures `stop_reason` and `output_tokens`. |
-| `message_start` | Captures `input_tokens`. |
-| `error` | Records error message for later throwing. |
-
-Error handling (lines 151–156): If no blocks were parsed and an SSE error event was received, throws `"Anthropic API error: {msg}"`. If no blocks and no error, throws `"Anthropic streaming returned no content"`.
-
-### 4.4 Message Serialization
-
-Method: `buildBody()` (lines 189–249) and `serializeContentBlock()` (lines 251–275)
-
-The Anthropic API requires `tool_use` blocks in assistant messages and `tool_result` blocks in user messages. The serializer maps ContentBlock types to their wire format:
-
-```json
-// tool_use block (in assistant message content array)
-{"type": "tool_use", "id": "toolu_xxx", "name": "write_file", "input": {...}}
-
-// tool_result block (in user message content array)
-{"type": "tool_result", "tool_use_id": "toolu_xxx", "content": "ok"}
-```
-
----
-
-## 5. Error Recovery & Pause/Resume
-
-### 5.1 LLM Call Retry
-
-Method: `chatWithRetry()` (lines 217–238)
-
-- Max 3 attempts
-- Retryable errors: 500, 502, 503, 429, 403, "overloaded", "Internal Server Error", "returned no content"
-- Backoff: 10s → 20s → throw
-- Non-retryable errors (e.g., 401, 404) throw immediately
-
-### 5.2 Pause on Persistent Failure
-
-When all retries are exhausted (lines 141–153):
-1. Save `stages/5_checkpoint.json` with: `completedTurns`, `error`, `writtenFiles`, `timestamp`
-2. Write `stages/5_artifacts.json` with `status: "paused"`, `pauseReason`, `pausedAtTurn`
-3. Return `StageResult.success()` (NOT failure) — this allows the "Continue" button in the frontend
-
-### 5.3 Resume on Rerun
-
-When `rerun(fromStage=5)` is called (lines 87–99):
-1. Check for `stages/5_checkpoint.json`
-2. If found: read `completedTurns`, build RESUME CONTEXT in user prompt listing all existing files
-3. Delete checkpoint file (single-use)
-4. `discoverExistingFiles()` populates `writtenFiles` with all files already on disk
-5. New agent starts with full context of what was already built
-
-### 5.4 Checkpoint Format
-
-```json
-{
-  "completedTurns": 9,
-  "error": "503 Service Unavailable from POST http://127.0.0.1:3000/v1/messages",
-  "writtenFiles": ["vuln-demo/pom.xml", "vuln-demo/src/main/java/...", ...],
-  "timestamp": 1717508204997
-}
-```
-
----
-
-## 6. Output — 5_artifacts.json
-
-### 6.1 Structure
-
-```json
-{
-  "status": "generated" | "paused",
-  "agentTurns": 9,
-  "vulnDemo": {
-    "status": "startup_ok" | "compile_ok" | "compile_failed" | "not_started" | "unknown",
-    "files": ["pom.xml", "src/main/java/...", ...]
-  },
-  "poc": {
-    "status": "verified" | "unverified" | "skipped" | "unknown",
-    "files": ["exploit.sh"]
-  },
-  "report": {
-    "status": "generated" | "skipped" | "unknown",
-    "file": "report/report.md"
-  },
-  "fileCount": 8,
-  "files": [
-    {"path": "vuln-demo/pom.xml", "type": "vuln-demo"},
-    {"path": "poc/exploit.sh", "type": "poc"},
-    {"path": "report/report.md", "type": "report"}
-  ],
-  "reproductionSteps": [
-    {"step": "1", "title": "Build the vulnerable demo project",
-     "command": "cd vuln-demo && mvn package -DskipTests -q", "description": "..."},
-    {"step": "2", "title": "Start the application",
-     "command": "cd vuln-demo && java -jar target/*.jar --server.port=18080", "description": "..."},
-    {"step": "3", "title": "Execute the PoC exploit",
-     "command": "bash poc/exploit.sh", "description": "..."},
-    {"step": "4", "title": "Read the vulnerability report",
-     "command": "cat report/report.md", "description": "..."}
-  ]
-}
-```
-
-### 6.2 Status Inference Logic
-
-When the agent exhausts all 25 turns without calling `finish()` (summary is null):
-
-| Field | Inference Rule |
-|-------|----------------|
-| `vulnDemo.status` | JAR exists in `target/` → `"compile_ok"`. POM exists but no JAR → `"compile_failed"`. Neither → `"not_started"`. |
-| `poc.status` | Files under `poc/` exist → `"unverified"`. Otherwise → `"skipped"`. |
-| `report.status` | File `report/report.md` exists → `"generated"`. Otherwise → `"skipped"`. |
-
-### 6.3 Reproduction Steps
-
-Generated only when `vulnDemo.status` is `"startup_ok"` or `"compile_ok"`. Steps are deterministic: build → start → PoC (if exists) → report (if exists). Unverified PoCs get a warning suffix in the description.
-
-### 6.4 File Paths
-
-All paths are **relative to the CVE workspace root**:
-
-| Workspace | Disk Location |
-|-----------|--------------|
-| `workspace/CVE-2023-3276/` | `/root/jvuln-platform/workspace/CVE-2023-3276/` (configured via `jvuln.workspace.root`) |
-
-Files are written to `workspace/{cveId}/stages/5_artifacts.json`.
-
----
-
-## 7. Prompt Engineering
-
-### 7.1 System Prompt
-
-File: `backend/jvuln-app/src/main/resources/prompts/system_gen_agent.txt`
-
-Design elements:
-- **Role assignment**: "security education expert building vulnerability reproduction environments"
-- **Deliverable specification**: 3 outputs with explicit paths
-- **Workflow**: 8-step numbered workflow with budget constraints
-- **Budget guidance**: "Do NOT spend more than 3 turns debugging the PoC", "Always call finish before running out of turns"
-- **Core principle**: "Configure, Don't Simulate" with 3 concrete examples
-- **Constraints**: Java 8 syntax, Spring Boot 2.7.18, port 18080, file path rules, pre-existing skeleton files
-
-### 7.2 User Prompt (Template)
-
-File: `backend/jvuln-app/src/main/resources/prompts/user_gen_agent.txt`
-
-Template variables substituted at runtime:
-- `{{intelligence}}` — trimmed CVE metadata (cveId, cweId, description, cvss, fixedVersion, artifact, affectedVersions)
-- `{{trigger_chain}}` — JSON from Stage 4 reasoning
-- `{{root_cause}}` — vuln_root_cause + fix_description from Stage 4
-- `{{patch_diff}}` — truncated to 4000 chars from Stage 2
-- `{{artifact}}` — groupId:artifactId from Stage 1
-
-### 7.3 Resume Context (Dynamic)
-
-When resuming from a checkpoint, the user prompt is appended with:
-
-```
-## RESUME CONTEXT
-A previous run completed 9 turns before an API error interrupted it.
-The following files already exist — inspect them with read_file before rewriting:
-- vuln-demo/pom.xml
-- vuln-demo/src/main/java/com/jvuln/demo/controller/OrderImportController.java
-- ...
-
-Continue from where it left off. Check compilation status and proceed.
-```
-
-### 7.4 Urgency Injection
-
-Two messages are injected into the conversation at fixed turn counts:
-
-| Remaining Turns | Message |
-|----------------|---------|
-| 5 | "NOTICE: Only 5 turns remaining. Wrap up now: if the PoC is not yet verified, set poc_status to 'unverified'. Write the report and call finish()." |
-| 2 | "FINAL WARNING: 2 turns left. You MUST call finish() on your next response. Skip any remaining debugging." |
-
-These are injected as `Message.user()` and appear in the conversation before the LLM's next response.
-
----
-
-## 8. File Inventory
-
-### 8.1 Modified Files
-
-| File | Purpose |
+| Tool | Purpose |
 |------|---------|
-| `backend/jvuln-generator/src/main/java/com/jvuln/generator/ArtifactGenStage.java` | Main Stage 5 implementation — agent loop, tool execution, output building (755 lines) |
-| `backend/jvuln-llm/src/main/java/com/jvuln/llm/LlmRequest.java` | Extended with ToolDef, ContentBlock, multi-format Message.content, agent() factory (167 lines) |
-| `backend/jvuln-llm/src/main/java/com/jvuln/llm/LlmResponse.java` | Extended with contentBlocks field, hasToolUse(), getToolUses() (52 lines) |
-| `backend/jvuln-llm/src/main/java/com/jvuln/llm/impl/AnthropicCaller.java` | SSE parsing for tool_use events, buildBody() with tools/tool_choice, serializeContentBlock() (281 lines) |
-| `backend/jvuln-llm/src/main/java/com/jvuln/llm/impl/OpenAiCompatClient.java` | Routes agent requests to AnthropicCaller when provider=anthropic (64 lines) |
-| `backend/jvuln-llm/src/main/java/com/jvuln/llm/LlmCaller.java` | Fixed getContent() → getTextContent() for Object return type (124 lines) |
-| `frontend/src/views/AnalysisDetail.vue` | Paused banner, "Continue" button, reproduction steps display |
-| `frontend/src/locales/en-US.ts` | i18n: pausedTitle, pausedAt, pausedReason, continueAgent, reproductionSteps |
-| `frontend/src/locales/zh-CN.ts` | i18n: 中文翻译同上 |
+| `submit_plan` | Register execution plan before normal write/validate flow |
+| `write_file` | Write one workspace file |
+| `write_files` | Write multiple workspace files in one call |
+| `read_file` | Read an existing workspace file |
+| `validate_artifacts` | Run backend validation with focus `compile`, `startup`, `poc`, or `full` |
+| `inspect_runtime` | Return backend-known runtime metadata/history/evidence |
+| `finish` | Submit final summary for reviewer/backend reconciliation |
 
-### 8.2 New Files
+There is no longer a free-form `run_build`, `start_app`, or `run_command` tool exposed to the model. Build/startup/PoC execution is owned by the backend validator.
 
-| File | Purpose |
-|------|---------|
-| `backend/jvuln-app/src/main/resources/prompts/system_gen_agent.txt` | Agent system prompt (55 lines) |
-| `backend/jvuln-app/src/main/resources/prompts/user_gen_agent.txt` | Agent user prompt template (25 lines) |
+### 4.2 Tool availability by phase
 
-### 8.3 Deleted Files (replaced by agent prompts)
+| Phase | Allowed tools |
+|-------|---------------|
+| `PLAN` | `submit_plan`, `write_file`, `write_files`, `read_file` |
+| `GENERATE_MINIMAL` | `write_file`, `write_files`, `read_file` |
+| `COMPILE_FIX` / `STARTUP_FIX` / `POC_FIX` | `write_file`, `write_files`, `read_file`, `inspect_runtime`, `validate_artifacts`, `finish` |
+| `REPORT` | `write_file`, `write_files`, `read_file`, `inspect_runtime`, `finish` |
 
-| File | Replaced By |
-|------|-------------|
-| `prompts/system_gen_vulndemo.txt` | `system_gen_agent.txt` |
-| `prompts/user_gen_vulndemo.txt` | `user_gen_agent.txt` |
-| `prompts/system_gen_poc.txt` | `system_gen_agent.txt` |
-| `prompts/user_gen_poc.txt` | `user_gen_agent.txt` |
-| `prompts/system_gen_report.txt` | `system_gen_agent.txt` |
-| `prompts/user_gen_report.txt` | `user_gen_agent.txt` |
+The backend rejects tools that do not match the current phase and returns a structured directive telling the model what the actual gap is.
 
 ---
 
-## 9. Configuration & Constants
+## 5. Execution Plan Requirement
 
-| Constant | Value | Location | Reason |
-|----------|-------|----------|--------|
-| `MAX_AGENT_TURNS` | 25 | ArtifactGenStage:31 | Empirically determined — most CVEs complete in 9–20 turns |
-| `VULN_DEMO_PORT` | 18080 | ArtifactGenStage:32 | Non-standard port to avoid conflicts |
-| `COMPILE_TIMEOUT` | 120s | ArtifactGenStage:33 | Maven download + compile time |
-| `STARTUP_WAIT` | 30s | ArtifactGenStage:34 | Spring Boot cold start time |
-| `COMMAND_TIMEOUT` | 60s | ArtifactGenStage:35 | Curl/script execution time |
-| `OUTPUT_TRUNCATE` | 4000 chars | ArtifactGenStage:36 | Prevents context overflow from build/command output |
-| `LLM_RETRY_MAX` | 3 | ArtifactGenStage:217 | Balance between resilience and latency |
-| `LLM_RETRY_DELAY` | 10s, 20s | ArtifactGenStage:231 | Exponential backoff |
+Before normal execution, the model must submit `submit_plan`.
 
----
+The stored plan includes:
 
-## 10. Known Issues & Limitations
+- `goal`
+- `firstBatchFiles`
+- `minimalDeliverables`
+- `validationSequence`
+- `deferredUntilVerified`
+- `risks`
+- `reportStrategy`
 
-### 10.1 Concurrency Safety
+The plan is not a ceremonial artifact. It is used for:
 
-If the user clicks "Continue" multiple times while the API is down, multiple `PipelineEngine.execute()` calls will run concurrently for the same CVE. This causes:
-- Multiple agents writing to the same files (race conditions on pom.xml)
-- Multiple vuln-demo processes fighting for port 18080
-- Conflicting checkpoint files
+- resume context
+- frontend display
+- attempt memory
+- convergence pressure
 
-**Mitigation**: None currently. A future improvement would be to check if a pipeline is already RUNNING for a given CVE before starting a new one.
-
-### 10.2 Status Self-Report Trust
-
-The LLM reports its own `poc_status` in the `finish()` call. There is no programmatic verification that the PoC actually exploited the vulnerability. The LLM could report "verified" based on a false positive (e.g., the curl returned HTTP 200 but the exploit didn't actually trigger).
-
-**Mitigation**: None currently. The reproduction steps allow manual verification.
-
-### 10.3 Turn Exhaustion
-
-Some complex CVEs (like CVE-2025-24813 — Tomcat DefaultServlet session deserialization) require multiple compile-debug cycles and may exhaust all 25 turns before calling `finish()`. The inference logic in `buildOutput()` provides fallback status values, but the PoC remains "unverified" and the report may be incomplete.
-
-**Mitigation**: The urgency injection at 5 and 2 remaining turns helps, but does not fully solve the problem for inherently complex CVEs.
-
-### 10.4 LLM API Dependency
-
-Stage 5 requires an Anthropic-compatible API (the `new-api` proxy). If this is unavailable, the agent will pause after 3 retries. It cannot fall back to an OpenAI-compatible model because the tool_use wire format differs between Anthropic and OpenAI.
+The backend also now allows same-turn `submit_plan` plus writes, so planning does not cost a dedicated round if the model can move immediately.
 
 ---
 
-## 11. Verification Checklist
+## 6. Validation-First Control Loop
 
-After modifying any Stage 5 code, verify:
+### 6.1 Core rule
 
-- [ ] `mvn install -DskipTests -q` compiles cleanly (run from `backend/` directory)
-- [ ] Backend starts without errors (`java -jar backend/jvuln-app/target/jvuln-app-1.0.0-SNAPSHOT.jar`)
-- [ ] LLM config is active (`GET /api/config/llm` — one record with `active: true`)
-- [ ] CVE tasks exist in DB (`GET /api/analysis` — non-empty)
-- [ ] `POST /api/analysis/CVE-2021-42392/rerun?fromStage=5` completes in ~20 turns
-- [ ] `GET /api/analysis/CVE-2021-42392/artifacts` returns files with skeleton entries
-- [ ] Frontend Artifacts tab shows: file list, reproduction steps, status badges
-- [ ] `GET /api/analysis/{cveId}/progress` SSE stream sends `stage_start` / `stage_done` events
-- [ ] Kill API mid-run → agent pauses with checkpoint → click Continue → resumes correctly
+After writing demo or PoC files, the backend automatically validates instead of waiting for the model to decide whether to compile or test.
+
+### 6.2 Validation focus
+
+Backend chooses validation focus by context:
+
+- initial broad write -> `full`
+- compile/startup repair paths -> `full`
+- some minimal cases may use `startup`
+
+Manual `validate_artifacts` is still available when the model wants an explicit re-check.
+
+### 6.3 Validation output
+
+The validator returns a structured result:
+
+- `compileOk`
+- `startupOk`
+- `pocVerified`
+- `compileMessage`
+- `startupMessage`
+- `pocMessage`
+- CVE-specific evidence artifacts
+
+This validation result is the main control signal for subsequent phases.
+
+---
+
+## 7. Attempt Memory and Resume
+
+Stage 5 persists two kinds of state:
+
+### 7.1 `5_checkpoint.json`
+
+Transient pause marker containing:
+
+- completed turn count
+- last error
+- written files
+- timestamp
+
+It is single-use and deleted when a new rerun starts.
+
+### 7.2 `5_memory.json`
+
+Longer-lived attempt memory containing:
+
+- prior turn count
+- prior review revisions
+- verification plan
+- execution plan
+- latest validation/review
+- build/startup/command history
+- compacted attempt records
+
+Important behavioral change:
+
+- rerun starts with a fresh turn budget
+- prior memory is used as context, not as restored control state
+
+This avoids inheriting a bad loop state while still preserving useful evidence.
+
+---
+
+## 8. Convergence Controls
+
+### 8.1 Turn budget
+
+- `MAX_AGENT_TURNS = 80`
+
+This is intentionally high as a hard cap, but the implementation is optimized for far fewer real turns.
+
+### 8.2 Urgency injection
+
+When nearing the limit, backend injects messages to push the model toward report/finish rather than further exploration.
+
+### 8.3 No-progress guard
+
+A backend progress guard now tracks repeated turns with no file changes under the same validation signature. If too many consecutive no-progress turns occur, Stage 5 aborts with an explicit reason rather than wandering indefinitely.
+
+### 8.4 Smallest-gap directives
+
+After validation, the backend emits a directive with:
+
+- current phase
+- expected state
+- actual observed gap
+- smallest allowed next actions
+- focused fix hint
+
+This is meant to prevent broad rewrites when only one layer is broken.
+
+---
+
+## 9. Process and Port Hygiene
+
+One of the concrete Stage 5 failures was not code-related: stale demo processes occupied port `18080`, so startup kept failing and the model kept repairing the wrong thing.
+
+Current behavior before startup:
+
+1. stop tracked demo process if still alive
+2. scan the same CVE workspace for stale demo Java processes
+3. kill stale processes
+4. check whether port `18080` is already in use
+5. if still blocked, record a clear startup failure with port diagnostics
+
+This changed Stage 5 from "LLM keeps trying random startup fixes" to "backend diagnoses environment failure explicitly."
+
+---
+
+## 10. Reviewer / Validator Reconciliation
+
+Stage 5 uses both:
+
+- backend validator
+- LLM reviewer (`gen_verifier`)
+
+### 10.1 Old failure mode
+
+Previously, backend validation could already be green, but reviewer still returned `unverified`, which caused extra rounds and even destructive rewrites after success.
+
+### 10.2 Current rule
+
+If backend validation proves:
+
+- `compileOk == true`
+- `startupOk == true`
+- `pocVerified == true`
+
+then reviewer is not allowed to block completion. If it still says `unverified`, backend logs the discrepancy and falls back to a verified review result.
+
+This is the key fix that prevented Stage 5 from continuing to grow rounds after actual success.
+
+---
+
+## 11. Pause and Failure Semantics
+
+### 11.1 LLM transient errors
+
+`chatWithRetry()` retries on:
+
+- 500 / 502 / 503
+- 429
+- some 403 / overloaded conditions
+- "returned no content"
+- `LLM API error 200` style empty-body proxy failures
+
+### 11.2 Persistent LLM failure
+
+If retries are exhausted:
+
+- checkpoint is saved
+- attempt memory is updated
+- `5_artifacts.json` is written with `status: "paused"`
+- stage returns `StageResult.failure(...)`
+
+This is another implementation change from earlier versions that treated paused state too optimistically.
+
+### 11.3 Sync-status handling
+
+`sync-status` now inspects Stage 5 JSON and treats paused/unverified/failure states carefully instead of blindly marking the stage completed because the file exists.
+
+---
+
+## 12. Output Format
+
+The main Stage 5 output file is:
+
+- `backend/workspace/{cveId}/stages/5_artifacts.json`
+
+Current output includes more than the original artifact summary. It can contain:
+
+- `status`
+- `agentTurns`
+- `reviewRevisions`
+- `abortReason`
+- `vulnDemo`
+- `poc`
+- `report`
+- `verificationPlan`
+- `executionPlan`
+- `verification`
+- `validation`
+- `reproductionSteps`
+
+The frontend no longer relies on a raw JSON block in the stage detail page, but the backend now exposes per-stage JSON retrieval APIs for debugging and automation.
+
+---
+
+## 13. API Surface Relevant to Stage 5
+
+The controller now exposes:
+
+- `GET /api/analysis/{cveId}/artifacts`
+- `GET /api/analysis/{cveId}/report`
+- `GET /api/analysis/{cveId}/stages/{stageNum}/json`
+- `POST /api/analysis/{cveId}/rerun?fromStage=5`
+- `POST /api/analysis/{cveId}/sync-status`
+
+The generic `stages/{stageNum}/json` endpoint exists specifically because the frontend no longer renders raw JSON dumps at the bottom of each stage detail page.
+
+---
+
+## 14. CVE-Specific Validation
+
+Stage 5 has a generic validation shell, but some CVEs require backend-owned success criteria.
+
+`CVE-2025-24813` is the main example:
+
+- validator checks lab info endpoint
+- accepts `/api/lab/info` and `/api/lab-info`
+- accepts `tempdir`, `tempDir`, and `tempDirPath`
+- checks predictable temp file evidence under `ServletContext.TEMPDIR`
+- verifies expected byte patterns after partial PUT
+
+This is the current direction for Stage 5 quality:
+
+- use LLM to generate/repair artifacts
+- use backend-owned CVE-specific validators to decide whether the exploit proof is real
+
+---
+
+## 15. Frontend Impact
+
+Recent Stage 5-related frontend changes:
+
+- stage headers were simplified
+- stage tabs on the main analysis page were removed in favor of click-to-view results
+- Stage 2 no longer shows inline file diff in the stage detail body
+- Stage 3 detail order is now: full diff view, CWE analysis, then call chain
+- per-stage raw JSON blocks were removed from the detail pages
+
+The frontend still displays Stage 5 status cards, file list, plan summary, validation evidence, and reproduction steps from `5_artifacts.json`.
+
+---
+
+## 16. Verified Outcome for CVE-2025-24813
+
+After the current fixes:
+
+- stale port/process conflict was resolved by backend cleanup
+- plan loop no longer gets stuck in `PLAN`
+- backend validation can drive `POC_FIX -> REPORT`
+- reviewer cannot block completion after validator success
+
+Observed successful run result:
+
+- `agentTurns = 4`
+- `compileOk = true`
+- `startupOk = true`
+- `pocVerified = true`
+
+This is the current reference example that Stage 5 is converging correctly instead of growing turns indefinitely.
+
+---
+
+## 17. Files to Read When Modifying Stage 5
+
+Primary code:
+
+- [ArtifactGenStage.java](/root/workspace/jvuln-platform/backend/jvuln-generator/src/main/java/com/jvuln/generator/ArtifactGenStage.java)
+- [AnalysisController.java](/root/workspace/jvuln-platform/backend/jvuln-app/src/main/java/com/jvuln/controller/AnalysisController.java)
+- [PipelineEngine.java](/root/workspace/jvuln-platform/backend/jvuln-pipeline/src/main/java/com/jvuln/pipeline/PipelineEngine.java)
+
+Prompts:
+
+- [system_gen_agent.txt](/root/workspace/jvuln-platform/backend/jvuln-app/src/main/resources/prompts/system_gen_agent.txt)
+- [user_gen_agent.txt](/root/workspace/jvuln-platform/backend/jvuln-app/src/main/resources/prompts/user_gen_agent.txt)
+- [system_gen_verification_plan.txt](/root/workspace/jvuln-platform/backend/jvuln-app/src/main/resources/prompts/system_gen_verification_plan.txt)
+- [user_gen_verification_plan.txt](/root/workspace/jvuln-platform/backend/jvuln-app/src/main/resources/prompts/user_gen_verification_plan.txt)
+- [system_gen_verifier.txt](/root/workspace/jvuln-platform/backend/jvuln-app/src/main/resources/prompts/system_gen_verifier.txt)
+- [user_gen_verifier.txt](/root/workspace/jvuln-platform/backend/jvuln-app/src/main/resources/prompts/user_gen_verifier.txt)
+
+Frontend:
+
+- [AnalysisDetail.vue](/root/workspace/jvuln-platform/frontend/src/views/AnalysisDetail.vue)
+- [zh-CN.ts](/root/workspace/jvuln-platform/frontend/src/locales/zh-CN.ts)
+- [en-US.ts](/root/workspace/jvuln-platform/frontend/src/locales/en-US.ts)
+
+---
+
+## 18. Verification Checklist
+
+After modifying Stage 5, verify at minimum:
+
+- backend build passes: `mvn -pl jvuln-generator,jvuln-pipeline,jvuln-app -am test -DskipTests`
+- `./start.sh --build` starts frontend and backend
+- `POST /api/analysis/{cveId}/rerun?fromStage=5` works
+- `GET /api/analysis/{cveId}` reports the correct final stage/task state
+- `GET /api/analysis/{cveId}/artifacts` returns consistent `validation` and `verification`
+- `GET /api/analysis/{cveId}/stages/5/json` returns the same Stage 5 JSON used by the UI
+- paused and failed runs preserve useful `failureReason` / `pauseReason`
+- successful runs do not continue editing after backend validation is fully green

@@ -207,9 +207,9 @@ Detailed design: [docs/stage5-agent-design.md](../docs/stage5-agent-design.md)
 |----------|-------|
 | Class | `com.jvuln.generator.ArtifactGenStage` |
 | File | `backend/jvuln-generator/.../ArtifactGenStage.java` |
-| Approach | Anthropic tool_use agent loop (25 turn cap, 6 tools) |
+| Approach | Phase-driven agent loop with backend-controlled validation, attempt memory, and reviewer/validator reconciliation |
 
-**Summary**: The only stage using tool-use mode. The LLM autonomously writes Java files, compiles with Maven, starts the Spring Boot app, runs PoC scripts via curl, and calls `finish()` when done. Includes retry (3 attempts with backoff) and pause/resume (checkpoint to disk when API fails persistently).
+**Summary**: The only stage using tool-use mode. The model plans first, writes a minimal candidate, and then relies on backend compile/startup/PoC validation to decide the next repair phase. Current tools are `submit_plan`, `write_file`, `write_files`, `read_file`, `validate_artifacts`, `inspect_runtime`, and `finish`. Stage 5 also persists `5_memory.json`, cleans stale demo processes before startup, and lets backend validation override a reviewer LLM that still claims `unverified`.
 
 ---
 
@@ -407,13 +407,13 @@ active       BOOLEAN (only one row should be true)
 
 ### 7.3 SSE Progress
 
-AnalysisDetail.vue (line ~90–110) opens an `EventSource` to `/api/analysis/{cveId}/stream` when the task status is `RUNNING`. Server pushes events (`stage_start`, `progress`, `stage_done`, `error`, `pipeline_done`) via `SseEmitter`. The frontend displays a live timeline of stage progress.
+AnalysisDetail.vue opens an `EventSource` to `/api/analysis/{cveId}/stream` when the task status is `RUNNING`. Server pushes events (`stage_start`, `progress`, `stage_done`, `error`, `pipeline_done`) via `SseEmitter`. The frontend displays live stage progress while loading stage detail data from dedicated per-stage APIs.
 
 ### 7.4 API Client
 
 File: `frontend/src/api/index.ts`
 
-Typed Axios wrapper with 15 methods covering: task CRUD, rerun, per-stage data retrieval, LLM config management.
+Typed Axios wrapper covering task CRUD, rerun, sync-status, per-stage data retrieval, diff/report/artifact endpoints, and LLM config management.
 
 ### 7.5 i18n
 
@@ -446,6 +446,7 @@ Base: `/api/analysis`
 | `GET` | `/{cveId}/code-analysis` | Stage 3 data |
 | `GET` | `/{cveId}/reasoning` | Stage 4 data |
 | `GET` | `/{cveId}/artifacts` | Stage 5 data |
+| `GET` | `/{cveId}/stages/{stageNum}/json` | Raw JSON for any stage file (1-5) |
 | `GET` | `/{cveId}/report` | Stage 5 report markdown (raw file) |
 
 ### 8.2 LLM Config Endpoints
@@ -467,7 +468,7 @@ Base: `/api/config`
 
 The pipeline runs on a dedicated thread pool configured in `AsyncConfig` (8 threads, named `pipeline-*`). No queue capacity limit — excess tasks block until a thread frees up.
 
-**Concurrency caveat**: `PipelineEngine.execute()` does **not** check if a pipeline is already running for a given CVE. Two rapid "rerun" clicks will spawn two pipelines competing for the same workspace files.
+`PipelineEngine.execute()` now keeps an in-memory per-CVE running lock (`AtomicBoolean`). `AnalysisController.rerun()` and `sync-status` use `pipelineEngine.isRunning(cveId)` so stale DB status does not create duplicate runs for the same CVE inside the same backend process.
 
 ---
 
@@ -509,7 +510,7 @@ The `write_file` tool rejects:
 - Path traversal (`..`)
 - Empty path or content
 
-The `run_command` tool has a **command whitelist** (25 allowed commands: curl, wget, grep, cat, ls, find, head, tail, bash, test, echo, java, mvn, wc, sort, uniq, chmod, mkdir, pwd, diff, file, xxd, base64, sha256sum, md5sum). Only the first word is checked.
+The current Stage 5 agent no longer receives a generic `run_command` tool. The backend owns build/startup/PoC execution via `validate_artifacts`, while write operations remain restricted to `vuln-demo/`, `poc/`, and `report/`.
 
 ### 11.3 API Key Masking
 
@@ -524,7 +525,8 @@ ConfigController masks API keys in responses (replaces with `••••••�
 | DB + Filesystem dual storage | DB for structured metadata (task status, stage progress, config); filesystem for large outputs (diffs, code analysis, artifacts). Enables simple backup/restore. |
 | H2 file-based database | Zero-config, no external DB dependency, sufficient for single-user desktop use. |
 | Absolute path resolution in WorkspaceManager | `Paths.get(root).toAbsolutePath()` prevents ambiguity but means restarts from different CWDs can create fragmented workspaces. User must always start from the project root. |
-| StageResult.success() for paused state | Stage 5 pauses are not failures — if we returned failure, the PipelineEngine would stop the pipeline. The frontend checks `status: "paused"` to show the "Continue" button. |
+| In-memory pipeline lock per CVE | Prevents duplicate rerun execution and workspace contention inside one backend process. |
+| Validator-first Stage 5 control | Compile/startup/PoC truth is decided by backend validation, not by the model's self-report alone. |
 | "Configure, don't simulate" (Stage 5) | The vulnerability must be triggered through the real library. If the LLM simulates vulnerable behavior in application code, the results are misleading. |
 | No CSP/Security Headers | Not required — this is a local development tool, not a production web app. |
 
@@ -538,7 +540,9 @@ ConfigController masks API keys in responses (replaces with `••••••�
 
 ### 13.2 Concurrent Pipeline Execution
 
-No guard against running two pipelines for the same CVE. This causes file races in Stage 5 (multiple agents writing pom.xml) and port conflicts (multiple vuln-demo processes on 18080).
+Concurrent reruns for the same CVE are now blocked inside a single backend process. This fixes the original Stage 5 workspace race and most accidental repeated-click cases.
+
+Residual limitation: the lock is process-local. If multiple backend JVMs share the same workspace/database, external coordination is still required.
 
 ### 13.3 Mixed Typed/Deserialized Data
 
@@ -548,9 +552,18 @@ When pipeline stages are rerun with cached upstream stages, data is loaded as `M
 
 The H2 database file (`data/jvuln.mv.db`) is tied to the H2 version and JVM. Moving between machines requires re-creating the DB via the `POST /api/analysis/sync-status` endpoint.
 
-### 13.5 No Agent Concurrency Control
+### 13.5 Stage 5 Still Depends on Model Efficiency
 
-Stage 5 agent pauses are safe (checkpoint saved), but there is no mechanism to prevent multiple "Continue" clicks from spawning concurrent agents for the same CVE.
+Stage 5 is now much more backend-governed, with:
+
+- explicit planning
+- phase-restricted tools
+- backend compile/startup/PoC validation
+- stale process cleanup
+- no-progress aborts
+- reviewer/backend reconciliation
+
+Even so, the exact number of turns still depends on model quality and prompt adherence. The remaining instability is mostly efficiency-related rather than correctness-related.
 
 ---
 

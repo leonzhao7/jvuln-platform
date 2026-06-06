@@ -307,14 +307,34 @@ Stage 4 在推理触发链和根因的同时，要求 AI **额外输出一组可
 
 ### Stage 5 — Vulnerability Education Lab（漏洞教学演示）
 
-生成可运行的漏洞复现教学环境，位于 `workspace/{cveId}/vuln-demo/`：
-- 配置了漏洞触发条件的 `application.properties`（如 `readonly=false`, `allowPartialPut=true`）
-- 演示触发路径的 REST controller
-- 教育级 PoC 脚本（`poc/demo-exploit.sh` 或 `.py`）：仅做无害操作（写标记文件、回显字符串），用于安全培训
-- Markdown 格式报告（`report/report.md`）和分步教学文档
-- Docker Compose 一键启动（含漏洞版本 + 修复版本对照组）
+生成可运行的漏洞复现教学环境，位于 `workspace/{cveId}/`，包含：
+- `vuln-demo/`：可编译、可启动的 Spring Boot 教学项目
+- `poc/exploit.sh`：针对真实漏洞路径的验证脚本
+- `report/report.md`：教学报告
 
-**编译验证循环**：生成代码 → `mvn compile` → 成功则保留，失败则将编译错误反馈 AI 修正（最多 3 轮）。确保产出的复现项目始终可编译运行。
+当前实现不是一次性“生成全部文件然后结束”，而是一个 **后端约束的 agent 循环**：
+
+1. **先提交执行计划**
+   - 首批文件
+   - 最小交付物
+   - 验证顺序
+   - 风险与报告策略
+2. **一次性写最小候选**
+   - 优先用一轮 `write_files` 生成最小可运行的 `vuln-demo + poc`
+3. **后端验证驱动修复**
+   - 后端自动执行编译、启动和 PoC 验证
+   - 根据结果切到编译修复、启动修复或 PoC 修复阶段
+4. **验证通过后再收尾报告**
+   - 只有在后端证据绿灯后，才写/改 `report/report.md` 并 finish
+
+当前 Stage 5 的几个关键收敛机制：
+- 显式 phase：`PLAN / GENERATE_MINIMAL / COMPILE_FIX / STARTUP_FIX / POC_FIX / REPORT`
+- `5_memory.json` 记录失败上下文，重跑时带入提示，但不恢复旧控制流
+- 启动前清理同一 workspace 的残留 demo 进程，避免 `18080` 端口占用导致假性 startup failed
+- 连续无进展会中止，而不是无限读文件/重复验证
+- 若后端已验证 `compileOk + startupOk + pocVerified`，reviewer LLM 不再有权阻止完成
+
+这使 Stage 5 的职责从“让模型自己判断是否成功”转向“由模型生成和修补，由后端负责验证与收敛控制”。
 
 ### Stage 6 — Product Vulnerability Detection（产品漏洞检测）
 

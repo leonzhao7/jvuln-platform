@@ -92,7 +92,7 @@ UI 支持中英文切换：
 
 1. 访问 `http://localhost:5173`，点击 **新建分析**。
 2. 输入 CVE 编号，例如 `CVE-2025-24813`。
-3. 通过 SSE 实时查看 6 阶段 Pipeline 进度。
+3. 通过 SSE 实时查看 5 阶段分析 Pipeline 进度。
 4. 分析完成后查看：
    - **概览 / 情报**：CVSS、CWE、受影响组件、源码仓库和参考信息
    - **补丁 Diff**：Carbon 风格的 `diff2html` 补丁视图，支持左右对比和统一视图
@@ -101,7 +101,7 @@ UI 支持中英文切换：
    - **阶段日志**：每个阶段的状态和错误信息
 5. 可选：运行 **产品漏洞检测**，检查你的 Java 项目是否受分析的漏洞影响。
 
-## 6 阶段 Pipeline
+## 5 阶段分析 Pipeline
 
 | 阶段 | 名称 | 说明 |
 |------|------|------|
@@ -109,10 +109,11 @@ UI 支持中英文切换：
 | 2 | Patch Locating / 补丁定位 | 定位修复 commit 并提取 unified diff |
 | 3 | Code Analysis / 代码分析 | 过滤相关 diff 文件，解析 Java AST，匹配 CWE 模式 |
 | 4 | Vulnerability Reasoning / 漏洞推理 | 使用 LLM 推理触发链、根因、修复质量，并生成可机器执行的漏洞检测要点 |
-| 5 | Vulnerability Education Lab / 漏洞教学演示 | 生成本地教学用复现项目（Spring Boot + 漏洞组件配置）、PoC 脚本和教学报告。采用多步骤生成，包含编译/启动/PoC 验证修正循环。 |
-| 6 | Product Vulnerability Detection / 产品漏洞检测 | 基于 Stage 4 检测要点扫描项目源码，生成项目特定触发链和验证 PoC |
+| 5 | Vulnerability Education Lab / 漏洞教学演示 | 生成本地教学用复现项目（Spring Boot + 漏洞组件配置）、PoC 脚本和教学报告。采用 agent + 后端验证协作模式，显式区分计划、最小生成、编译修复、启动修复、PoC 修复和报告收尾阶段。 |
 
-Pipeline 支持断点续跑和指定阶段重跑。已完成阶段可从 workspace 文件缓存读取，`fromStage` 可强制从指定阶段重新执行。
+分析 Pipeline 支持断点续跑和指定阶段重跑。已完成阶段可从 workspace 文件缓存读取，`fromStage` 可强制从指定阶段重新执行。
+
+**产品漏洞检测** 仍然保留，但作为独立扫描流程存在，不计入上述 5 个分析阶段。
 
 ## API 端点
 
@@ -129,6 +130,9 @@ GET  /api/analysis/{cveId}/patch
 GET  /api/analysis/{cveId}/diff         # 返回 {diff, totalFiles, shownFiles}
 GET  /api/analysis/{cveId}/code-analysis
 GET  /api/analysis/{cveId}/reasoning
+GET  /api/analysis/{cveId}/artifacts
+GET  /api/analysis/{cveId}/report
+GET  /api/analysis/{cveId}/stages/{stageNum}/json  # 获取任意阶段 JSON（1-5）
 
 POST /api/scan                          # 提交扫描任务 (cveId + projectPath)
 GET  /api/scan/{scanId}                 # 获取扫描结果
@@ -172,20 +176,22 @@ Stage 5 生成完整的漏洞复现教学环境：
 
 **设计理念：** 漏洞存在于库/容器本身，而非应用代码。生成的 Demo 通过配置漏洞组件来暴露其自然的漏洞代码路径，而不是在自定义控制器中模拟漏洞行为。
 
-**多步骤生成：**
-1. **SubStage A：Vuln-Demo 项目**
-   - 本地骨架：`pom.xml`（含漏洞依赖版本）、`Application.java`、构建/运行脚本
-   - LLM 生成：配置类（如 `TomcatConfig` 启用 DefaultServlet PUT + FileStore 会话）和正常业务代码（如 `NoteController` CRUD API）
-   - 编译验证循环（最多 2 轮修正）
-   - 启动验证循环（最多 2 轮修正）
+**当前执行方式：**
+1. **计划阶段**
+   - 先提交执行计划：首批文件、最小交付物、验证顺序、风险和报告策略。
+2. **最小候选生成**
+   - 尽量用一次 `write_files` 生成最小可运行候选：`vuln-demo`、`poc`，必要时延后 `report`。
+3. **后端验证驱动修复**
+   - 每次关键写入后，后端自动执行编译、启动和 PoC 验证。
+   - 根据验证结果切换到编译修复、启动修复或 PoC 修复阶段。
+4. **报告收尾**
+   - 当后端验证通过后，再生成/修订 `report/report.md` 并结束。
 
-2. **SubStage B：PoC 脚本**
-   - LLM 生成：直接针对库的漏洞代码路径的利用脚本（如向 Tomcat DefaultServlet 发送 partial PUT）
-   - 包含验证命令（exit code 0 = 成功）
-   - PoC 验证循环（最多 2 轮修正，可同时修改 PoC 和 vuln-demo）
-
-3. **SubStage C：教学报告**
-   - LLM 生成：Markdown 报告，涵盖漏洞机制、利用步骤和缓解策略
+**当前关键特性：**
+- 80 轮硬上限，但目标是尽量少轮数完成。
+- 保留 `5_memory.json` 记录失败上下文，重跑时作为上下文提示，不直接恢复旧控制流。
+- 启动前会清理同一 workspace 的残留 demo 进程，并诊断 `18080` 端口占用，避免把环境问题误当成代码问题。
+- 后端验证通过时，以后端证据为准；reviewer 即使返回 `unverified`，也不会再阻止完成。
 
 **版本解析：**
 - Spring Boot 托管依赖（如 `tomcat-embed-core`）→ 覆盖版本属性（如 `<tomcat.version>9.0.98</tomcat.version>`）

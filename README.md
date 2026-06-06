@@ -92,7 +92,7 @@ The language switcher is in the header. The selected language is persisted in `l
 
 1. Open `http://localhost:5173` and click **New Analysis**.
 2. Enter a CVE ID, for example `CVE-2025-24813`.
-3. Watch the 6-stage Pipeline progress in real time through SSE.
+3. Watch the 5-stage analysis Pipeline progress in real time through SSE.
 4. After completion, review:
    - **Overview / Intelligence:** CVSS, CWE, affected artifact, source repository, and references
    - **Patch Diff:** Carbon-styled `diff2html` patch view with side-by-side and line-by-line modes
@@ -101,7 +101,7 @@ The language switcher is in the header. The selected language is persisted in `l
    - **Stage Logs:** per-stage status and error messages
 5. Optionally, run **Product Scan** to check your own Java project against the analyzed vulnerability.
 
-## 6-stage Pipeline
+## 5-stage Analysis Pipeline
 
 | Stage | Name | Description |
 |-------|------|-------------|
@@ -109,10 +109,11 @@ The language switcher is in the header. The selected language is persisted in `l
 | 2 | Patch Locating | Locate fixing commits and extract unified diff |
 | 3 | Code Analysis | Filter relevant diff files, parse Java AST, and match CWE patterns |
 | 4 | Vulnerability Reasoning | Use the active LLM to reason about trigger chain, root cause, fix quality, and generate machine-executable detection points |
-| 5 | Vulnerability Education Lab | Generate local educational demo project (Spring Boot with vulnerable library configuration), PoC scripts, and educational report. Uses multi-step generation with compile/startup/PoC verification loops. |
-| 6 | Product Vulnerability Detection | Scan project source code using Stage 4 detection points, generate project-specific trigger chains and verification PoCs |
+| 5 | Vulnerability Education Lab | Generate a local educational demo project (Spring Boot with vulnerable library configuration), PoC scripts, and an educational report. Uses an agent plus backend-controlled validation, with explicit plan, compile-fix, startup-fix, PoC-fix, and report phases. |
 
-The Pipeline supports resume and rerun. Completed stages can be loaded from workspace files, and `fromStage` can force rerun from a selected stage.
+The analysis Pipeline supports resume and rerun. Completed stages can be loaded from workspace files, and `fromStage` can force rerun from a selected stage.
+
+**Product Vulnerability Detection** is still available, but it is a separate scan workflow rather than one of the 5 analysis stages above.
 
 ## API Endpoints
 
@@ -129,6 +130,9 @@ GET  /api/analysis/{cveId}/patch
 GET  /api/analysis/{cveId}/diff         # Returns {diff, totalFiles, shownFiles}
 GET  /api/analysis/{cveId}/code-analysis
 GET  /api/analysis/{cveId}/reasoning
+GET  /api/analysis/{cveId}/artifacts
+GET  /api/analysis/{cveId}/report
+GET  /api/analysis/{cveId}/stages/{stageNum}/json  # Fetch raw JSON for any stage (1-5)
 
 POST /api/scan                          # Submit a scan task (cveId + projectPath)
 GET  /api/scan/{scanId}                 # Get scan result
@@ -172,20 +176,22 @@ Stage 5 generates a complete educational environment for vulnerability reproduct
 
 **Design Philosophy:** The vulnerability lives in the library/container, not in application code. Generated demos configure the vulnerable component to expose its natural code path, rather than simulating vulnerability behavior in custom controllers.
 
-**Multi-step Generation:**
-1. **SubStage A: Vuln-Demo Project**
-   - Local skeleton: `pom.xml` (with vulnerable dependency version), `Application.java`, build/run scripts
-   - LLM generates: Configuration classes (e.g., `TomcatConfig` to enable DefaultServlet PUT + FileStore sessions) and normal business code (e.g., `NoteController` CRUD API)
-   - Compile verification loop (max 2 fix rounds)
-   - Startup verification loop (max 2 fix rounds)
+**Current execution model:**
+1. **Plan first**
+   - The agent submits an execution plan covering first-batch files, minimal deliverables, validation order, risks, and report strategy.
+2. **Generate a minimal runnable candidate**
+   - The preferred path is one broad `write_files` batch for the smallest runnable `vuln-demo` + `poc`.
+3. **Backend validation drives repairs**
+   - After key writes, the backend automatically validates compile, startup, and PoC behavior.
+   - The backend then narrows the next step to compile fix, startup fix, or PoC fix.
+4. **Report only after evidence is green**
+   - When backend validation is green, the agent writes or updates `report/report.md` and finishes.
 
-2. **SubStage B: PoC Scripts**
-   - LLM generates: Exploit scripts that target the library's vulnerable code path directly (e.g., partial PUT to Tomcat's DefaultServlet)
-   - Includes verification command (exit code 0 = success)
-   - PoC verification loop (max 2 fix rounds, can modify both PoC and vuln-demo)
-
-3. **SubStage C: Educational Report**
-   - LLM generates: Markdown report covering vulnerability mechanics, exploitation steps, and mitigation strategies
+**Current Stage 5 behavior:**
+- Hard cap of 80 turns, but optimized to finish in as few real turns as possible.
+- `5_memory.json` preserves failure context across reruns, but reruns start with a fresh turn budget.
+- Before startup validation, the backend cleans up stale demo processes in the same workspace and diagnoses port `18080` conflicts explicitly.
+- If backend validation proves compile/startup/PoC success, backend evidence wins over a reviewer LLM that still says `unverified`.
 
 **Version Resolution:**
 - Spring Boot managed dependencies (e.g., `tomcat-embed-core`) → override version property (e.g., `<tomcat.version>9.0.98</tomcat.version>`)
