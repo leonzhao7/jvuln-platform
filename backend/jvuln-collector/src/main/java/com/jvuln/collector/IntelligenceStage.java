@@ -18,6 +18,7 @@ import java.util.concurrent.*;
 public class IntelligenceStage implements Stage {
 
     private static final Logger log = LoggerFactory.getLogger(IntelligenceStage.class);
+    private static final int SOURCE_STAGE_TIMEOUT_SECONDS = 45;
     private final List<IntelSource> sources;
 
     public IntelligenceStage(List<IntelSource> sources) {
@@ -37,34 +38,61 @@ public class IntelligenceStage implements Stage {
 
         ExecutorService executor = Executors.newFixedThreadPool(sources.size());
         List<Future<IntelSource.IntelFragment>> futures = new ArrayList<>();
+        List<IntelSource> scheduledSources = new ArrayList<>();
 
         for (final IntelSource source : sources) {
+            scheduledSources.add(source);
             futures.add(executor.submit(new Callable<IntelSource.IntelFragment>() {
                 @Override
                 public IntelSource.IntelFragment call() {
                     try {
-                        return source.collect(cveId);
+                        IntelSource.IntelFragment fragment = source.collect(cveId);
+                        ctx.reportProgress("Source " + source.name() + " completed"
+                                + (fragment.isSuccess() ? "" : " with no usable match"));
+                        return fragment;
                     } catch (Exception e) {
                         log.warn("Source {} failed: {}", source.name(), e.getMessage());
-                        return new IntelSource.IntelFragment(
-                                source.name(), false, "", "", "", "", "", "", "", "", "", "",
-                                Collections.<String>emptyList(),
-                                Collections.<CveIntelligence.Article>emptyList(),
-                                e.getMessage());
+                        ctx.reportProgress("Source " + source.name() + " failed: " + e.getMessage());
+                        return failedFragment(source, e.getMessage());
                     }
                 }
             }));
         }
 
         executor.shutdown();
-        executor.awaitTermination(60, TimeUnit.SECONDS);
+        boolean finished = executor.awaitTermination(SOURCE_STAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!finished) {
+            log.warn("IntelligenceStage timed out after {}s for {}", SOURCE_STAGE_TIMEOUT_SECONDS, cveId);
+            ctx.reportProgress("Intelligence collection timed out after " + SOURCE_STAGE_TIMEOUT_SECONDS
+                    + "s; cancelling slow sources");
+            executor.shutdownNow();
+        }
 
         List<IntelSource.IntelFragment> fragments = new ArrayList<>();
-        for (Future<IntelSource.IntelFragment> f : futures) {
+        for (int i = 0; i < futures.size(); i++) {
+            Future<IntelSource.IntelFragment> f = futures.get(i);
+            IntelSource source = scheduledSources.get(i);
             try {
-                fragments.add(f.get());
+                if (!f.isDone()) {
+                    f.cancel(true);
+                    String message = "Timed out after " + SOURCE_STAGE_TIMEOUT_SECONDS + "s";
+                    log.warn("Source {} did not finish for {}: {}", source.name(), cveId, message);
+                    fragments.add(failedFragment(source, message));
+                    continue;
+                }
+                fragments.add(f.get(1, TimeUnit.SECONDS));
+            } catch (CancellationException e) {
+                String message = "Cancelled after stage timeout";
+                log.warn("Source {} cancelled for {}: {}", source.name(), cveId, message);
+                fragments.add(failedFragment(source, message));
+            } catch (TimeoutException e) {
+                f.cancel(true);
+                String message = "Timed out while collecting result";
+                log.warn("Source {} timed out while retrieving result for {}", source.name(), cveId);
+                fragments.add(failedFragment(source, message));
             } catch (Exception e) {
-                log.warn("Fragment retrieval failed: {}", e.getMessage());
+                log.warn("Fragment retrieval failed for {}: {}", source.name(), e.getMessage());
+                fragments.add(failedFragment(source, e.getMessage()));
             }
         }
 
@@ -78,6 +106,14 @@ public class IntelligenceStage implements Stage {
         ctx.reportProgress("Collected from " + successCount + "/" + sources.size() + " sources");
 
         return StageResult.success(1, name(), intel);
+    }
+
+    private IntelSource.IntelFragment failedFragment(IntelSource source, String message) {
+        return new IntelSource.IntelFragment(
+                source.name(), false, "", "", "", "", "", "", "", "", "", "",
+                Collections.<String>emptyList(),
+                Collections.<CveIntelligence.Article>emptyList(),
+                message == null ? "" : message);
     }
 
     private CveIntelligence merge(String cveId, List<IntelSource.IntelFragment> fragments) {

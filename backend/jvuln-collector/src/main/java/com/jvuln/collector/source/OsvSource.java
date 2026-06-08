@@ -5,9 +5,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -16,12 +19,15 @@ import java.util.List;
 public class OsvSource implements IntelSource {
 
     private static final Logger log = LoggerFactory.getLogger(OsvSource.class);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
     private final WebClient webClient;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public OsvSource() {
+        HttpClient httpClient = HttpClient.create().responseTimeout(REQUEST_TIMEOUT);
         this.webClient = WebClient.builder()
                 .baseUrl("https://api.osv.dev/v1")
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .build();
     }
 
@@ -36,7 +42,7 @@ public class OsvSource implements IntelSource {
                 .uri("/vulns/" + cveId)
                 .retrieve()
                 .bodyToMono(String.class)
-                .block();
+                .block(REQUEST_TIMEOUT.plusSeconds(5));
 
         JsonNode root = mapper.readTree(raw);
         String description = root.path("summary").asText(root.path("details").asText(""));

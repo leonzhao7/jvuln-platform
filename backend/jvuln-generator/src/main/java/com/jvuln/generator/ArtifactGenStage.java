@@ -23,9 +23,11 @@ import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URL;
+import java.nio.file.StandardOpenOption;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -49,6 +51,11 @@ public class ArtifactGenStage implements Stage {
     private static final int MEMORY_OUTPUT_TRUNCATE = 1200;
     private static final int REPORT_FALLBACK_TURNS = 5;
     private static final int MAX_NO_PROGRESS_TURNS = 6;
+    private static final int CONTEXT_COMPACT_CHAR_LIMIT = 90000;
+    private static final int CONTEXT_FILE_TOTAL_LIMIT = 36000;
+    private static final int CONTEXT_FILE_LIMIT = 12000;
+    private static final int CONTEXT_DIFF_LIMIT = 16000;
+    private static final int TRANSCRIPT_ENTRY_LIMIT = 60000;
 
     private static final Set<String> COMMAND_WHITELIST = new HashSet<>(Arrays.asList(
             "curl", "wget", "grep", "cat", "ls", "find", "head", "tail",
@@ -106,6 +113,7 @@ public class ArtifactGenStage implements Stage {
 
             AttemptMemory memory = loadAttemptMemory(memoryFile);
             agentCtx.attemptMemory = memory;
+            restoreAgentContextFromMemory(agentCtx, memory);
 
             int resumedTurns = 0;
             if (Files.exists(checkpointFile)) {
@@ -142,6 +150,10 @@ public class ArtifactGenStage implements Stage {
                     sb.append("\n## ATTEMPT MEMORY\n");
                     sb.append(renderAttemptMemory(memory));
                 }
+                if (memory.sessionSummary != null && !memory.sessionSummary.trim().isEmpty()) {
+                    sb.append("\n\n## COMPACTED SESSION SUMMARY\n");
+                    sb.append(memory.sessionSummary.trim()).append("\n");
+                }
                 sb.append("\nDo not continue the old control flow blindly. Re-plan from the current files and latest validator gap.");
                 userPrompt = sb.toString();
             } else {
@@ -149,6 +161,13 @@ public class ArtifactGenStage implements Stage {
             }
 
             // Agent loop
+            agentCtx.baseUserPrompt = userPrompt;
+            agentCtx.transcriptFile = cvePath.resolve("stages/5_transcript.jsonl");
+            agentCtx.contextSummaryFile = cvePath.resolve("stages/5_context_summary.md");
+            agentCtx.baselineSnapshot = captureWorkspaceSnapshot(agentCtx);
+            agentCtx.previousSnapshot = new LinkedHashMap<>(agentCtx.baselineSnapshot);
+            appendTranscript(agentCtx, "session_start", 0, buildSessionStartEvent(agentCtx, resumedTurns));
+
             List<LlmRequest.Message> messages = new ArrayList<>();
             messages.add(LlmRequest.Message.user(userPrompt));
             int emptyResponses = 0;
@@ -166,6 +185,7 @@ public class ArtifactGenStage implements Stage {
                     messages.add(LlmRequest.Message.user(
                             "NOTICE: 20 turns remain. Keep the turn count low anyway: prefer one broad file batch, "
                             + "backend validation, then the smallest repair needed to satisfy the verification plan."));
+                    appendTranscript(agentCtx, "directive", turn + 1, "NOTICE: 20 turns remain.");
                 } else if (remaining == REPORT_FALLBACK_TURNS) {
                     if (agentCtx.phase != AgentPhase.REPORT) {
                         if (agentCtx.lastValidation == null) {
@@ -173,13 +193,20 @@ public class ArtifactGenStage implements Stage {
                         }
                         agentCtx.phase = AgentPhase.REPORT;
                         agentCtx.lastDirective = buildPhaseDirective(agentCtx, agentCtx.lastValidation, true);
-                        messages.add(LlmRequest.Message.user(
-                                "BACKEND PHASE SWITCH: REPORT\n" + renderPhaseDirective(agentCtx.lastDirective)));
+                        String directive = "BACKEND PHASE SWITCH: REPORT\n" + renderPhaseDirective(agentCtx.lastDirective);
+                        messages.add(LlmRequest.Message.user(directive));
+                        appendTranscript(agentCtx, "directive", turn + 1, directive);
                     }
-                    messages.add(LlmRequest.Message.user(
-                            "FINAL WARNING: 5 turns remain. Stop debugging. Write the report with the current evidence "
-                            + "and remaining gap, then call finish()."));
+                    String warning = "FINAL WARNING: 5 turns remain. Stop debugging. Write the report with the current evidence "
+                            + "and remaining gap, then call finish().";
+                    messages.add(LlmRequest.Message.user(warning));
+                    appendTranscript(agentCtx, "directive", turn + 1, warning);
                 }
+
+                compactMessagesIfNeeded(messages, agentCtx, "before_turn_" + (turn + 1));
+                String contextPacket = buildContextPacket(agentCtx, turn + 1);
+                messages.add(LlmRequest.Message.user(contextPacket));
+                appendTranscript(agentCtx, "context_packet", turn + 1, contextPacket);
 
                 List<LlmRequest.ToolDef> tools = buildToolDefinitions(agentCtx);
                 LlmResponse response;
@@ -210,6 +237,7 @@ public class ArtifactGenStage implements Stage {
                 }
 
                 messages.add(LlmRequest.Message.assistantWithBlocks(response.getContentBlocks()));
+                appendTranscript(agentCtx, "assistant", turn + 1, buildAssistantEvent(response));
 
                 if (!response.hasToolUse()) {
                     log.info("Agent returned no tool calls: text='{}'", responsePreview(response));
@@ -219,17 +247,20 @@ public class ArtifactGenStage implements Stage {
                         ValidationResult forcedValidation = validateArtifacts(agentCtx, "full");
                         agentCtx.lastValidation = forcedValidation;
                         agentCtx.lastDirective = buildPhaseDirective(agentCtx, forcedValidation, false);
-                        messages.add(LlmRequest.Message.user(
-                                "The backend validator was triggered because you stopped using tools.\n"
-                                        + renderPhaseDirective(agentCtx.lastDirective)));
+                        String directive = "The backend validator was triggered because you stopped using tools.\n"
+                                + renderPhaseDirective(agentCtx.lastDirective);
+                        messages.add(LlmRequest.Message.user(directive));
+                        appendTranscript(agentCtx, "directive", turn + 1, directive);
                         continue;
                     }
                     if (turn + 1 >= MAX_AGENT_TURNS) {
                         break;
                     }
-                    messages.add(LlmRequest.Message.user(agentCtx.executionPlan == null
+                    String directive = agentCtx.executionPlan == null
                             ? "Your last response did not invoke any tool. Submit an execution plan with submit_plan first."
-                            : renderPhaseDirective(currentDirective(agentCtx))));
+                            : renderPhaseDirective(currentDirective(agentCtx));
+                    messages.add(LlmRequest.Message.user(directive));
+                    appendTranscript(agentCtx, "directive", turn + 1, directive);
                     continue;
                 }
                 emptyResponses = 0;
@@ -301,6 +332,7 @@ public class ArtifactGenStage implements Stage {
                 }
 
                 messages.add(LlmRequest.Message.toolResults(toolResults));
+                appendTranscript(agentCtx, "tool_results", turn + 1, buildToolResultEvent(toolResults));
 
                 agentCtx.turns = turn + 1;
 
@@ -314,17 +346,23 @@ public class ArtifactGenStage implements Stage {
                     agentCtx.lastDirective = buildPhaseDirective(agentCtx, autoValidation, false);
                     log.info("Agent auto-validation done: turn={} nextPhase={} result={}",
                             turn + 1, agentCtx.phase, autoValidation.summary());
-                    messages.add(LlmRequest.Message.user(renderPhaseDirective(agentCtx.lastDirective)));
+                    String directive = renderPhaseDirective(agentCtx.lastDirective);
+                    messages.add(LlmRequest.Message.user(directive));
+                    appendTranscript(agentCtx, "directive", turn + 1, directive);
                 } else if (!finished && wroteReport && agentCtx.phase == AgentPhase.REPORT) {
                     agentCtx.lastDirective = buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
-                    messages.add(LlmRequest.Message.user(renderPhaseDirective(agentCtx.lastDirective)));
+                    String directive = renderPhaseDirective(agentCtx.lastDirective);
+                    messages.add(LlmRequest.Message.user(directive));
+                    appendTranscript(agentCtx, "directive", turn + 1, directive);
                 } else if (!finished && ranValidation) {
                     agentCtx.phase = nextPhaseAfterValidation(agentCtx, agentCtx.lastValidation, remaining - 1);
                     agentCtx.lastDirective = buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
                     log.info("Agent manual validation directive: turn={} nextPhase={} result={}",
                             turn + 1, agentCtx.phase,
                             agentCtx.lastValidation == null ? "none" : agentCtx.lastValidation.summary());
-                    messages.add(LlmRequest.Message.user(renderPhaseDirective(agentCtx.lastDirective)));
+                    String directive = renderPhaseDirective(agentCtx.lastDirective);
+                    messages.add(LlmRequest.Message.user(directive));
+                    appendTranscript(agentCtx, "directive", turn + 1, directive);
                 }
 
                 if (!finished) {
@@ -337,6 +375,7 @@ public class ArtifactGenStage implements Stage {
                 }
 
                 if (finished) break;
+                compactMessagesIfNeeded(messages, agentCtx, "after_turn_" + (turn + 1));
             }
 
             if (agentCtx.summary == null) {
@@ -394,6 +433,548 @@ public class ArtifactGenStage implements Stage {
             log.info("Saved checkpoint at turn {}", ctx.turns);
         } catch (Exception e) {
             log.error("Failed to save checkpoint: {}", e.getMessage());
+        }
+    }
+
+    // ==================== Context Management ====================
+
+    private Map<String, Object> buildSessionStartEvent(AgentContext ctx, int resumedTurns) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("cveId", ctx.pipeCtx.getCveId());
+        event.put("resumedTurns", resumedTurns);
+        event.put("phase", ctx.phase == null ? "" : ctx.phase.name());
+        event.put("existingFiles", new ArrayList<>(ctx.existingFiles));
+        if (ctx.verificationPlan != null) {
+            event.put("verificationPlan", ctx.verificationPlan.toMap());
+        }
+        if (ctx.sessionSummary != null && !ctx.sessionSummary.trim().isEmpty()) {
+            event.put("restoredSessionSummary", ctx.sessionSummary);
+        }
+        return event;
+    }
+
+    private String buildContextPacket(AgentContext ctx, int turn) {
+        Map<String, FileSnapshot> current = captureWorkspaceSnapshot(ctx);
+        String diffFromPrevious = renderSnapshotDiff(ctx.previousSnapshot, current, CONTEXT_DIFF_LIMIT / 2);
+        String diffFromBaseline = renderSnapshotDiff(ctx.baselineSnapshot, current, CONTEXT_DIFF_LIMIT / 2);
+        ctx.previousSnapshot = new LinkedHashMap<>(current);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("BACKEND CONTEXT PACKET\n");
+        sb.append("This packet is authoritative for the current workspace state. ");
+        sb.append("Do not rely on memory if it conflicts with this packet.\n");
+        sb.append("Turn: ").append(turn).append("/").append(MAX_AGENT_TURNS).append("\n");
+        sb.append("Phase: ").append(ctx.phase == null ? "" : ctx.phase.name()).append("\n");
+        if (ctx.lastDirective != null) {
+            sb.append("\n## Current Directive\n");
+            sb.append(renderJson(ctx.lastDirective.toMap())).append("\n");
+        }
+        if (ctx.executionPlan != null) {
+            sb.append("\n## Accepted Execution Plan\n");
+            sb.append(renderJson(ctx.executionPlan.toMap())).append("\n");
+        }
+        if (ctx.lastValidation != null) {
+            sb.append("\n## Latest Backend Validation\n");
+            sb.append(renderJson(ctx.lastValidation.toMap())).append("\n");
+        }
+        if (ctx.verificationReview != null) {
+            sb.append("\n## Latest Reviewer Verdict\n");
+            sb.append(renderJson(ctx.verificationReview.toMap())).append("\n");
+        }
+        if (ctx.sessionSummary != null && !ctx.sessionSummary.trim().isEmpty()) {
+            sb.append("\n## Compacted Session Summary\n");
+            sb.append(ctx.sessionSummary.trim()).append("\n");
+        }
+        if (ctx.attemptMemory != null && ctx.attemptMemory.hasRecords()) {
+            sb.append("\n## Prior Attempt Memory\n");
+            sb.append(renderAttemptMemory(ctx.attemptMemory)).append("\n");
+        }
+
+        sb.append("\n## Workspace Manifest\n");
+        sb.append(renderFileManifest(current)).append("\n");
+
+        sb.append("\n## Current File Contents\n");
+        sb.append(renderCurrentFileContents(current)).append("\n");
+
+        sb.append("\n## Diff: Previous Turn -> Current Workspace\n");
+        sb.append(diffFromPrevious.isEmpty() ? "(no file changes since previous context packet)" : diffFromPrevious).append("\n");
+
+        sb.append("\n## Diff: Initial Workspace -> Current Workspace\n");
+        sb.append(diffFromBaseline.isEmpty() ? "(no file changes from initial workspace)" : diffFromBaseline).append("\n");
+
+        sb.append("\nUse write_files for the next concrete patch. Use read_file only when a needed file is omitted or marked truncated.");
+        return sb.toString();
+    }
+
+    private void compactMessagesIfNeeded(List<LlmRequest.Message> messages, AgentContext ctx, String reason) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        int chars = estimateMessagesChars(messages);
+        if (chars < CONTEXT_COMPACT_CHAR_LIMIT) {
+            return;
+        }
+
+        String summary = buildCompactedSessionSummary(ctx, reason, chars);
+        ctx.sessionSummary = summary;
+        writeContextSummary(ctx, summary);
+
+        messages.clear();
+        messages.add(LlmRequest.Message.user(ctx.baseUserPrompt == null ? "" : ctx.baseUserPrompt));
+        messages.add(LlmRequest.Message.user("COMPACTED SESSION SUMMARY\n" + summary
+                + "\nThe next BACKEND CONTEXT PACKET is authoritative for current files and validation state."));
+        ctx.compactionCount++;
+        appendTranscript(ctx, "compact", ctx.turns, summary);
+        log.info("Compacted Stage 5 agent context: reason={} previousChars={} compactions={}",
+                reason, chars, ctx.compactionCount);
+    }
+
+    private String buildCompactedSessionSummary(AgentContext ctx, String reason, int previousChars) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Reason: ").append(reason).append("\n");
+        sb.append("Previous message chars: ").append(previousChars).append("\n");
+        sb.append("CVE: ").append(ctx.pipeCtx.getCveId()).append("\n");
+        sb.append("Phase: ").append(ctx.phase == null ? "" : ctx.phase.name()).append("\n");
+        sb.append("Turns completed in this attempt: ").append(ctx.turns).append("\n");
+        sb.append("Review revisions: ").append(ctx.reviewRevisions).append("\n");
+        if (ctx.executionPlan != null) {
+            sb.append("\nExecution plan:\n").append(renderJson(ctx.executionPlan.toMap())).append("\n");
+        }
+        if (ctx.lastDirective != null) {
+            sb.append("\nCurrent directive:\n").append(renderJson(ctx.lastDirective.toMap())).append("\n");
+        }
+        if (ctx.lastValidation != null) {
+            sb.append("\nLatest validation:\n").append(renderJson(ctx.lastValidation.toMap())).append("\n");
+        }
+        if (ctx.verificationReview != null) {
+            sb.append("\nLatest review:\n").append(renderJson(ctx.verificationReview.toMap())).append("\n");
+        }
+        if (!ctx.buildHistory.isEmpty()) {
+            sb.append("\nRecent build history:\n").append(renderJson(recentHistory(ctx.buildHistory))).append("\n");
+        }
+        if (!ctx.startupHistory.isEmpty()) {
+            sb.append("\nRecent startup history:\n").append(renderJson(recentHistory(ctx.startupHistory))).append("\n");
+        }
+        if (!ctx.commandHistory.isEmpty()) {
+            sb.append("\nRecent command history:\n").append(renderJson(recentHistory(ctx.commandHistory))).append("\n");
+        }
+        Map<String, FileSnapshot> current = captureWorkspaceSnapshot(ctx);
+        sb.append("\nCurrent workspace manifest:\n").append(renderFileManifest(current)).append("\n");
+        if (ctx.abortReason != null && !ctx.abortReason.trim().isEmpty()) {
+            sb.append("\nAbort reason:\n").append(ctx.abortReason).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    private int estimateMessagesChars(List<LlmRequest.Message> messages) {
+        int total = 0;
+        for (LlmRequest.Message message : messages) {
+            total += message == null ? 0 : estimateContentChars(message.getContent());
+        }
+        return total;
+    }
+
+    private int estimateContentChars(Object content) {
+        if (content == null) {
+            return 0;
+        }
+        if (content instanceof String) {
+            return ((String) content).length();
+        }
+        if (content instanceof List) {
+            int total = 0;
+            for (Object item : (List<?>) content) {
+                if (item instanceof LlmRequest.ContentBlock) {
+                    LlmRequest.ContentBlock block = (LlmRequest.ContentBlock) item;
+                    total += safeLength(block.getText());
+                    total += safeLength(block.getToolName());
+                    total += block.getToolInput() == null ? 0 : block.getToolInput().toString().length();
+                    total += safeLength(block.getToolResultContent());
+                } else if (item != null) {
+                    total += item.toString().length();
+                }
+            }
+            return total;
+        }
+        return content.toString().length();
+    }
+
+    private int safeLength(String s) {
+        return s == null ? 0 : s.length();
+    }
+
+    private Map<String, FileSnapshot> captureWorkspaceSnapshot(AgentContext ctx) {
+        Map<String, FileSnapshot> files = new TreeMap<>();
+        for (String prefix : Arrays.asList("vuln-demo", "poc", "report")) {
+            Path dir = ctx.cvePath.resolve(prefix);
+            if (!Files.exists(dir)) {
+                continue;
+            }
+            try {
+                Files.walk(dir)
+                        .filter(Files::isRegularFile)
+                        .filter(p -> !p.toString().contains(File.separator + "target" + File.separator))
+                        .forEach(p -> {
+                            try {
+                                String rel = ctx.cvePath.relativize(p).toString();
+                                files.put(rel, FileSnapshot.fromPath(ctx.cvePath, p, rel));
+                            } catch (Exception ignored) {
+                                // Snapshot is best-effort; read_file remains available for exact recovery.
+                            }
+                        });
+            } catch (Exception ignored) {
+                // Continue with other workspace roots.
+            }
+        }
+        return new LinkedHashMap<>(files);
+    }
+
+    private String renderFileManifest(Map<String, FileSnapshot> files) {
+        if (files == null || files.isEmpty()) {
+            return "(no files)";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (FileSnapshot file : files.values()) {
+            sb.append("- ").append(file.path)
+                    .append(" size=").append(file.size)
+                    .append(" sha256=").append(file.sha256Short());
+            if (!file.text) {
+                sb.append(" binary_or_nontext");
+            } else if (file.truncated) {
+                sb.append(" content_truncated");
+            }
+            sb.append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    private String renderCurrentFileContents(Map<String, FileSnapshot> files) {
+        if (files == null || files.isEmpty()) {
+            return "(no files)";
+        }
+        List<FileSnapshot> ordered = new ArrayList<>(files.values());
+        ordered.sort((a, b) -> Integer.compare(fileContextPriority(a.path), fileContextPriority(b.path)));
+
+        StringBuilder sb = new StringBuilder();
+        int used = 0;
+        for (FileSnapshot file : ordered) {
+            if (!file.text || file.content == null) {
+                continue;
+            }
+            int next = file.content.length();
+            if (used + next > CONTEXT_FILE_TOTAL_LIMIT && used > 0) {
+                sb.append("\n[omitted remaining files due to context budget; call read_file for exact content]\n");
+                break;
+            }
+            used += next;
+            sb.append("\n### ").append(file.path);
+            if (file.truncated) {
+                sb.append(" (truncated; call read_file for full content)");
+            }
+            sb.append("\n```").append(fileFenceType(file.path)).append("\n");
+            sb.append(file.content);
+            if (!file.content.endsWith("\n")) {
+                sb.append("\n");
+            }
+            sb.append("```\n");
+        }
+        return sb.length() == 0 ? "(no text files captured; use read_file)" : sb.toString().trim();
+    }
+
+    private int fileContextPriority(String path) {
+        if (path == null) {
+            return 100;
+        }
+        if ("poc/exploit.sh".equals(path)) return 0;
+        if ("vuln-demo/pom.xml".equals(path)) return 1;
+        if (path.endsWith("application.properties") || path.endsWith("application.yml")
+                || path.endsWith("application.yaml")) return 2;
+        if (path.endsWith(".java")) return 3;
+        if (path.startsWith("vuln-demo/")) return 4;
+        if (path.startsWith("poc/")) return 5;
+        if (path.startsWith("report/")) return 6;
+        return 20;
+    }
+
+    private String fileFenceType(String path) {
+        if (path == null) return "";
+        if (path.endsWith(".java")) return "java";
+        if (path.endsWith(".xml")) return "xml";
+        if (path.endsWith(".sh")) return "bash";
+        if (path.endsWith(".md")) return "markdown";
+        if (path.endsWith(".json")) return "json";
+        if (path.endsWith(".yml") || path.endsWith(".yaml")) return "yaml";
+        if (path.endsWith(".properties")) return "properties";
+        return "";
+    }
+
+    private String renderSnapshotDiff(Map<String, FileSnapshot> before, Map<String, FileSnapshot> after, int limit) {
+        Map<String, FileSnapshot> a = before == null ? Collections.emptyMap() : before;
+        Map<String, FileSnapshot> b = after == null ? Collections.emptyMap() : after;
+        TreeSet<String> paths = new TreeSet<>();
+        paths.addAll(a.keySet());
+        paths.addAll(b.keySet());
+
+        StringBuilder sb = new StringBuilder();
+        for (String path : paths) {
+            FileSnapshot oldFile = a.get(path);
+            FileSnapshot newFile = b.get(path);
+            if (oldFile == null && newFile != null) {
+                appendLimited(sb, "Added: " + path + " size=" + newFile.size
+                        + " sha256=" + newFile.sha256Short() + "\n", limit);
+                appendFileDiffContent(sb, null, newFile, limit);
+            } else if (oldFile != null && newFile == null) {
+                appendLimited(sb, "Deleted: " + path + " oldSize=" + oldFile.size
+                        + " oldSha256=" + oldFile.sha256Short() + "\n", limit);
+            } else if (oldFile != null && newFile != null && !oldFile.sha256.equals(newFile.sha256)) {
+                appendLimited(sb, "Modified: " + path
+                        + " oldSha256=" + oldFile.sha256Short()
+                        + " newSha256=" + newFile.sha256Short() + "\n", limit);
+                appendFileDiffContent(sb, oldFile, newFile, limit);
+            }
+            if (sb.length() >= limit) {
+                appendLimited(sb, "\n...[diff truncated]\n", limit + 64);
+                break;
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private void appendFileDiffContent(StringBuilder sb, FileSnapshot oldFile, FileSnapshot newFile, int limit) {
+        if (newFile == null || !newFile.text || newFile.content == null) {
+            return;
+        }
+        String diff;
+        if (oldFile == null || oldFile.content == null || !oldFile.text) {
+            diff = renderAddedFile(newFile);
+        } else {
+            diff = renderLineWindowDiff(oldFile.path, oldFile.content, newFile.content);
+        }
+        appendLimited(sb, diff, limit);
+    }
+
+    private String renderAddedFile(FileSnapshot file) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("--- /dev/null\n");
+        sb.append("+++ ").append(file.path).append("\n");
+        String[] lines = file.content.split("\\R", -1);
+        int maxLines = Math.min(lines.length, 80);
+        for (int i = 0; i < maxLines; i++) {
+            if (i == lines.length - 1 && lines[i].isEmpty()) {
+                continue;
+            }
+            sb.append("+").append(lines[i]).append("\n");
+        }
+        if (lines.length > maxLines) {
+            sb.append("+...[added file truncated]\n");
+        }
+        return sb.toString();
+    }
+
+    private String renderLineWindowDiff(String path, String oldContent, String newContent) {
+        String[] oldLines = oldContent.split("\\R", -1);
+        String[] newLines = newContent.split("\\R", -1);
+        int prefix = 0;
+        while (prefix < oldLines.length && prefix < newLines.length
+                && Objects.equals(oldLines[prefix], newLines[prefix])) {
+            prefix++;
+        }
+
+        int suffix = 0;
+        while (suffix + prefix < oldLines.length && suffix + prefix < newLines.length
+                && Objects.equals(oldLines[oldLines.length - 1 - suffix], newLines[newLines.length - 1 - suffix])) {
+            suffix++;
+        }
+
+        int context = 3;
+        int oldStart = Math.max(0, prefix - context);
+        int newStart = Math.max(0, prefix - context);
+        int oldEnd = Math.min(oldLines.length, oldLines.length - suffix + context);
+        int newEnd = Math.min(newLines.length, newLines.length - suffix + context);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("--- ").append(path).append(" (previous)\n");
+        sb.append("+++ ").append(path).append(" (current)\n");
+        sb.append("@@ approx lines ").append(oldStart + 1).append(" -> ").append(newStart + 1).append(" @@\n");
+        for (int i = oldStart; i < prefix && i < oldEnd; i++) {
+            sb.append(" ").append(oldLines[i]).append("\n");
+        }
+        for (int i = prefix; i < oldEnd - context && i < oldLines.length; i++) {
+            sb.append("-").append(oldLines[i]).append("\n");
+        }
+        for (int i = prefix; i < newEnd - context && i < newLines.length; i++) {
+            sb.append("+").append(newLines[i]).append("\n");
+        }
+        int contextStart = Math.max(prefix, oldEnd - context);
+        for (int i = contextStart; i < oldEnd && i < oldLines.length; i++) {
+            sb.append(" ").append(oldLines[i]).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private void appendLimited(StringBuilder sb, String value, int limit) {
+        if (value == null || sb.length() >= limit) {
+            return;
+        }
+        int remaining = limit - sb.length();
+        if (value.length() <= remaining) {
+            sb.append(value);
+        } else {
+            sb.append(value, 0, Math.max(0, remaining));
+        }
+    }
+
+    private void appendTranscript(AgentContext ctx, String type, int turn, Object payload) {
+        if (ctx == null || ctx.transcriptFile == null) {
+            return;
+        }
+        try {
+            Map<String, Object> event = new LinkedHashMap<>();
+            event.put("ts", System.currentTimeMillis());
+            event.put("turn", turn);
+            event.put("type", type);
+            event.put("phase", ctx.phase == null ? "" : ctx.phase.name());
+            event.put("payload", trimTranscriptPayload(payload));
+            Files.createDirectories(ctx.transcriptFile.getParent());
+            String line = mapper.writeValueAsString(event) + "\n";
+            Files.write(ctx.transcriptFile, line.getBytes(StandardCharsets.UTF_8),
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception e) {
+            log.warn("Failed to append Stage 5 transcript: {}", e.getMessage());
+        }
+    }
+
+    private Object trimTranscriptPayload(Object payload) {
+        if (payload == null) {
+            return "";
+        }
+        if (payload instanceof String) {
+            return truncateHead((String) payload, TRANSCRIPT_ENTRY_LIMIT);
+        }
+        try {
+            String json = mapper.writeValueAsString(payload);
+            if (json.length() <= TRANSCRIPT_ENTRY_LIMIT) {
+                return payload;
+            }
+            return truncateHead(json, TRANSCRIPT_ENTRY_LIMIT);
+        } catch (Exception e) {
+            return truncateHead(String.valueOf(payload), TRANSCRIPT_ENTRY_LIMIT);
+        }
+    }
+
+    private void writeContextSummary(AgentContext ctx, String summary) {
+        if (ctx == null || ctx.contextSummaryFile == null || summary == null) {
+            return;
+        }
+        try {
+            Files.createDirectories(ctx.contextSummaryFile.getParent());
+            Files.write(ctx.contextSummaryFile, summary.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            log.warn("Failed to write Stage 5 context summary: {}", e.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildAssistantEvent(LlmResponse response) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("finishReason", response == null ? "" : response.getFinishReason());
+        event.put("text", response == null ? "" : responsePreview(response));
+        event.put("toolUses", response == null ? Collections.emptyList() : toolUseSummaries(response.getToolUses()));
+        return event;
+    }
+
+    private List<Map<String, Object>> toolUseSummaries(List<LlmRequest.ContentBlock> toolUses) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (toolUses == null) {
+            return out;
+        }
+        for (LlmRequest.ContentBlock block : toolUses) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("name", block.getToolName());
+            item.put("input", summarizeToolInput(block.getToolName(), block.getToolInput()));
+            out.add(item);
+        }
+        return out;
+    }
+
+    private List<Map<String, Object>> buildToolResultEvent(List<LlmRequest.ContentBlock> toolResults) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (toolResults == null) {
+            return out;
+        }
+        for (LlmRequest.ContentBlock block : toolResults) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("isError", block.isError());
+            item.put("content", truncateHead(block.getToolResultContent(), MEMORY_OUTPUT_TRUNCATE));
+            out.add(item);
+        }
+        return out;
+    }
+
+    private String truncateHead(String s, int max) {
+        if (s == null) return "";
+        return s.length() > max ? s.substring(0, max) + "...[truncated]" : s;
+    }
+
+    private static class FileSnapshot {
+        final String path;
+        final long size;
+        final String sha256;
+        final boolean text;
+        final boolean truncated;
+        final String content;
+
+        private FileSnapshot(String path, long size, String sha256, boolean text, boolean truncated, String content) {
+            this.path = path;
+            this.size = size;
+            this.sha256 = sha256 == null ? "" : sha256;
+            this.text = text;
+            this.truncated = truncated;
+            this.content = content;
+        }
+
+        static FileSnapshot fromPath(Path root, Path file, String rel) throws Exception {
+            byte[] bytes = Files.readAllBytes(file);
+            boolean text = isProbablyText(rel, bytes);
+            boolean truncated = text && bytes.length > CONTEXT_FILE_LIMIT;
+            String content = null;
+            if (text) {
+                int len = Math.min(bytes.length, CONTEXT_FILE_LIMIT);
+                content = new String(bytes, 0, len, StandardCharsets.UTF_8);
+            }
+            return new FileSnapshot(rel, bytes.length, sha256(bytes), text, truncated, content);
+        }
+
+        String sha256Short() {
+            return sha256.length() <= 12 ? sha256 : sha256.substring(0, 12);
+        }
+
+        private static boolean isProbablyText(String path, byte[] bytes) {
+            if (path != null) {
+                String lower = path.toLowerCase(Locale.ROOT);
+                if (lower.endsWith(".java") || lower.endsWith(".xml") || lower.endsWith(".properties")
+                        || lower.endsWith(".yml") || lower.endsWith(".yaml") || lower.endsWith(".sh")
+                        || lower.endsWith(".md") || lower.endsWith(".txt") || lower.endsWith(".json")
+                        || lower.endsWith(".html") || lower.endsWith(".js") || lower.endsWith(".css")) {
+                    return true;
+                }
+            }
+            int max = Math.min(bytes.length, 4096);
+            for (int i = 0; i < max; i++) {
+                if (bytes[i] == 0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static String sha256(byte[] bytes) throws Exception {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(bytes);
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b & 0xff));
+            }
+            return sb.toString();
         }
     }
 
@@ -882,6 +1463,44 @@ public class ArtifactGenStage implements Stage {
     private void writeMinimalSkeleton(Path vulnDemoPath) throws IOException {
         Files.createDirectories(vulnDemoPath.resolve("src/main/java/com/jvuln/demo"));
         Files.createDirectories(vulnDemoPath.resolve("src/main/resources"));
+        Files.createDirectories(vulnDemoPath.getParent().resolve("poc"));
+        Files.createDirectories(vulnDemoPath.getParent().resolve("report"));
+
+        String pom = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                + "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n"
+                + "         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n"
+                + "         xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\">\n"
+                + "    <modelVersion>4.0.0</modelVersion>\n"
+                + "    <parent>\n"
+                + "        <groupId>org.springframework.boot</groupId>\n"
+                + "        <artifactId>spring-boot-starter-parent</artifactId>\n"
+                + "        <version>2.7.18</version>\n"
+                + "        <relativePath/>\n"
+                + "    </parent>\n"
+                + "    <groupId>com.jvuln</groupId>\n"
+                + "    <artifactId>vuln-demo</artifactId>\n"
+                + "    <version>0.0.1-SNAPSHOT</version>\n"
+                + "    <packaging>jar</packaging>\n"
+                + "    <properties>\n"
+                + "        <java.version>1.8</java.version>\n"
+                + "        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n"
+                + "    </properties>\n"
+                + "    <dependencies>\n"
+                + "        <dependency>\n"
+                + "            <groupId>org.springframework.boot</groupId>\n"
+                + "            <artifactId>spring-boot-starter-web</artifactId>\n"
+                + "        </dependency>\n"
+                + "    </dependencies>\n"
+                + "    <build>\n"
+                + "        <plugins>\n"
+                + "            <plugin>\n"
+                + "                <groupId>org.springframework.boot</groupId>\n"
+                + "                <artifactId>spring-boot-maven-plugin</artifactId>\n"
+                + "            </plugin>\n"
+                + "        </plugins>\n"
+                + "    </build>\n"
+                + "</project>\n";
+        writeSkeletonFile(vulnDemoPath.resolve("pom.xml"), pom, false, false);
 
         String app = "// FOR AUTHORIZED SECURITY EDUCATION ONLY\n"
                 + "package com.jvuln.demo;\n\n"
@@ -893,20 +1512,65 @@ public class ArtifactGenStage implements Stage {
                 + "        SpringApplication.run(Application.class, args);\n"
                 + "    }\n"
                 + "}\n";
-        Files.write(vulnDemoPath.resolve("src/main/java/com/jvuln/demo/Application.java"),
-                app.getBytes(StandardCharsets.UTF_8));
+        writeSkeletonFile(vulnDemoPath.resolve("src/main/java/com/jvuln/demo/Application.java"), app, false, false);
+
+        String labInfo = "// FOR AUTHORIZED SECURITY EDUCATION ONLY\n"
+                + "package com.jvuln.demo;\n\n"
+                + "import java.io.File;\n"
+                + "import java.util.LinkedHashMap;\n"
+                + "import java.util.Map;\n"
+                + "import org.springframework.web.bind.annotation.GetMapping;\n"
+                + "import org.springframework.web.bind.annotation.RestController;\n\n"
+                + "@RestController\n"
+                + "public class LabInfoController {\n"
+                + "    @GetMapping(\"/\")\n"
+                + "    public Map<String, Object> index() {\n"
+                + "        Map<String, Object> out = new LinkedHashMap<String, Object>();\n"
+                + "        out.put(\"status\", \"ok\");\n"
+                + "        out.put(\"service\", \"jvuln-demo\");\n"
+                + "        return out;\n"
+                + "    }\n\n"
+                + "    @GetMapping(\"/api/lab/info\")\n"
+                + "    public Map<String, Object> info() {\n"
+                + "        Map<String, Object> out = new LinkedHashMap<String, Object>();\n"
+                + "        out.put(\"status\", \"ok\");\n"
+                + "        out.put(\"userDir\", new File(\".\").getAbsoluteFile().getParentFile().getAbsolutePath());\n"
+                + "        out.put(\"javaVersion\", System.getProperty(\"java.version\", \"\"));\n"
+                + "        out.put(\"tmpdir\", System.getProperty(\"java.io.tmpdir\", \"\"));\n"
+                + "        out.put(\"port\", System.getProperty(\"server.port\", \"18080\"));\n"
+                + "        return out;\n"
+                + "    }\n"
+                + "}\n";
+        writeSkeletonFile(vulnDemoPath.resolve("src/main/java/com/jvuln/demo/LabInfoController.java"),
+                labInfo, false, false);
+
+        String properties = "server.port=" + VULN_DEMO_PORT + "\n"
+                + "spring.main.banner-mode=off\n"
+                + "logging.level.root=INFO\n";
+        writeSkeletonFile(vulnDemoPath.resolve("src/main/resources/application.properties"),
+                properties, false, false);
 
         String build = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\nmvn package -DskipTests -q\n";
-        Path buildSh = vulnDemoPath.resolve("build.sh");
-        Files.write(buildSh, build.getBytes(StandardCharsets.UTF_8));
-        buildSh.toFile().setExecutable(true);
+        writeSkeletonFile(vulnDemoPath.resolve("build.sh"), build, true, false);
 
         String run = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\nexec java -jar target/*.jar --server.port=" + VULN_DEMO_PORT + "\n";
-        Path runSh = vulnDemoPath.resolve("run.sh");
-        Files.write(runSh, run.getBytes(StandardCharsets.UTF_8));
-        runSh.toFile().setExecutable(true);
+        writeSkeletonFile(vulnDemoPath.resolve("run.sh"), run, true, false);
 
-        log.info("Wrote minimal skeleton: Application.java, build.sh, run.sh");
+        log.info("Ensured baseline skeleton: pom.xml, Application.java, LabInfoController.java, application.properties, build.sh, run.sh");
+    }
+
+    private void writeSkeletonFile(Path path, String content, boolean executable, boolean overwrite) throws IOException {
+        if (Files.exists(path) && !overwrite) {
+            if (executable) {
+                path.toFile().setExecutable(true);
+            }
+            return;
+        }
+        Files.createDirectories(path.getParent());
+        Files.write(path, content.getBytes(StandardCharsets.UTF_8));
+        if (executable) {
+            path.toFile().setExecutable(true);
+        }
     }
 
     // ==================== Data Extraction ====================
@@ -995,6 +1659,7 @@ public class ArtifactGenStage implements Stage {
             memory.executionPlan = ctx.executionPlan;
             memory.lastValidation = ctx.lastValidation;
             memory.lastReview = ctx.verificationReview;
+            memory.sessionSummary = ctx.sessionSummary;
             memory.buildHistory.clear();
             memory.buildHistory.addAll(ctx.buildHistory);
             memory.startupHistory.clear();
@@ -1028,6 +1693,7 @@ public class ArtifactGenStage implements Stage {
         }
         ctx.lastValidation = memory.lastValidation;
         ctx.verificationReview = memory.lastReview;
+        ctx.sessionSummary = memory.sessionSummary == null ? "" : memory.sessionSummary;
         restoreToolRuns(ctx.buildHistory, memory.buildHistory);
         restoreToolRuns(ctx.startupHistory, memory.startupHistory);
         restoreToolRuns(ctx.commandHistory, memory.commandHistory);
@@ -1054,6 +1720,10 @@ public class ArtifactGenStage implements Stage {
         if (memory.lastReview != null) {
             sb.append("Latest review result:\n");
             sb.append(renderJson(memory.lastReview.toMap())).append("\n");
+        }
+        if (memory.sessionSummary != null && !memory.sessionSummary.trim().isEmpty()) {
+            sb.append("Compacted session summary:\n");
+            sb.append(memory.sessionSummary.trim()).append("\n");
         }
         if (!memory.records.isEmpty()) {
             sb.append("Recent failures and decisions:\n");
@@ -1742,50 +2412,62 @@ public class ArtifactGenStage implements Stage {
     }
 
     private String derivePocGap(ValidationResult result) {
-        if (result == null) {
+        if (result == null || result.pocMessage == null || result.pocMessage.trim().isEmpty()) {
             return "poc_unverified";
         }
-        String message = result.pocMessage == null ? "" : result.pocMessage.toLowerCase(Locale.ROOT);
-        if (message.contains("status endpoint unavailable")
-                || message.contains("lab info endpoint unavailable")
-                || message.contains("lab info did not expose")) {
-            return "runtime_endpoint_missing";
+        String message = result.pocMessage.toLowerCase(Locale.ROOT);
+        if (message.contains("not found")) {
+            return "poc_artifact_missing";
         }
-        if (message.contains("predictable temp file was not found")) {
-            return "predictable_temp_file_missing";
-        }
-        if (message.contains("payload bytes did not match")) {
-            return "payload_mismatch";
+        if (message.contains("unavailable")) {
+            return "poc_runtime_unavailable";
         }
         if (message.contains("could not be read")) {
-            return "temp_file_unreadable";
+            return "poc_artifact_unreadable";
+        }
+        if (message.contains("failed")) {
+            return "poc_execution_failed";
+        }
+        if (message.contains("unexpected") || message.contains("mismatch")) {
+            return "poc_output_mismatch";
         }
         return "poc_unverified";
     }
 
     private String derivePocExpected(AgentContext ctx) {
-        String cveId = ctx.pipeCtx.getCveId();
-        if ("CVE-2025-24813".equalsIgnoreCase(cveId)) {
-            return "A partial PUT to a DefaultServlet-managed /uploads path leaves a predictable temp file under ServletContext.TEMPDIR with attacker-controlled bytes at the requested offset.";
+        if (ctx != null && ctx.verificationPlan != null) {
+            if (!ctx.verificationPlan.successSignals.isEmpty()) {
+                return "The PoC should satisfy these verification signals: "
+                        + joinItems(ctx.verificationPlan.successSignals, "; ");
+            }
+            if (!ctx.verificationPlan.requiredEvidence.isEmpty()) {
+                return "The PoC should produce this evidence: "
+                        + joinItems(ctx.verificationPlan.requiredEvidence, "; ");
+            }
         }
-        return "The PoC must satisfy the verification plan's CVE-specific success signals.";
+        return "The PoC must satisfy the verification plan's success signals.";
     }
 
     private String derivePocFixHint(AgentContext ctx, ValidationResult result) {
-        String cveId = ctx.pipeCtx.getCveId();
-        if ("CVE-2025-24813".equalsIgnoreCase(cveId)) {
-            String gap = derivePocGap(result);
-            if ("runtime_endpoint_missing".equals(gap)) {
-                return "Expose GET /api/lab/info returning JSON with lowercase field tempdir containing ServletContext.TEMPDIR. "
-                        + "Keep any /api/lab-info alias optional; the validator's canonical endpoint is /api/lab/info.";
+        if (ctx != null && ctx.verificationPlan != null) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Modify only the demo or PoC needed to satisfy the verification plan.");
+            if (!ctx.verificationPlan.successSignals.isEmpty()) {
+                sb.append(" Success signals: ")
+                        .append(joinItems(ctx.verificationPlan.successSignals, "; "))
+                        .append(".");
             }
-            if ("predictable_temp_file_missing".equals(gap)) {
-                return "Fix Tomcat DefaultServlet configuration so writes land on a DefaultServlet-managed /uploads path and temp files are stored in the Tomcat work directory.";
+            if (!ctx.verificationPlan.requiredEvidence.isEmpty()) {
+                sb.append(" Required evidence: ")
+                        .append(joinItems(ctx.verificationPlan.requiredEvidence, "; "))
+                        .append(".");
             }
-            if ("payload_mismatch".equals(gap)) {
-                return "Align the PoC path, Content-Range, and payload offsets with the validator's expected predictable temp file evidence.";
+            if (!ctx.verificationPlan.falsePositiveGuards.isEmpty()) {
+                sb.append(" False-positive guards: ")
+                        .append(joinItems(ctx.verificationPlan.falsePositiveGuards, "; "))
+                        .append(".");
             }
-            return "Modify only the demo or PoC parts needed to prove the predictable partial PUT temp-file behavior.";
+            return sb.toString();
         }
         return "Modify only the demo or PoC pieces needed to satisfy the missing verification signal.";
     }
@@ -1917,10 +2599,6 @@ public class ArtifactGenStage implements Stage {
 
     private ValidationResult validatePoc(AgentContext ctx) {
         ValidationResult result = new ValidationResult("poc");
-        String cveId = ctx.pipeCtx.getCveId();
-        if ("CVE-2025-24813".equalsIgnoreCase(cveId)) {
-            return validateTomcatPartialPut(ctx);
-        }
 
         Path pocScript = ctx.cvePath.resolve("poc/exploit.sh");
         if (!Files.exists(pocScript)) {
@@ -1933,125 +2611,6 @@ public class ArtifactGenStage implements Stage {
         ctx.commandHistory.add(ToolRun.command("bash poc/exploit.sh", pr.exitCode, pr.output));
         result.pocVerified = pr.exitCode == 0;
         result.pocMessage = truncate(pr.output, OUTPUT_TRUNCATE);
-        return result;
-    }
-
-    private ValidationResult validateTomcatPartialPut(AgentContext ctx) {
-        ValidationResult result = new ValidationResult("poc");
-        ProcessResult info = null;
-        String labInfoEndpoint = "";
-        for (String endpoint : Arrays.asList("/api/lab/info", "/api/lab-info")) {
-            ProcessResult candidate = runProcess(ctx.cvePath, COMMAND_TIMEOUT, "bash", "-c",
-                    "curl -sS http://127.0.0.1:" + VULN_DEMO_PORT + endpoint);
-            ctx.commandHistory.add(ToolRun.command("curl -sS http://127.0.0.1:" + VULN_DEMO_PORT + endpoint,
-                    candidate.exitCode, candidate.output));
-            if (candidate.exitCode == 0) {
-                info = candidate;
-                labInfoEndpoint = endpoint;
-                break;
-            }
-            if (info == null) {
-                info = candidate;
-                labInfoEndpoint = endpoint;
-            }
-        }
-        if (info.exitCode != 0) {
-            result.pocVerified = false;
-            result.pocMessage = "Lab info endpoint unavailable. Expected GET /api/lab/info returning JSON with tempdir. "
-                    + "Last error: " + truncate(info.output, OUTPUT_TRUNCATE);
-            return result;
-        }
-
-        result.artifacts.put("labInfoEndpoint", labInfoEndpoint);
-        result.artifacts.put("labInfo", truncate(info.output, MEMORY_OUTPUT_TRUNCATE));
-        String tempDir = extractJsonString(info.output, "tempdir");
-        if (tempDir.isEmpty()) {
-            tempDir = extractJsonString(info.output, "tempDir");
-        }
-        if (tempDir.isEmpty()) {
-            tempDir = extractJsonString(info.output, "tempDirPath");
-        }
-        if (tempDir.isEmpty()) {
-            result.pocVerified = false;
-            result.pocMessage = "Lab info did not expose ServletContext.TEMPDIR. Expected JSON field tempdir "
-                    + "(tempDir/tempDirPath are accepted aliases).";
-            return result;
-        }
-
-        String expectedTempName = ".uploads.cve-2025-24813.txt";
-        String expectedTempFile = tempDir + File.separator + expectedTempName;
-        runProcess(ctx.cvePath, COMMAND_TIMEOUT, "bash", "-c", "rm -f '" + shellEscape(expectedTempFile) + "'");
-
-        ProcessResult setupPut = runProcess(ctx.cvePath, COMMAND_TIMEOUT, "bash", "-c",
-                "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' -X PUT "
-                        + "http://127.0.0.1:" + VULN_DEMO_PORT + "/uploads/cve-2025-24813.txt "
-                        + "-H 'Content-Type: application/octet-stream' --data-binary '0123456789'");
-        ctx.commandHistory.add(ToolRun.command(
-                "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' -X PUT http://127.0.0.1:" + VULN_DEMO_PORT
-                        + "/uploads/cve-2025-24813.txt -H 'Content-Type: application/octet-stream' --data-binary '0123456789'",
-                setupPut.exitCode, setupPut.output));
-
-        ProcessResult put = runProcess(ctx.cvePath, COMMAND_TIMEOUT, "bash", "-c",
-                "curl -sS -D - -X PUT -H 'Content-Type: application/octet-stream' "
-                        + "-H 'Content-Range: bytes 2-4/10' --data-binary 'ABC' "
-                        + "http://127.0.0.1:" + VULN_DEMO_PORT + "/uploads/cve-2025-24813.txt");
-        ctx.commandHistory.add(ToolRun.command(
-                "curl -sS -D - -X PUT -H 'Content-Type: application/octet-stream' -H 'Content-Range: bytes 2-4/10' "
-                        + "--data-binary 'ABC' http://127.0.0.1:" + VULN_DEMO_PORT + "/uploads/cve-2025-24813.txt",
-                put.exitCode, put.output));
-
-        ProcessResult tempScan = runProcess(ctx.cvePath, COMMAND_TIMEOUT, "bash", "-c",
-                "find '" + shellEscape(tempDir) + "' -maxdepth 2 -type f -printf '%f %p\\n' 2>/dev/null");
-        ctx.commandHistory.add(ToolRun.command("find '" + shellEscape(tempDir) + "' -maxdepth 2 -type f -printf '%f %p\\n' 2>/dev/null",
-                tempScan.exitCode, tempScan.output));
-
-        File tempDirFile = new File(tempDir);
-        String[] files = tempDirFile.exists() ? tempDirFile.list() : new String[0];
-        if (files == null) files = new String[0];
-
-        File predictableFile = new File(expectedTempFile);
-        result.artifacts.put("putResponse", truncate(put.output, MEMORY_OUTPUT_TRUNCATE));
-        result.artifacts.put("tempFiles", Arrays.asList(files));
-        if (predictableFile != null && predictableFile.isFile()) {
-            result.artifacts.put("predictableFile", predictableFile.getAbsolutePath());
-            try {
-                byte[] bytes = Files.readAllBytes(predictableFile.toPath());
-                String preview = new String(bytes, StandardCharsets.UTF_8);
-                String hex = toHex(bytes);
-                result.artifacts.put("predictableFilePreview", truncate(preview, MEMORY_OUTPUT_TRUNCATE));
-                result.artifacts.put("predictableFileHex", truncate(hex, MEMORY_OUTPUT_TRUNCATE));
-                boolean firstWriteOk = hex.startsWith("30314142433536373839");
-
-                ProcessResult secondPut = runProcess(ctx.cvePath, COMMAND_TIMEOUT, "bash", "-c",
-                        "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' -X PUT "
-                                + "-H 'Content-Type: application/octet-stream' "
-                                + "-H 'Content-Range: bytes 6-6/10' --data-binary 'Z' "
-                                + "http://127.0.0.1:" + VULN_DEMO_PORT + "/uploads/cve-2025-24813.txt");
-                ctx.commandHistory.add(ToolRun.command(
-                        "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' -X PUT -H 'Content-Type: application/octet-stream' "
-                                + "-H 'Content-Range: bytes 6-6/10' --data-binary 'Z' "
-                                + "http://127.0.0.1:" + VULN_DEMO_PORT + "/uploads/cve-2025-24813.txt",
-                        secondPut.exitCode, secondPut.output));
-                byte[] bytesAfterSecond = Files.readAllBytes(predictableFile.toPath());
-                String hexAfterSecond = toHex(bytesAfterSecond);
-                result.artifacts.put("secondPutResponse", truncate(secondPut.output, MEMORY_OUTPUT_TRUNCATE));
-                result.artifacts.put("predictableFileHexAfterSecondPut", truncate(hexAfterSecond, MEMORY_OUTPUT_TRUNCATE));
-                boolean secondWriteOk = hexAfterSecond.startsWith("3031414243355a373839");
-
-                result.pocVerified = firstWriteOk && secondWriteOk;
-                result.pocMessage = result.pocVerified
-                        ? "Predictable Tomcat temp file persisted and reflected attacker-controlled partial PUT bytes at the expected offsets."
-                        : "Predictable temp file exists, but the expected partial PUT byte pattern was not fully observed.";
-                return result;
-            } catch (IOException e) {
-                result.pocVerified = false;
-                result.pocMessage = "Predictable temp file exists but could not be read: " + e.getMessage();
-                return result;
-            }
-        }
-
-        result.pocVerified = false;
-        result.pocMessage = "Predictable Tomcat temp file was not found under ServletContext.TEMPDIR after partial PUT.";
         return result;
     }
 
@@ -2267,6 +2826,7 @@ public class ArtifactGenStage implements Stage {
         ExecutionPlan executionPlan;
         VerificationReview lastReview;
         ValidationResult lastValidation;
+        String sessionSummary = "";
         final List<ToolRun> buildHistory = new ArrayList<>();
         final List<ToolRun> startupHistory = new ArrayList<>();
         final List<ToolRun> commandHistory = new ArrayList<>();
@@ -2294,6 +2854,7 @@ public class ArtifactGenStage implements Stage {
             if (executionPlan != null) out.put("executionPlan", executionPlan.toMap());
             if (lastReview != null) out.put("lastReview", lastReview.toMap());
             if (lastValidation != null) out.put("lastValidation", lastValidation.toMap());
+            if (sessionSummary != null && !sessionSummary.trim().isEmpty()) out.put("sessionSummary", sessionSummary);
             out.put("buildHistory", toolRunsToMaps(buildHistory));
             out.put("startupHistory", toolRunsToMaps(startupHistory));
             out.put("commandHistory", toolRunsToMaps(commandHistory));
@@ -2321,6 +2882,7 @@ public class ArtifactGenStage implements Stage {
             if (node.has("lastValidation")) {
                 memory.lastValidation = ValidationResult.fromJson(node.path("lastValidation"));
             }
+            memory.sessionSummary = node.path("sessionSummary").asText("");
             readToolRuns(node.path("buildHistory"), memory.buildHistory);
             readToolRuns(node.path("startupHistory"), memory.startupHistory);
             readToolRuns(node.path("commandHistory"), memory.commandHistory);
@@ -2712,6 +3274,8 @@ public class ArtifactGenStage implements Stage {
         final List<ToolRun> buildHistory = new ArrayList<>();
         final List<ToolRun> startupHistory = new ArrayList<>();
         final List<ToolRun> commandHistory = new ArrayList<>();
+        Path transcriptFile;
+        Path contextSummaryFile;
         Process appProcess;
         ProcessOutputBuffer appOutput;
         JsonNode summary;
@@ -2722,9 +3286,14 @@ public class ArtifactGenStage implements Stage {
         ValidationResult lastValidation;
         PhaseDirective lastDirective;
         AgentPhase phase = AgentPhase.PLAN;
+        Map<String, FileSnapshot> baselineSnapshot = new LinkedHashMap<>();
+        Map<String, FileSnapshot> previousSnapshot = new LinkedHashMap<>();
+        String baseUserPrompt = "";
+        String sessionSummary = "";
         int turns;
         int reviewRevisions;
         int noProgressTurns;
+        int compactionCount;
         String lastProgressSignature = "";
         String abortReason;
 
@@ -2773,7 +3342,13 @@ public class ArtifactGenStage implements Stage {
                 else if (f.startsWith("report/")) reportFile = f;
             }
             // Always include skeleton files
-            for (String sk : Arrays.asList("src/main/java/com/jvuln/demo/Application.java", "build.sh", "run.sh")) {
+            for (String sk : Arrays.asList(
+                    "pom.xml",
+                    "src/main/java/com/jvuln/demo/Application.java",
+                    "src/main/java/com/jvuln/demo/LabInfoController.java",
+                    "src/main/resources/application.properties",
+                    "build.sh",
+                    "run.sh")) {
                 if (!vulnDemoFiles.contains(sk)) vulnDemoFiles.add(0, sk);
             }
 
@@ -2832,8 +3407,12 @@ public class ArtifactGenStage implements Stage {
             // All files list (for frontend compatibility) — include skeleton files
             Set<String> allPaths = new LinkedHashSet<>();
             for (String sk : Arrays.asList(
+                    "vuln-demo/pom.xml",
                     "vuln-demo/src/main/java/com/jvuln/demo/Application.java",
-                    "vuln-demo/build.sh", "vuln-demo/run.sh")) {
+                    "vuln-demo/src/main/java/com/jvuln/demo/LabInfoController.java",
+                    "vuln-demo/src/main/resources/application.properties",
+                    "vuln-demo/build.sh",
+                    "vuln-demo/run.sh")) {
                 allPaths.add(sk);
             }
             allPaths.addAll(writtenFiles);

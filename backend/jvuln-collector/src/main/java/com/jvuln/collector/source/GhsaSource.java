@@ -7,9 +7,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -20,11 +23,14 @@ import java.util.regex.Pattern;
 public class GhsaSource implements IntelSource {
 
     private static final Logger log = LoggerFactory.getLogger(GhsaSource.class);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
     private final WebClient webClient;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public GhsaSource(@Value("${jvuln.github.token:}") String token) {
+        HttpClient httpClient = HttpClient.create().responseTimeout(REQUEST_TIMEOUT);
         WebClient.Builder builder = WebClient.builder().baseUrl("https://api.github.com");
+        builder.clientConnector(new ReactorClientHttpConnector(httpClient));
         if (token != null && !token.trim().isEmpty()) {
             builder.defaultHeader("Authorization", "Bearer " + token);
         }
@@ -43,7 +49,7 @@ public class GhsaSource implements IntelSource {
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
                 .bodyToMono(String.class)
-                .block();
+                .block(REQUEST_TIMEOUT.plusSeconds(5));
 
         JsonNode advisories = mapper.readTree(raw);
         if (!advisories.isArray() || advisories.size() == 0) {

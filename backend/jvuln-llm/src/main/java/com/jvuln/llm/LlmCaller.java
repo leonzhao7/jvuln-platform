@@ -268,10 +268,6 @@ public class LlmCaller {
         }
         blocks.addAll(toContentBlocks(toolCalls));
 
-        if (blocks.isEmpty()) {
-            throw new RuntimeException("LLM returned SSE completion with no content: "
-                    + describeRawResponse(raw));
-        }
         return new LlmResponse(content.toString(), promptTokens, completionTokens, responseModel, finishReason, blocks);
     }
 

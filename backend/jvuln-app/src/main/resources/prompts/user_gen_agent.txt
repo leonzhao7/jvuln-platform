@@ -20,8 +20,13 @@ Build a vulnerability reproduction environment for the following CVE.
 
 ## Pre-existing Files (DO NOT overwrite these)
 - `vuln-demo/src/main/java/com/jvuln/demo/Application.java` — standard @SpringBootApplication main class
+- `vuln-demo/src/main/java/com/jvuln/demo/LabInfoController.java` — baseline `/` and `/api/lab/info` metadata endpoints
 - `vuln-demo/build.sh` — runs `mvn package -DskipTests -q`
 - `vuln-demo/run.sh` — runs `java -jar target/*.jar --server.port=18080`
+
+## Editable Baseline Files
+- `vuln-demo/pom.xml` — Spring Boot 2.7.18 / Java 8 baseline; update dependencies for the affected component
+- `vuln-demo/src/main/resources/application.properties` — baseline config; update only for the CVE-specific vulnerable path
 
 ## Instructions
 First call `submit_plan` with a concise execution plan. Then generate the smallest runnable candidate that can prove the vulnerable path. Batch related edits with `write_files`. Prefer creating `vuln-demo + poc` before spending time on `report/report.md`. After each broad file batch, expect backend auto-validation and respond with the smallest repair that closes the reported gap. Use `validate_artifacts` for targeted rechecks when needed. Only call `finish` when you have either satisfied the plan or can clearly explain the remaining gap with concrete evidence.

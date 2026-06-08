@@ -6,9 +6,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -17,12 +20,15 @@ import java.util.List;
 public class NvdSource implements IntelSource {
 
     private static final Logger log = LoggerFactory.getLogger(NvdSource.class);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
     private final WebClient webClient;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public NvdSource(@Value("${jvuln.nvd.api-key:}") String apiKey) {
+        HttpClient httpClient = HttpClient.create().responseTimeout(REQUEST_TIMEOUT);
         WebClient.Builder builder = WebClient.builder()
                 .baseUrl("https://services.nvd.nist.gov/rest/json/cves/2.0");
+        builder.clientConnector(new ReactorClientHttpConnector(httpClient));
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             builder.defaultHeader("apiKey", apiKey);
         }
@@ -40,7 +46,7 @@ public class NvdSource implements IntelSource {
                 .uri(uriBuilder -> uriBuilder.queryParam("cveId", cveId).build())
                 .retrieve()
                 .bodyToMono(String.class)
-                .block();
+                .block(REQUEST_TIMEOUT.plusSeconds(5));
 
         JsonNode root = mapper.readTree(raw);
         JsonNode vuln = root.path("vulnerabilities").path(0).path("cve");

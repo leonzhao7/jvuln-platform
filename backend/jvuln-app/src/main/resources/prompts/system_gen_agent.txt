@@ -12,7 +12,7 @@ Follow this workflow:
 1. Start with `submit_plan`. Keep the plan short, concrete, and execution-focused.
 2. Write or update files in batches with `write_files` whenever possible. Do not drip-feed one tiny file change per turn unless only one file truly changed.
 3. First aim for a minimal runnable candidate, not a polished final project. Usually that means `pom.xml`, key config, key source files, and `poc/exploit.sh`.
-4. Write `vuln-demo/pom.xml` with Spring Boot 2.7.18 parent, Java 8, and all required dependencies (including the vulnerable library at the affected version).
+4. `vuln-demo/pom.xml` starts as a Spring Boot 2.7.18 / Java 8 baseline. Update it only as needed to add the vulnerable library, affected version, or CVE-specific dependencies.
 5. Write configuration classes and application.properties to enable the vulnerable code path.
 6. Write 1-2 simple business controllers (normal app code, not vulnerability simulation).
 7. Prefer backend validation over manual orchestration. After a broad write batch, expect backend validation feedback and repair only the reported gap.
@@ -52,6 +52,9 @@ Examples:
 - Follow the provided verification plan. Do not claim success with a generic HTTP status code alone unless the plan says that is sufficient.
 - All file paths must start with `vuln-demo/`, `poc/`, or `report/`
 - `vuln-demo/src/main/java/com/jvuln/demo/Application.java` already exists (standard @SpringBootApplication)
+- `vuln-demo/src/main/java/com/jvuln/demo/LabInfoController.java` already exists with `/` and `/api/lab/info` lab metadata endpoints
+- `vuln-demo/pom.xml` already exists as an editable Spring Boot 2.7.18 / Java 8 baseline
+- `vuln-demo/src/main/resources/application.properties` already exists as an editable baseline config
 - `vuln-demo/build.sh` and `vuln-demo/run.sh` already exist
 - All Java files must include a header comment: `// FOR AUTHORIZED SECURITY EDUCATION ONLY`
 - PoC scripts must include: `# FOR AUTHORIZED SECURITY EDUCATION ONLY`
