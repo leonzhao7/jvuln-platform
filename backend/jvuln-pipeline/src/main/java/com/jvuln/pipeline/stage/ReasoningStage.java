@@ -51,6 +51,7 @@ public class ReasoningStage implements Stage {
         Object rawDiffData  = ctx.getCompletedStages().get(2).getData();
         StageResult stage3  = ctx.getCompletedStages().get(3);
         String codeAnalysis = trimCodeAnalysis(stage3 != null ? stage3.getData() : null);
+        String vulnerabilityFacts = extractVulnerabilityFacts(stage3 != null ? stage3.getData() : null);
 
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             if (attempt > 0) {
@@ -61,11 +62,13 @@ public class ReasoningStage implements Stage {
             int diffCap = DIFF_CAPS[Math.min(attempt, DIFF_CAPS.length - 1)];
             String patchDiff = extractDiff(ctx, rawDiffData, diffCap);
 
-            log.info("Reasoning attempt {}: intel={}c diff={}c (cap={}) code={}c",
-                    attempt + 1, intelligence.length(), patchDiff.length(), diffCap, codeAnalysis.length());
+            log.info("Reasoning attempt {}: intel={}c facts={}c diff={}c (cap={}) code={}c",
+                    attempt + 1, intelligence.length(), vulnerabilityFacts.length(),
+                    patchDiff.length(), diffCap, codeAnalysis.length());
 
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
+            vars.put("vulnerability_facts", vulnerabilityFacts);
             vars.put("patch_diff", patchDiff);
             vars.put("code_analysis", codeAnalysis);
             String userPrompt = promptRegistry.render(userTemplate, vars);
@@ -131,12 +134,25 @@ public class ReasoningStage implements Stage {
         return full.length() > cap ? full.substring(0, cap) + "\n...[truncated]" : full;
     }
 
-    /** Keep method analysis + CWE matches, drop verbose call-chain details. */
+    /** Keep Stage 3's reconciled facts as the authoritative vulnerability identity. */
+    private String extractVulnerabilityFacts(Object data) throws Exception {
+        if (data == null) return "{}";
+        JsonNode root = mapper.valueToTree(data);
+        JsonNode facts = root.path("vulnerabilityFacts");
+        return facts.isMissingNode() ? "{}" : mapper.writeValueAsString(facts);
+    }
+
+    /** Keep reconciled facts + method analysis + CWE matches, drop verbose call-chain details. */
     private String trimCodeAnalysis(Object data) throws Exception {
         if (data == null) return "{}";
         JsonNode root = mapper.valueToTree(data);
-        // analyzedFiles[].methods + analyzedFiles[].cweMatches only
-        return mapper.writeValueAsString(root.path("analyzedFiles"));
+        ObjectNode out = mapper.createObjectNode();
+        JsonNode facts = root.path("vulnerabilityFacts");
+        if (!facts.isMissingNode()) {
+            out.set("vulnerabilityFacts", facts);
+        }
+        out.set("analyzedFiles", root.path("analyzedFiles"));
+        return mapper.writeValueAsString(out);
     }
 
     private void copyField(JsonNode src, ObjectNode dst, String field) {

@@ -189,7 +189,13 @@ event: pipeline_done data: {"status":"COMPLETED"}
 | 4 | `maven-source-diff` | 下载修复版本和受影响版本的 JAR，解压后 diff 源文件；当只有 `artifactId` 时通过 Maven Search 反查 `groupId` |
 | 5 | `ai-patch-search` | AI 返回仓库、坐标、版本和搜索词等 enrichment，再回灌给确定性策略重试（最后手段） |
 
-产物：`patches/fix.diff`（unified diff），以及 `patches/source/` 下 before/after 源文件（供 Stage 3 解析）。
+产物：`patches/fix.diff`（unified diff）、`patches/source/` 下 before/after 源文件（供 Stage 3 解析），以及 Stage 2 JSON 中的 `patchEvidence`。
+
+`patchEvidence` 是 Stage 2 结尾的轻量事实提取结果，包含：
+- `primaryCategory`：从补丁路径和代码变更中推断出的主要漏洞类别，例如 `sql_injection`、`expression_injection`、`path_traversal`
+- `categoryVotes`：不同漏洞类别的分数和原因
+- `signals`：触发分类的具体文件、token、权重和原因
+- `changedFiles` / `modules`：变更文件和模块摘要
 
 补充说明：
 - 若 `fixedVersion` 缺失，Stage 2 会根据 `affectedTo` 自动推断首个修复版本。
@@ -236,12 +242,25 @@ maven-source-diff 策略产生的 diff 可能包含大量无关文件（新增 f
 | CWE-502 | Deserialization of Untrusted Data | `ObjectInputStream`、`readObject()` |
 | CWE-404 | Improper Resource Shutdown | 流/连接未关闭 |
 
+#### 漏洞事实校验（VulnerabilityFactResolver）
+
+Stage 3 结束前会把 Stage 1 的公告声明、Stage 2 的 `patchEvidence` 和本阶段代码分析结果合并为 `vulnerabilityFacts`。这里的设计目标是避免 CVE 标题、描述或 CWE 与真实补丁不一致时继续污染 Stage 4/5。
+
+处理规则：
+- NVD/GHSA/OSV 的标题、描述和 CWE 仅作为声明，不作为最终事实。
+- 补丁和代码证据优先；例如公告写 SQL 注入，但补丁集中修改表达式引擎和 class allow-list，则输出 `expression_injection`。
+- 先生成确定性规则结果；再调用 LLM 做语义裁决。LLM 失败时回退到规则结果。
+- 输出包含 `resolvedType`、`resolvedCwe`、`affectedComponent`、`affectedModule`、`sink`、`confidence`、`status`、`conflicts` 和原始 `patchEvidence`。
+
 ### Stage 4 — Vulnerability Reasoning (AI)
 
-**Prompt 策略**：系统提示固定角色为"漏洞分析专家"，用户提示注入三个输入：
+**Prompt 策略**：系统提示固定角色为"漏洞分析专家"，用户提示注入四个输入：
 - 精简后的 intelligence JSON（仅保留 cveId/cweId/description/cvss/fixedVersion/artifact/fixCommits）
+- Stage 3 `vulnerabilityFacts`（主要漏洞事实）
 - 原始 patch diff 文本
-- 精简后的代码分析结果（仅 methods + cweMatches，去掉详细调用链）
+- 精简后的代码分析结果（包含 `vulnerabilityFacts`、methods 和 cweMatches，去掉详细调用链）
+
+当 CVE 原始声明与 `vulnerabilityFacts` 冲突时，Stage 4 必须优先采用 Stage 3 事实，并在根因分析中解释冲突来源。
 
 **Anthropic 集成**：`AnthropicCaller.chat()` 内部使用 `stream: true`，通过 `bodyToFlux` + `blockLast()` 收集所有 `content_block_delta` 事件，规避代理的非流式超时限制（代理对非流式请求有 ~60s 超时，流式则不同）。
 

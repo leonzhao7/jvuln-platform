@@ -38,6 +38,7 @@ The vulnerability lives in the library/container, NOT in your application code.
 - CONFIGURE the application so the library's vulnerable code path is reachable
 - Write NORMAL business endpoints that a real application would have
 - Do NOT re-implement or simulate the library's internal vulnerability behavior
+- Treat CVE intelligence as an advisory claim. If it conflicts with Stage 3 vulnerability facts, follow the Stage 3 facts.
 
 Examples:
 - CVE in Tomcat DefaultServlet → configure embedded Tomcat with readonly=false and FileStore sessions

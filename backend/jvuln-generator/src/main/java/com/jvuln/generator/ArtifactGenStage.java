@@ -84,11 +84,13 @@ public class ArtifactGenStage implements Stage {
         Object rawIntelligence = ctx.getCompletedStages().get(1).getData();
         String intelligence = trimIntelligence(rawIntelligence);
         String patchDiff = extractDiff(ctx, ctx.getCompletedStages().get(2).getData(), 4000);
+        StageResult stage3 = ctx.getCompletedStages().get(3);
+        String vulnerabilityFacts = extractVulnerabilityFacts(stage3 != null ? stage3.getData() : null);
         String triggerChain = extractTriggerChain(ctx.getCompletedStages().get(4).getData());
         String rootCause = extractRootCause(ctx.getCompletedStages().get(4).getData());
         String artifact = extractArtifact(rawIntelligence);
-        VerificationPlan verificationPlan = buildVerificationPlan(ctx, intelligence, triggerChain, rootCause,
-                patchDiff, artifact);
+        VerificationPlan verificationPlan = buildVerificationPlan(ctx, intelligence, vulnerabilityFacts,
+                triggerChain, rootCause, patchDiff, artifact);
 
         Path cvePath = ctx.getWorkspaceManager().getCvePath(ctx.getCveId());
         AgentContext agentCtx = new AgentContext(cvePath, ctx);
@@ -104,6 +106,7 @@ public class ArtifactGenStage implements Stage {
             String userTemplate = promptRegistry.getUserPrompt("gen_agent");
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
+            vars.put("vulnerability_facts", vulnerabilityFacts);
             vars.put("trigger_chain", triggerChain);
             vars.put("root_cause", rootCause);
             vars.put("patch_diff", patchDiff);
@@ -295,7 +298,7 @@ public class ArtifactGenStage implements Stage {
 
                     if ("finish".equals(block.getToolName())) {
                         VerificationReview review = reviewGeneratedArtifacts(ctx, agentCtx, block.getToolInput(),
-                                intelligence, triggerChain, rootCause, patchDiff, artifact);
+                                intelligence, vulnerabilityFacts, triggerChain, rootCause, patchDiff, artifact);
                         agentCtx.verificationReview = review;
 
                         boolean canRetry = review.requiresRevision()
@@ -381,7 +384,7 @@ public class ArtifactGenStage implements Stage {
             if (agentCtx.summary == null) {
                 agentCtx.lastValidation = validateArtifacts(agentCtx, "full");
                 agentCtx.verificationReview = reviewGeneratedArtifacts(ctx, agentCtx, null,
-                        intelligence, triggerChain, rootCause, patchDiff, artifact);
+                        intelligence, vulnerabilityFacts, triggerChain, rootCause, patchDiff, artifact);
                 ObjectNode forcedSummary = mapper.createObjectNode();
                 forcedSummary.put("vuln_demo_status",
                         agentCtx.lastValidation != null && agentCtx.lastValidation.startupOk ? "startup_ok"
@@ -1604,6 +1607,13 @@ public class ArtifactGenStage implements Stage {
         return full.length() > cap ? full.substring(0, cap) + "\n...[truncated]" : full;
     }
 
+    private String extractVulnerabilityFacts(Object data) throws Exception {
+        if (data == null) return "{}";
+        JsonNode root = mapper.valueToTree(data);
+        JsonNode facts = root.path("vulnerabilityFacts");
+        return facts.isMissingNode() ? "{}" : mapper.writeValueAsString(facts);
+    }
+
     private String extractTriggerChain(Object data) throws Exception {
         JsonNode root = mapper.valueToTree(data);
         JsonNode chain = root.path("trigger_chain");
@@ -1741,13 +1751,15 @@ public class ArtifactGenStage implements Stage {
         return sb.toString().trim();
     }
 
-    private VerificationPlan buildVerificationPlan(PipelineContext ctx, String intelligence, String triggerChain,
+    private VerificationPlan buildVerificationPlan(PipelineContext ctx, String intelligence,
+                                                   String vulnerabilityFacts, String triggerChain,
                                                    String rootCause, String patchDiff, String artifact) {
         try {
             String systemPrompt = promptRegistry.getSystemPrompt("gen_verification_plan");
             String userTemplate = promptRegistry.getUserPrompt("gen_verification_plan");
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
+            vars.put("vulnerability_facts", vulnerabilityFacts);
             vars.put("trigger_chain", triggerChain);
             vars.put("root_cause", rootCause);
             vars.put("patch_diff", patchDiff);
@@ -1762,13 +1774,15 @@ public class ArtifactGenStage implements Stage {
     }
 
     private VerificationReview reviewGeneratedArtifacts(PipelineContext ctx, AgentContext agentCtx, JsonNode finishSummary,
-                                                        String intelligence, String triggerChain, String rootCause,
-                                                        String patchDiff, String artifact) {
+                                                        String intelligence, String vulnerabilityFacts,
+                                                        String triggerChain, String rootCause, String patchDiff,
+                                                        String artifact) {
         try {
             String systemPrompt = promptRegistry.getSystemPrompt("gen_verifier");
             String userTemplate = promptRegistry.getUserPrompt("gen_verifier");
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
+            vars.put("vulnerability_facts", vulnerabilityFacts);
             vars.put("trigger_chain", triggerChain);
             vars.put("root_cause", rootCause);
             vars.put("patch_diff", patchDiff);
@@ -3356,9 +3370,18 @@ public class ArtifactGenStage implements Stage {
             String startupStatus = deriveStartupStatus(this);
             String vulnDemoStatus = "startup_ok".equals(startupStatus) ? "startup_ok"
                     : ("startup_failed".equals(startupStatus) ? "startup_failed" : compileStatus);
+            String verificationStatus = verificationReview != null ? verificationReview.pocStatus
+                    : (summary != null ? summary.path("poc_status").asText("")
+                    : (lastValidation != null && lastValidation.pocVerified ? "verified" : ""));
 
             ToolRun lastBuild = buildHistory.isEmpty() ? null : buildHistory.get(buildHistory.size() - 1);
             ToolRun lastStartup = startupHistory.isEmpty() ? null : startupHistory.get(startupHistory.size() - 1);
+
+            output.put("compileStatus", compileStatus);
+            output.put("startupStatus", startupStatus);
+            output.put("pocStatus", verificationStatus.isEmpty() ? "unknown" : verificationStatus);
+            output.put("verificationStatus", verificationStatus.isEmpty() ? "unknown" : verificationStatus);
+            output.put("attemptsUsed", turns);
 
             Map<String, Object> vulnDemo = new LinkedHashMap<>();
             vulnDemo.put("status", vulnDemoStatus);
@@ -3374,9 +3397,9 @@ public class ArtifactGenStage implements Stage {
             output.put("vulnDemo", vulnDemo);
 
             Map<String, Object> poc = new LinkedHashMap<>();
-            String pocStatus = verificationReview != null ? verificationReview.pocStatus
-                    : (summary != null ? summary.path("poc_status").asText("unknown")
-                    : (!pocFiles.isEmpty() ? "unverified" : "skipped"));
+            String pocStatus = verificationStatus.isEmpty()
+                    ? (!pocFiles.isEmpty() ? "unverified" : "skipped")
+                    : verificationStatus;
             poc.put("status", pocStatus);
             poc.put("files", pocFiles);
             if (verificationReview != null) {
@@ -3392,6 +3415,23 @@ public class ArtifactGenStage implements Stage {
                 }
             }
             output.put("poc", poc);
+
+            String verificationSummary = "";
+            if (verificationReview != null && verificationReview.reason != null) {
+                verificationSummary = verificationReview.reason.trim();
+            }
+            if (verificationSummary.isEmpty() && summary != null) {
+                verificationSummary = summary.path("remaining_gap").asText("").trim();
+                if (verificationSummary.isEmpty()) {
+                    verificationSummary = summary.path("notes").asText("").trim();
+                }
+            }
+            if (verificationSummary.isEmpty() && lastValidation != null) {
+                verificationSummary = lastValidation.summary();
+            }
+            if (!verificationSummary.isEmpty()) {
+                output.put("verificationSummary", verificationSummary);
+            }
 
             Map<String, Object> report = new LinkedHashMap<>();
             String rptStatus;

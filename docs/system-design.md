@@ -162,7 +162,9 @@ Additional Stage 1 enrichment behavior:
 - Uses LLM to generate structured enrichment: `sourceRepo`, `groupId`, `artifactId`, `affectedTo`, commit keywords, `fixedVersion`, and release tags
 - Feeds the enrichment back into existing deterministic strategies and retries them before failing the stage
 
-**Output**: `PatchInfo` (commitHash, commitMessage, strategyName, rawDiff, list of `FileDiff` objects). Raw diff is also written to `patches/fix.diff`.
+**Output**: `PatchInfo` (commitHash, commitMessage, strategyName, rawDiff, list of `FileDiff` objects, and `patchEvidence`). Raw diff is also written to `patches/fix.diff`.
+
+`patchEvidence` is extracted at the end of Stage 2 from file paths, added/removed lines, and raw diff fallback data. It records the primary vulnerability category, category votes, changed files/modules, and concrete signals. This gives later stages a patch-grounded fact source when advisory text is vague or wrong.
 
 ### 3.3 Stage 3 — Code Analysis
 
@@ -182,9 +184,14 @@ Additional Stage 1 enrichment behavior:
    - Parse Java code with JavaParser to enrich method signatures
    - Build call chains between changed methods
 
-**Output**: `Map<String, Object>` containing `analyzedFiles` (list of `CodeAnalysisResult`) and `totalCweMatches`.
+5. Resolve vulnerability facts:
+   - Treat Stage 1 descriptions, titles, and CWE labels as advisory claims
+   - Prefer Stage 2 `patchEvidence` and Stage 3 code evidence
+   - Use an LLM reconciliation pass when available, with deterministic rule fallback
 
-**No LLM calls** — pure static analysis with JavaParser.
+**Output**: `Map<String, Object>` containing `analyzedFiles` (list of `CodeAnalysisResult`), `totalCweMatches`, and `vulnerabilityFacts`.
+
+Stage 3 is still primarily deterministic static analysis, but `VulnerabilityFactResolver` may call the configured LLM to reconcile conflicting advisory and patch evidence. If that call fails, Stage 3 keeps the deterministic fact result.
 
 ### 3.4 Stage 4 — Vulnerability Reasoning
 
@@ -196,14 +203,14 @@ Additional Stage 1 enrichment behavior:
 
 **Workflow**:
 1. Load prompts from `system_reasoning.txt` and `user_reasoning.txt`
-2. Assemble context: trimmed Stage 1 data + Stage 2 diff (capped) + Stage 3 code analysis
+2. Assemble context: trimmed Stage 1 data + Stage 3 `vulnerabilityFacts` + Stage 2 diff (capped) + Stage 3 code analysis
 3. Call LLM in **JSON mode** (`response_format: json_object`)
 4. Strip markdown fences from response, parse as JSON
 5. On failure: retry up to 2 more times with progressively smaller diff caps (6000 → 3000 → 1000 chars)
 
 **Retry behavior**: Each retry halves the diff context to reduce token load. 2s/4s backoff between attempts.
 
-**Output**: LLM-generated JSON containing `trigger_chain` (step-by-step bug trigger path), `root_cause` analysis, and `attack_vectors`.
+**Output**: LLM-generated JSON containing `trigger_chain` (step-by-step bug trigger path), `root_cause` analysis, and `attack_vectors`. If Stage 1 claims conflict with Stage 3 facts, the reasoning output should follow `vulnerabilityFacts` and explain the conflict.
 
 ### 3.5 Stage 5 — Artifact Generation (Tool-Use Agent)
 

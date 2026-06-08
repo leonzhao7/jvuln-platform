@@ -16,12 +16,14 @@ public class CveIntelligence {
     private final String sourceRepo;
     private final List<String> fixCommits;
     private final List<Article> articles;
+    private final List<ReferenceFinding> referenceFindings;
     private final Instant collectedAt;
 
     public CveIntelligence(String cveId, String description, CvssScore cvss, String cweId,
                            MavenCoordinate artifact, VersionRange affectedVersions,
                            String fixedVersion, String sourceRepo,
-                           List<String> fixCommits, List<Article> articles, Instant collectedAt) {
+                           List<String> fixCommits, List<Article> articles,
+                           List<ReferenceFinding> referenceFindings, Instant collectedAt) {
         this.cveId = cveId;
         this.description = description;
         this.cvss = cvss;
@@ -32,6 +34,7 @@ public class CveIntelligence {
         this.sourceRepo = sourceRepo;
         this.fixCommits = fixCommits;
         this.articles = articles;
+        this.referenceFindings = referenceFindings;
         this.collectedAt = collectedAt;
     }
 
@@ -45,6 +48,7 @@ public class CveIntelligence {
     public String getSourceRepo() { return sourceRepo; }
     public List<String> getFixCommits() { return fixCommits; }
     public List<Article> getArticles() { return articles; }
+    public List<ReferenceFinding> getReferenceFindings() { return referenceFindings; }
     public Instant getCollectedAt() { return collectedAt; }
 
     public static class CvssScore {
@@ -107,5 +111,28 @@ public class CveIntelligence {
         public String getUrl() { return url; }
         public String getSource() { return source; }
         public String getSummary() { return summary; }
+    }
+
+    public static class ReferenceFinding {
+        private final String kind;
+        private final String url;
+        private final String discoveredFrom;
+        private final String source;
+        private final String confidence;
+
+        public ReferenceFinding(String kind, String url, String discoveredFrom,
+                                String source, String confidence) {
+            this.kind = kind;
+            this.url = url;
+            this.discoveredFrom = discoveredFrom;
+            this.source = source;
+            this.confidence = confidence;
+        }
+
+        public String getKind() { return kind; }
+        public String getUrl() { return url; }
+        public String getDiscoveredFrom() { return discoveredFrom; }
+        public String getSource() { return source; }
+        public String getConfidence() { return confidence; }
     }
 }

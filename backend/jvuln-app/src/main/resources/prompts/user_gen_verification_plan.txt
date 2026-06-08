@@ -3,6 +3,9 @@ Build CVE-specific verification criteria for Stage 5.
 ## CVE Intelligence
 {{intelligence}}
 
+## Stage 3 Vulnerability Facts (authoritative when conflicts exist)
+{{vulnerability_facts}}
+
 ## Trigger Chain
 {{trigger_chain}}
 

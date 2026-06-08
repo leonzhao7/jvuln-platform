@@ -26,9 +26,11 @@ public class IntelligenceStage implements Stage {
     private static final Pattern DESCRIPTION_AFFECTED_PATTERN =
             Pattern.compile("v?(\\d+(?:\\.\\d+)+)\\s+and below", Pattern.CASE_INSENSITIVE);
     private final List<IntelSource> sources;
+    private final ReferenceEnricher referenceEnricher;
 
-    public IntelligenceStage(List<IntelSource> sources) {
+    public IntelligenceStage(List<IntelSource> sources, ReferenceEnricher referenceEnricher) {
         this.sources = sources;
+        this.referenceEnricher = referenceEnricher;
     }
 
     @Override
@@ -159,6 +161,19 @@ public class IntelligenceStage implements Stage {
         affectedTo = preferAffectedTo(affectedTo, description);
         artifactId = preferArtifactId(artifactId, sourceRepo);
         artifactId = preferDescriptionArtifact(artifactId, sourceRepo, description);
+        ReferenceEnricher.EnrichmentResult enrichment = referenceEnricher.enrich(
+                cveId, sourceRepo, fixedVersion, allArticles, fixCommits);
+
+        if (sourceRepo.isEmpty() && enrichment.getSourceRepo() != null && !enrichment.getSourceRepo().isEmpty()) {
+            sourceRepo = enrichment.getSourceRepo();
+        }
+        if ((fixedVersion == null || fixedVersion.isEmpty())
+                && enrichment.getFixedVersion() != null && !enrichment.getFixedVersion().isEmpty()) {
+            fixedVersion = enrichment.getFixedVersion();
+        }
+        if (enrichment.getFixCommits() != null && !enrichment.getFixCommits().isEmpty()) {
+            fixCommits.addAll(enrichment.getFixCommits());
+        }
 
         return new CveIntelligence(
                 cveId, description,
@@ -169,6 +184,7 @@ public class IntelligenceStage implements Stage {
                 fixedVersion, sourceRepo,
                 new ArrayList<>(fixCommits),
                 allArticles,
+                enrichment.getReferenceFindings(),
                 Instant.now()
         );
     }

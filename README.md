@@ -106,14 +106,14 @@ The language switcher is in the header. The selected language is persisted in `l
 | Stage | Name | Description |
 |-------|------|-------------|
 | 1 | Intelligence Collection | Collect CVE data from NVD, GHSA, OSV, Gitee, Maven, and references, then backfill source repo, artifact, and affected-version clues |
-| 2 | Patch Locating | Prefer fixing commits; fall back to Maven source diff and AI-driven enrichment when commit references are missing |
-| 3 | Code Analysis | Filter relevant diff files, parse Java AST, and match CWE patterns |
-| 4 | Vulnerability Reasoning | Use the active LLM to reason about trigger chain, root cause, fix quality, and generate machine-executable detection points |
-| 5 | Vulnerability Education Lab | Generate a local educational demo project (Spring Boot with vulnerable library configuration), PoC scripts, and an educational report. Uses an agent plus backend-controlled validation, with explicit plan, compile-fix, startup-fix, PoC-fix, and report phases. |
+| 2 | Patch Locating | Prefer fixing commits; fall back to Maven source diff and AI-driven enrichment, then extract patch evidence such as changed modules, category votes, and signals |
+| 3 | Code Analysis | Filter relevant diff files, parse Java AST, match CWE patterns, and reconcile Stage 1 advisory claims against Stage 2 patch evidence into `vulnerabilityFacts` |
+| 4 | Vulnerability Reasoning | Use the active LLM to reason about trigger chain, root cause, fix quality, and detection points, with Stage 3 `vulnerabilityFacts` as the primary CVE identity |
+| 5 | Vulnerability Education Lab | Generate a local educational demo project, PoC scripts, and a report from Stage 3 facts plus Stage 4 reasoning. Uses an agent plus backend-controlled validation, with explicit plan, compile-fix, startup-fix, PoC-fix, and report phases. |
 
 The analysis Pipeline supports resume and rerun. Completed stages can be loaded from workspace files, and `fromStage` can force rerun from a selected stage.
 
-Stage 1 now also searches Gitee issues and can recover `sourceRepo`, `artifactId`, and `affectedTo` from NVD CPE data, reference URLs, and advisory text. Stage 2 can continue from partial Maven coordinates, infer `groupId` from Maven Search when only `artifactId` is known, and re-run deterministic strategies after AI returns enriched repo/version hints.
+Stage 1 now also searches Gitee issues and can recover `sourceRepo`, `artifactId`, and `affectedTo` from NVD CPE data, reference URLs, and advisory text. Stage 2 can continue from partial Maven coordinates, infer `groupId` from Maven Search when only `artifactId` is known, and re-run deterministic strategies after AI returns enriched repo/version hints. Stage 2 also writes `patchEvidence`; Stage 3 upgrades that evidence into `vulnerabilityFacts`, so later stages can correct inaccurate or conflicting CVE titles/descriptions.
 
 **Product Vulnerability Detection** is still available, but it is a separate scan workflow rather than one of the 5 analysis stages above.
 

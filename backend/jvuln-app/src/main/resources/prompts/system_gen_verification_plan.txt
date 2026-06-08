@@ -10,6 +10,7 @@ Return strict JSON with this shape:
 }
 
 Rules:
+- Treat CVE intelligence as an advisory claim. If it conflicts with Stage 3 vulnerability facts, follow the Stage 3 facts.
 - Base the criteria on the real vulnerable path, not a simulated behavior.
 - Success signals must be specific enough that a reviewer can reject false positives.
 - Required evidence should focus on observable proof from build output, runtime behavior, logs, or side effects.

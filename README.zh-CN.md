@@ -106,14 +106,14 @@ UI 支持中英文切换：
 | 阶段 | 名称 | 说明 |
 |------|------|------|
 | 1 | Intelligence Collection / 情报采集 | 从 NVD、GHSA、OSV、Gitee、Maven 和参考链接采集 CVE 数据，并补全源码仓库、组件和受影响版本线索 |
-| 2 | Patch Locating / 补丁定位 | 优先定位修复 commit；缺失时回退到 Maven source diff，并允许 AI 补全仓库、坐标和修复版本后重试 |
-| 3 | Code Analysis / 代码分析 | 过滤相关 diff 文件，解析 Java AST，匹配 CWE 模式 |
-| 4 | Vulnerability Reasoning / 漏洞推理 | 使用 LLM 推理触发链、根因、修复质量，并生成可机器执行的漏洞检测要点 |
-| 5 | Vulnerability Education Lab / 漏洞教学演示 | 生成本地教学用复现项目（Spring Boot + 漏洞组件配置）、PoC 脚本和教学报告。采用 agent + 后端验证协作模式，显式区分计划、最小生成、编译修复、启动修复、PoC 修复和报告收尾阶段。 |
+| 2 | Patch Locating / 补丁定位 | 优先定位修复 commit；缺失时回退到 Maven source diff，并允许 AI 补全仓库、坐标和修复版本后重试；阶段末提取补丁证据，包括变更模块、漏洞类别投票和证据信号 |
+| 3 | Code Analysis / 代码分析 | 过滤相关 diff 文件，解析 Java AST，匹配 CWE 模式，并把 Stage 1 公告声明与 Stage 2 补丁证据校验为 `vulnerabilityFacts` |
+| 4 | Vulnerability Reasoning / 漏洞推理 | 使用 LLM 推理触发链、根因、修复质量和检测要点，并以 Stage 3 `vulnerabilityFacts` 作为主要漏洞事实 |
+| 5 | Vulnerability Education Lab / 漏洞教学演示 | 基于 Stage 3 事实和 Stage 4 推理生成本地教学用复现项目、PoC 脚本和教学报告。采用 agent + 后端验证协作模式，显式区分计划、最小生成、编译修复、启动修复、PoC 修复和报告收尾阶段。 |
 
 分析 Pipeline 支持断点续跑和指定阶段重跑。已完成阶段可从 workspace 文件缓存读取，`fromStage` 可强制从指定阶段重新执行。
 
-Stage 1 现在还会搜索 Gitee issue，并能从 NVD CPE、参考链接 URL 和公告描述中补全 `sourceRepo`、`artifactId`、`affectedTo`。Stage 2 支持从不完整的 Maven 坐标继续推进，在仅有 `artifactId` 时通过 Maven Search 反查 `groupId`，并在 AI 返回补充线索后重试确定性策略。
+Stage 1 现在还会搜索 Gitee issue，并能从 NVD CPE、参考链接 URL 和公告描述中补全 `sourceRepo`、`artifactId`、`affectedTo`。Stage 2 支持从不完整的 Maven 坐标继续推进，在仅有 `artifactId` 时通过 Maven Search 反查 `groupId`，并在 AI 返回补充线索后重试确定性策略。Stage 2 还会写出 `patchEvidence`；Stage 3 会把这些证据升级为 `vulnerabilityFacts`，用于修正 CVE 标题、描述或 CWE 不准确的问题。
 
 **产品漏洞检测** 仍然保留，但作为独立扫描流程存在，不计入上述 5 个分析阶段。
 

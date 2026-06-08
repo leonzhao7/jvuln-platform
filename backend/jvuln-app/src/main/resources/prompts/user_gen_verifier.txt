@@ -3,6 +3,9 @@ Review whether the generated Stage 5 artifacts satisfy the CVE verification plan
 ## CVE Intelligence
 {{intelligence}}
 
+## Stage 3 Vulnerability Facts
+{{vulnerability_facts}}
+
 ## Trigger Chain
 {{trigger_chain}}
 

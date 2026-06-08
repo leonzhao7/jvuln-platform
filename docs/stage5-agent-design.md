@@ -12,6 +12,7 @@ Stage 5 (`Artifact Generation`) is the final analysis stage in jvuln-platform. I
 
 - Stage 1 intelligence
 - Stage 2 patch/diff data
+- Stage 3 reconciled vulnerability facts
 - Stage 4 trigger-chain/root-cause reasoning
 
 and produces three workspace deliverables:
@@ -30,7 +31,7 @@ Unlike Stages 1–4, Stage 5 is not a single prompt/JSON exchange. It is a backe
 - persisted attempt memory
 - reviewer and validator reconciliation
 
-The implementation lives in [ArtifactGenStage.java](/root/workspace/jvuln-platform/backend/jvuln-generator/src/main/java/com/jvuln/generator/ArtifactGenStage.java).
+Stage 3 `vulnerabilityFacts` are treated as the authoritative CVE identity when Stage 1 advisory text conflicts with patch/code evidence. The implementation lives in [ArtifactGenStage.java](/root/workspace/jvuln-platform/backend/jvuln-generator/src/main/java/com/jvuln/generator/ArtifactGenStage.java).
 
 ---
 

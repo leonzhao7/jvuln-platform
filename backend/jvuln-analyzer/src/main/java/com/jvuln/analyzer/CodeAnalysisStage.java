@@ -31,10 +31,14 @@ public class CodeAnalysisStage implements Stage {
     private static final Logger log = LoggerFactory.getLogger(CodeAnalysisStage.class);
 
     private final DiffRelevanceFilter relevanceFilter;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final VulnerabilityFactResolver factResolver;
+    private final ObjectMapper mapper;
 
-    public CodeAnalysisStage(DiffRelevanceFilter relevanceFilter) {
+    public CodeAnalysisStage(DiffRelevanceFilter relevanceFilter, VulnerabilityFactResolver factResolver,
+                             ObjectMapper mapper) {
         this.relevanceFilter = relevanceFilter;
+        this.factResolver = factResolver;
+        this.mapper = mapper;
     }
 
     // Matches: @@ -602,7 +602,7 @@ protected void doPut(...)
@@ -93,6 +97,12 @@ public class CodeAnalysisStage implements Stage {
         int totalCwe = 0;
         for (CodeAnalysisResult r : results) totalCwe += r.getCweMatches().size();
         output.put("totalCweMatches", totalCwe);
+        Object stage1Data = ctx.getCompletedStages().get(1) != null
+                ? ctx.getCompletedStages().get(1).getData() : null;
+        Object stage2Data = ctx.getCompletedStages().get(2) != null
+                ? ctx.getCompletedStages().get(2).getData() : null;
+        output.put("vulnerabilityFacts",
+                factResolver.resolve(cveId, stage1Data, stage2Data, results));
 
         ctx.getWorkspaceManager().writeStageData(cveId, 3, output);
         ctx.reportProgress("Code analysis complete: " + results.size() + " file(s) analyzed");

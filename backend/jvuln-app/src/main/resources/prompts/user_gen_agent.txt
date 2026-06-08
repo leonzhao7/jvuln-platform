@@ -3,6 +3,9 @@ Build a vulnerability reproduction environment for the following CVE.
 ## CVE Intelligence
 {{intelligence}}
 
+## Stage 3 Vulnerability Facts (authoritative when conflicts exist)
+{{vulnerability_facts}}
+
 ## Trigger Chain (how the vulnerability is triggered)
 {{trigger_chain}}
 
