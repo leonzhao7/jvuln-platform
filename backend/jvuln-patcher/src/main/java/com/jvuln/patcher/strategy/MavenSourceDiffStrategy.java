@@ -1,6 +1,7 @@
 package com.jvuln.patcher.strategy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -12,6 +13,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -20,6 +22,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+
+import org.springframework.web.util.UriComponentsBuilder;
 
 /**
  * Downloads Maven source JARs for fixedVersion and the previous version,
@@ -31,6 +35,7 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(MavenSourceDiffStrategy.class);
     private static final String CENTRAL = "https://repo1.maven.org/maven2";
+    private static final String MAVEN_SEARCH = "https://search.maven.org/solrsearch/select";
 
     // For umbrella artifacts (e.g. org.apache.tomcat:tomcat), try these sub-artifacts
     private static final Map<String, List<String>> ARTIFACT_EXPANSIONS = new LinkedHashMap<>();
@@ -49,6 +54,7 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
     }
 
     private final WebClient webClient;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public MavenSourceDiffStrategy() {
         HttpClient httpClient = HttpClient.create().responseTimeout(Duration.ofSeconds(60));
@@ -84,6 +90,17 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
      */
     public Optional<PatchResult> locateByArtifact(String cveId, String groupId, String artifactId,
                                                     String fixedVersion) throws Exception {
+        if ((groupId == null || groupId.isEmpty()) && artifactId != null && !artifactId.isEmpty()) {
+            String resolvedGroup = inferGroupId(artifactId);
+            if (resolvedGroup != null && !resolvedGroup.isEmpty()) {
+                log.info("MavenSourceDiff: inferred groupId={} for artifactId={}", resolvedGroup, artifactId);
+                groupId = resolvedGroup;
+            }
+        }
+        if (groupId == null || groupId.isEmpty() || artifactId == null || artifactId.isEmpty()) {
+            log.info("MavenSourceDiff: missing artifact coordinates groupId={} artifactId={}", groupId, artifactId);
+            return Optional.empty();
+        }
         if (fixedVersion == null || fixedVersion.isEmpty()) {
             log.info("MavenSourceDiff: no fixedVersion, skipping");
             return Optional.empty();
@@ -248,6 +265,12 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
      * Falls back to decrementing the patch number.
      */
     private String inferPrevVersion(String groupId, String artifactId, String fixedVersion) {
+        if ((groupId == null || groupId.isEmpty()) && artifactId != null && !artifactId.isEmpty()) {
+            groupId = inferGroupId(artifactId);
+        }
+        if (groupId == null || groupId.isEmpty()) {
+            return decrementVersion(fixedVersion);
+        }
         try {
             String groupPath = groupId.replace('.', '/');
             String metaUrl = CENTRAL + "/" + groupPath + "/" + artifactId + "/maven-metadata.xml";
@@ -292,6 +315,12 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
 
     /** Returns the version immediately after {@code lastAffected} in Maven Central metadata. */
     public String inferNextVersion(String groupId, String artifactId, String lastAffected) {
+        if ((groupId == null || groupId.isEmpty()) && artifactId != null && !artifactId.isEmpty()) {
+            groupId = inferGroupId(artifactId);
+        }
+        if (groupId == null || groupId.isEmpty()) {
+            return null;
+        }
         try {
             String groupPath = groupId.replace('.', '/');
             String metaUrl = CENTRAL + "/" + groupPath + "/" + artifactId + "/maven-metadata.xml";
@@ -316,6 +345,40 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
         Matcher m = vp.matcher(xml);
         while (m.find()) versions.add(m.group(1).trim());
         return versions;
+    }
+
+    private String inferGroupId(String artifactId) {
+        try {
+            URI searchUri = UriComponentsBuilder.fromHttpUrl(MAVEN_SEARCH)
+                    .queryParam("q", "a:\"" + artifactId + "\"")
+                    .queryParam("rows", 10)
+                    .queryParam("wt", "json")
+                    .build()
+                    .encode()
+                    .toUri();
+            String json = webClient.get()
+                    .uri(searchUri)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            if (json == null || json.isEmpty()) {
+                return null;
+            }
+            JsonNode docs = mapper.readTree(json).path("response").path("docs");
+            if (!docs.isArray() || docs.isEmpty()) {
+                return null;
+            }
+            for (JsonNode doc : docs) {
+                String candidateArtifact = doc.path("a").asText("");
+                if (artifactId.equals(candidateArtifact)) {
+                    return doc.path("g").asText("");
+                }
+            }
+            return docs.path(0).path("g").asText("");
+        } catch (Exception e) {
+            log.debug("MavenSourceDiff: groupId lookup failed for {}: {}", artifactId, e.getMessage());
+            return null;
+        }
     }
 
     private String decrementVersion(String version) {

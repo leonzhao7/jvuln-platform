@@ -13,12 +13,18 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class IntelligenceStage implements Stage {
 
     private static final Logger log = LoggerFactory.getLogger(IntelligenceStage.class);
     private static final int SOURCE_STAGE_TIMEOUT_SECONDS = 45;
+    private static final Pattern DESCRIPTION_COMPONENT_PATTERN =
+            Pattern.compile("^([a-zA-Z0-9_.-]+)\\s+v?\\d+(?:\\.\\d+)+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern DESCRIPTION_AFFECTED_PATTERN =
+            Pattern.compile("v?(\\d+(?:\\.\\d+)+)\\s+and below", Pattern.CASE_INSENSITIVE);
     private final List<IntelSource> sources;
 
     public IntelligenceStage(List<IntelSource> sources) {
@@ -149,6 +155,11 @@ public class IntelligenceStage implements Stage {
             allArticles.addAll(f.getArticles());
         }
 
+        sourceRepo = preferRepo(sourceRepo, allArticles);
+        affectedTo = preferAffectedTo(affectedTo, description);
+        artifactId = preferArtifactId(artifactId, sourceRepo);
+        artifactId = preferDescriptionArtifact(artifactId, sourceRepo, description);
+
         return new CveIntelligence(
                 cveId, description,
                 new CveIntelligence.CvssScore(cvssScore, "", cvssSeverity),
@@ -160,5 +171,94 @@ public class IntelligenceStage implements Stage {
                 allArticles,
                 Instant.now()
         );
+    }
+
+    private String preferRepo(String sourceRepo, List<CveIntelligence.Article> articles) {
+        if (sourceRepo != null && !sourceRepo.isEmpty()) {
+            return sourceRepo;
+        }
+        if (articles == null) {
+            return "";
+        }
+        for (CveIntelligence.Article article : articles) {
+            String normalized = normalizeRepoUrl(article.getUrl());
+            if (!normalized.isEmpty()) {
+                return normalized;
+            }
+        }
+        return "";
+    }
+
+    private String preferArtifactId(String artifactId, String sourceRepo) {
+        if (artifactId != null && !artifactId.isEmpty()) {
+            return artifactId;
+        }
+        String normalized = normalizeRepoUrl(sourceRepo);
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        int lastSlash = normalized.lastIndexOf('/');
+        return lastSlash >= 0 ? normalized.substring(lastSlash + 1) : "";
+    }
+
+    private String preferAffectedTo(String affectedTo, String description) {
+        if (affectedTo != null && !affectedTo.isEmpty()) {
+            return affectedTo;
+        }
+        if (description == null || description.isEmpty()) {
+            return "";
+        }
+        Matcher matcher = DESCRIPTION_AFFECTED_PATTERN.matcher(description);
+        return matcher.find() ? "<= " + matcher.group(1) : "";
+    }
+
+    private String preferDescriptionArtifact(String artifactId, String sourceRepo, String description) {
+        if (description == null || description.isEmpty()) {
+            return artifactId;
+        }
+        Matcher matcher = DESCRIPTION_COMPONENT_PATTERN.matcher(description);
+        if (!matcher.find()) {
+            return artifactId;
+        }
+        String described = matcher.group(1);
+        if (artifactId == null || artifactId.isEmpty()) {
+            return described;
+        }
+        String repoArtifact = preferArtifactId("", sourceRepo);
+        if (artifactId.equals(repoArtifact)) {
+            return described;
+        }
+        return artifactId;
+    }
+
+    private String normalizeRepoUrl(String url) {
+        if (url == null || url.isEmpty()) {
+            return "";
+        }
+        String trimmed = url.trim();
+        if (trimmed.contains("github.com/")) {
+            int idx = trimmed.indexOf("github.com/");
+            String tail = trimmed.substring(idx + "github.com/".length());
+            String[] parts = tail.split("/");
+            if (parts.length >= 2) {
+                return "https://github.com/" + stripSuffix(parts[0]) + "/" + stripSuffix(parts[1]);
+            }
+        }
+        if (trimmed.contains("gitee.com/")) {
+            int idx = trimmed.indexOf("gitee.com/");
+            String tail = trimmed.substring(idx + "gitee.com/".length());
+            String[] parts = tail.split("/");
+            if (parts.length >= 2) {
+                return "https://gitee.com/" + stripSuffix(parts[0]) + "/" + stripSuffix(parts[1]);
+            }
+        }
+        return "";
+    }
+
+    private String stripSuffix(String segment) {
+        if (segment == null) {
+            return "";
+        }
+        return segment.replaceAll("\\.git$", "").replaceAll("[?#].*$", "");
     }
 }

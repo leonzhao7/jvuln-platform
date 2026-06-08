@@ -15,6 +15,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class NvdSource implements IntelSource {
@@ -67,6 +69,9 @@ public class NvdSource implements IntelSource {
 
         String cvssScore = "";
         String cvssSeverity = "";
+        String groupId = "";
+        String artifactId = "";
+        String affectedTo = "";
         JsonNode metrics = vuln.path("metrics");
         JsonNode cvssData = metrics.path("cvssMetricV31").path(0).path("cvssData");
         if (cvssData.isMissingNode()) {
@@ -75,6 +80,41 @@ public class NvdSource implements IntelSource {
         if (!cvssData.isMissingNode()) {
             cvssScore = cvssData.path("baseScore").asText("");
             cvssSeverity = cvssData.path("baseSeverity").asText("");
+        }
+
+        JsonNode configurations = vuln.path("configurations");
+        if (configurations.isArray()) {
+            for (JsonNode config : configurations) {
+                for (JsonNode node : config.path("nodes")) {
+                    for (JsonNode match : node.path("cpeMatch")) {
+                        String criteria = match.path("criteria").asText("");
+                        if (criteria.contains(":maven:")) {
+                            String[] parts = criteria.split(":");
+                            if (parts.length >= 6) {
+                                groupId = parts[4];
+                                artifactId = parts[5];
+                            }
+                        }
+                        if (affectedTo.isEmpty()) {
+                            String lessThanOrEqual = match.path("versionEndIncluding").asText("");
+                            String lessThan = match.path("versionEndExcluding").asText("");
+                            if (!lessThanOrEqual.isEmpty()) {
+                                affectedTo = "<= " + lessThanOrEqual;
+                            } else if (!lessThan.isEmpty()) {
+                                affectedTo = "< " + lessThan;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (affectedTo.isEmpty()) {
+            Matcher affectedMatcher = Pattern.compile("(\\d+(?:\\.\\d+)+) and below", Pattern.CASE_INSENSITIVE)
+                    .matcher(description);
+            if (affectedMatcher.find()) {
+                affectedTo = "<= " + affectedMatcher.group(1);
+            }
         }
 
         List<CveIntelligence.Article> articles = new ArrayList<>();
@@ -89,6 +129,6 @@ public class NvdSource implements IntelSource {
         }
 
         return new IntelFragment(name(), true, description, cweId, cvssScore, cvssSeverity,
-                "", "", "", "", "", "", fixCommits, articles, raw);
+                groupId, artifactId, "", affectedTo, "", "", fixCommits, articles, raw);
     }
 }

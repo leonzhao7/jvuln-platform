@@ -1,7 +1,7 @@
 # jvuln-platform — System Design Document
 
 **Version**: 1.0  
-**Last Updated**: 2026-06-05  
+**Last Updated**: 2026-06-08  
 **Purpose**: Comprehensively document the system architecture, component interactions, data flow, and implementation details for code review and maintenance.
 
 ---
@@ -125,12 +125,17 @@ Simple value object: `stageNum`, `stageName`, `success: boolean`, `data: Object`
 |----------|-------|
 | Class | `com.jvuln.collector.IntelligenceStage` |
 | File | `backend/jvuln-collector/.../IntelligenceStage.java` |
-| Sources | Multiple `IntelSource` implementations (NVD API, GitHub Security Advisories, etc.) |
+| Sources | Multiple `IntelSource` implementations (NVD API, GHSA, OSV, Gitee issue search, and reference-derived hints) |
 | Execution | Parallel — one thread per source, 60s timeout |
 | Output | `CveIntelligence` (cveId, description, cvss, cweId, artifact groupId+artifactId, version range, fix commits, articles) |
 | Failure | Individual source failures are logged but don't fail the stage (first-non-blank merge strategy) |
 
-**Data extraction**: The `merge()` method (lines 83–127) takes the first non-blank value from any successful source for each field. Fix commits are merged across all sources (set union).
+**Data extraction**: The `merge()` method takes the first non-blank value from any successful source for each field. Fix commits are merged across all sources (set union).
+
+Additional Stage 1 enrichment behavior:
+- `NvdSource` extracts Maven `groupId`, `artifactId`, and upper-bound affected versions from `configurations[].nodes[].cpeMatch` when NVD publishes Maven CPE data.
+- `GiteeSource` searches public Gitee issues by CVE ID so domestic-hosted projects can still produce `sourceRepo` and reference leads even without GitHub metadata.
+- `IntelligenceStage` backfills `sourceRepo`, `artifactId`, and `affectedTo` from reference URLs and advisory description text when upstream sources are incomplete.
 
 **Key design note**: When stages are loaded from cache (deserialized as `Map` rather than typed `CveIntelligence`), downstream stages use Jackson `JsonNode` path traversal — not typed getters — to handle both cases.
 
@@ -151,10 +156,11 @@ Simple value object: `stageNum`, `stageName`, `success: boolean`, `data: Object`
 - Downloads vulnerable + fixed version source JARs from Maven Central
 - Computes unified diff between the two
 - If `fixedVersion` is unknown, infers it from the `affectedTo` version range
+- If only `artifactId` is known, infers `groupId` through Maven Search before resolving metadata and source JAR URLs
 
 **Phase 3 — AI-guided search** (`AiPatchSearchStrategy`):
-- Uses LLM to generate commit search keywords, version guesses, and release tags
-- Feeds these back into existing strategies to search again
+- Uses LLM to generate structured enrichment: `sourceRepo`, `groupId`, `artifactId`, `affectedTo`, commit keywords, `fixedVersion`, and release tags
+- Feeds the enrichment back into existing deterministic strategies and retries them before failing the stage
 
 **Output**: `PatchInfo` (commitHash, commitMessage, strategyName, rawDiff, list of `FileDiff` objects). Raw diff is also written to `patches/fix.diff`.
 

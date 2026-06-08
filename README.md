@@ -11,8 +11,8 @@ jvuln-platform/
 ├── backend/          # Spring Boot 2.7 (Java 8), multi-module Maven
 │   ├── jvuln-app         # Application entry point + REST API
 │   ├── jvuln-pipeline    # 5-stage Pipeline engine + SSE progress
-│   ├── jvuln-collector   # Stage 1: intelligence collection (NVD/GHSA/OSV)
-│   ├── jvuln-patcher     # Stage 2: patch locating + diff parsing
+│   ├── jvuln-collector   # Stage 1: intelligence collection (NVD/GHSA/OSV/Gitee)
+│   ├── jvuln-patcher     # Stage 2: patch locating + Maven diff fallback
 │   ├── jvuln-analyzer    # Stage 3: JavaParser static analysis + diff filtering
 │   ├── jvuln-llm         # AI abstraction layer (Anthropic + OpenAI-compatible)
 │   ├── jvuln-generator   # Stage 5: artifact generation
@@ -105,13 +105,15 @@ The language switcher is in the header. The selected language is persisted in `l
 
 | Stage | Name | Description |
 |-------|------|-------------|
-| 1 | Intelligence Collection | Collect CVE data from NVD, GHSA, OSV, Maven, and references |
-| 2 | Patch Locating | Locate fixing commits and extract unified diff |
+| 1 | Intelligence Collection | Collect CVE data from NVD, GHSA, OSV, Gitee, Maven, and references, then backfill source repo, artifact, and affected-version clues |
+| 2 | Patch Locating | Prefer fixing commits; fall back to Maven source diff and AI-driven enrichment when commit references are missing |
 | 3 | Code Analysis | Filter relevant diff files, parse Java AST, and match CWE patterns |
 | 4 | Vulnerability Reasoning | Use the active LLM to reason about trigger chain, root cause, fix quality, and generate machine-executable detection points |
 | 5 | Vulnerability Education Lab | Generate a local educational demo project (Spring Boot with vulnerable library configuration), PoC scripts, and an educational report. Uses an agent plus backend-controlled validation, with explicit plan, compile-fix, startup-fix, PoC-fix, and report phases. |
 
 The analysis Pipeline supports resume and rerun. Completed stages can be loaded from workspace files, and `fromStage` can force rerun from a selected stage.
+
+Stage 1 now also searches Gitee issues and can recover `sourceRepo`, `artifactId`, and `affectedTo` from NVD CPE data, reference URLs, and advisory text. Stage 2 can continue from partial Maven coordinates, infer `groupId` from Maven Search when only `artifactId` is known, and re-run deterministic strategies after AI returns enriched repo/version hints.
 
 **Product Vulnerability Detection** is still available, but it is a separate scan workflow rather than one of the 5 analysis stages above.
 

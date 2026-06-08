@@ -21,6 +21,8 @@ backend/workspace/
 # Logs
 *.log
 logs/
+.backend.pid
+.frontend.pid
 
 # Environment
 .env

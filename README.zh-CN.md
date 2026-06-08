@@ -11,8 +11,8 @@ jvuln-platform/
 ├── backend/          # Spring Boot 2.7 (Java 8), 多模块 Maven
 │   ├── jvuln-app         # 启动模块 + REST API
 │   ├── jvuln-pipeline    # 5 阶段 Pipeline 引擎 + SSE 进度推送
-│   ├── jvuln-collector   # Stage 1: 情报采集 (NVD/GHSA/OSV)
-│   ├── jvuln-patcher     # Stage 2: 补丁定位 + Diff 解析
+│   ├── jvuln-collector   # Stage 1: 情报采集 (NVD/GHSA/OSV/Gitee)
+│   ├── jvuln-patcher     # Stage 2: 补丁定位 + Maven diff 兜底
 │   ├── jvuln-analyzer    # Stage 3: JavaParser 静态分析 + Diff 过滤
 │   ├── jvuln-llm         # AI 抽象层 (Anthropic + OpenAI-compatible)
 │   ├── jvuln-generator   # Stage 5: 产物生成
@@ -105,13 +105,15 @@ UI 支持中英文切换：
 
 | 阶段 | 名称 | 说明 |
 |------|------|------|
-| 1 | Intelligence Collection / 情报采集 | 从 NVD、GHSA、OSV、Maven 和参考链接采集 CVE 数据 |
-| 2 | Patch Locating / 补丁定位 | 定位修复 commit 并提取 unified diff |
+| 1 | Intelligence Collection / 情报采集 | 从 NVD、GHSA、OSV、Gitee、Maven 和参考链接采集 CVE 数据，并补全源码仓库、组件和受影响版本线索 |
+| 2 | Patch Locating / 补丁定位 | 优先定位修复 commit；缺失时回退到 Maven source diff，并允许 AI 补全仓库、坐标和修复版本后重试 |
 | 3 | Code Analysis / 代码分析 | 过滤相关 diff 文件，解析 Java AST，匹配 CWE 模式 |
 | 4 | Vulnerability Reasoning / 漏洞推理 | 使用 LLM 推理触发链、根因、修复质量，并生成可机器执行的漏洞检测要点 |
 | 5 | Vulnerability Education Lab / 漏洞教学演示 | 生成本地教学用复现项目（Spring Boot + 漏洞组件配置）、PoC 脚本和教学报告。采用 agent + 后端验证协作模式，显式区分计划、最小生成、编译修复、启动修复、PoC 修复和报告收尾阶段。 |
 
 分析 Pipeline 支持断点续跑和指定阶段重跑。已完成阶段可从 workspace 文件缓存读取，`fromStage` 可强制从指定阶段重新执行。
+
+Stage 1 现在还会搜索 Gitee issue，并能从 NVD CPE、参考链接 URL 和公告描述中补全 `sourceRepo`、`artifactId`、`affectedTo`。Stage 2 支持从不完整的 Maven 坐标继续推进，在仅有 `artifactId` 时通过 Maven Search 反查 `groupId`，并在 AI 返回补充线索后重试确定性策略。
 
 **产品漏洞检测** 仍然保留，但作为独立扫描流程存在，不计入上述 5 个分析阶段。
 

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.store.model.CveIntelligence;
 import com.jvuln.patcher.strategy.AiPatchSearchStrategy;
+import com.jvuln.patcher.strategy.AiPatchSearchStrategy.AiEnrichment;
+import com.jvuln.patcher.strategy.AiPatchSearchStrategy.AiPatchOutcome;
 import com.jvuln.patcher.strategy.LocateStrategy;
 import com.jvuln.patcher.strategy.MavenSourceDiffStrategy;
 import com.jvuln.pipeline.model.PipelineContext;
@@ -62,6 +64,11 @@ public class PatchLocateStage implements Stage {
         String description   = extractString(stage1Data, "description");
         List<String> knownCommits = extractCommits(stage1Data);
         List<String> articleUrls  = extractArticleUrls(stage1Data);
+        String effectiveSourceRepo = sourceRepo;
+        String effectiveGroupId = groupId;
+        String effectiveArtifactId = artifactId;
+        String effectiveAffectedTo = affectedTo;
+        String effectiveFixed = (fixedVersion != null && !fixedVersion.isEmpty()) ? fixedVersion : null;
 
         log.info("Stage2: sourceRepo={} artifact={}:{} fixed={} commits={}",
                 sourceRepo, groupId, artifactId, fixedVersion, knownCommits.size());
@@ -82,15 +89,14 @@ public class PatchLocateStage implements Stage {
 
         // Phase 2: Maven source JAR diff — works without GitHub access.
         // If fixedVersion is unknown, infer it from the affected version range.
-        String effectiveFixed = (fixedVersion != null && !fixedVersion.isEmpty()) ? fixedVersion : null;
-        if (effectiveFixed == null && groupId != null && !groupId.isEmpty()
+        if (effectiveFixed == null && artifactId != null && !artifactId.isEmpty()
                 && affectedTo != null && !affectedTo.isEmpty()) {
             effectiveFixed = mavenStrategy.inferFixedVersion(groupId, artifactId, affectedTo);
             if (effectiveFixed != null) {
                 log.info("Stage2: inferred fixedVersion={} from affectedTo='{}'", effectiveFixed, affectedTo);
             }
         }
-        if (groupId != null && !groupId.isEmpty() && effectiveFixed != null) {
+        if (artifactId != null && !artifactId.isEmpty() && effectiveFixed != null) {
             ctx.reportProgress("Trying strategy: maven-source-diff");
             try {
                 Optional<LocateStrategy.PatchResult> result =
@@ -107,11 +113,30 @@ public class PatchLocateStage implements Stage {
         // (commit keywords, version, release tag) which are fed back into existing strategies.
         ctx.reportProgress("Trying strategy: ai-patch-search");
         try {
-            Optional<LocateStrategy.PatchResult> result = aiStrategy.locateWithAiHints(
+            Optional<AiPatchOutcome> result = aiStrategy.locateWithAiHints(
                     cveId, sourceRepo, groupId, artifactId,
                     description, affectedTo, effectiveFixed, articleUrls);
             if (result.isPresent()) {
-                return buildSuccess(ctx, cveId, result.get(), "ai-patch-search");
+                AiPatchOutcome outcome = result.get();
+                AiEnrichment enrichment = outcome.getEnrichment();
+                if (enrichment != null) {
+                    effectiveSourceRepo = firstNonBlank(enrichment.getSourceRepo(), effectiveSourceRepo);
+                    effectiveGroupId = firstNonBlank(enrichment.getGroupId(), effectiveGroupId);
+                    effectiveArtifactId = firstNonBlank(enrichment.getArtifactId(), effectiveArtifactId);
+                    effectiveAffectedTo = firstNonBlank(enrichment.getAffectedTo(), effectiveAffectedTo);
+                    effectiveFixed = firstNonBlank(enrichment.getFixedVersion(), effectiveFixed);
+                    log.info("Stage2: AI enrichment applied sourceRepo={} artifact={}:{} affectedTo={} fixedVersion={}",
+                            effectiveSourceRepo, effectiveGroupId, effectiveArtifactId, effectiveAffectedTo, effectiveFixed);
+                }
+                if (outcome.getPatchResult() != null) {
+                    return buildSuccess(ctx, cveId, outcome.getPatchResult(), "ai-patch-search");
+                }
+                LocateStrategy.PatchResult retryPatch = retryWithEnrichment(
+                        cveId, effectiveSourceRepo, effectiveGroupId, effectiveArtifactId,
+                        effectiveAffectedTo, effectiveFixed, knownCommits, ctx);
+                if (retryPatch != null) {
+                    return buildSuccess(ctx, cveId, retryPatch, "ai-patch-search");
+                }
             }
         } catch (Exception e) {
             log.warn("AiPatchSearch failed: {}", e.getMessage());
@@ -119,6 +144,55 @@ public class PatchLocateStage implements Stage {
 
         return StageResult.failure(2, name(),
                 "No fix commit found with any strategy (tried: reference-commit, ghsa-commit, cve-commit-search, maven-source-diff, ai-patch-search)");
+    }
+
+    private LocateStrategy.PatchResult retryWithEnrichment(String cveId, String sourceRepo,
+                                                           String groupId, String artifactId,
+                                                           String affectedTo, String fixedVersion,
+                                                           List<String> knownCommits,
+                                                           PipelineContext ctx) throws Exception {
+        if (sourceRepo != null && !sourceRepo.isEmpty()) {
+            for (LocateStrategy strategy : strategies) {
+                if (strategy instanceof MavenSourceDiffStrategy) continue;
+                ctx.reportProgress("Retrying with AI enrichment: " + strategy.name());
+                try {
+                    Optional<LocateStrategy.PatchResult> result =
+                            strategy.locate(cveId, sourceRepo, knownCommits);
+                    if (result.isPresent()) {
+                        return result.get();
+                    }
+                } catch (Exception e) {
+                    log.warn("AI-enriched retry {} failed: {}", strategy.name(), e.getMessage());
+                }
+            }
+        }
+
+        String effectiveFixed = fixedVersion;
+        if ((effectiveFixed == null || effectiveFixed.isEmpty())
+                && artifactId != null && !artifactId.isEmpty()
+                && affectedTo != null && !affectedTo.isEmpty()) {
+            effectiveFixed = mavenStrategy.inferFixedVersion(groupId, artifactId, affectedTo);
+            if (effectiveFixed != null) {
+                log.info("Stage2: AI-enriched inferred fixedVersion={} from affectedTo='{}'",
+                        effectiveFixed, affectedTo);
+            }
+        }
+
+        if (artifactId != null && !artifactId.isEmpty()
+                && effectiveFixed != null && !effectiveFixed.isEmpty()) {
+            ctx.reportProgress("Retrying with AI enrichment: maven-source-diff");
+            try {
+                Optional<LocateStrategy.PatchResult> result =
+                        mavenStrategy.locateByArtifact(cveId, groupId, artifactId, effectiveFixed);
+                if (result.isPresent()) {
+                    return result.get();
+                }
+            } catch (Exception e) {
+                log.warn("AI-enriched retry maven-source-diff failed: {}", e.getMessage());
+            }
+        }
+
+        return null;
     }
 
     private StageResult buildSuccess(PipelineContext ctx, String cveId,
@@ -199,5 +273,9 @@ public class PatchLocateStage implements Stage {
             }
             return result;
         } catch (Exception e) { return Collections.emptyList(); }
+    }
+
+    private String firstNonBlank(String preferred, String fallback) {
+        return preferred != null && !preferred.trim().isEmpty() ? preferred.trim() : fallback;
     }
 }
