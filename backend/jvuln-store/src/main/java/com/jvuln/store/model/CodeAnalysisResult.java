@@ -5,19 +5,29 @@ import java.util.List;
 public class CodeAnalysisResult {
 
     private final String fileName;
+    private final String changeType;
+    private final String relevanceReason;
+    private final String relevanceLayer;
     private final List<MethodAnalysis> methods;
     private final List<CweMatch> cweMatches;
     private final List<String> callChain;
 
-    public CodeAnalysisResult(String fileName, List<MethodAnalysis> methods,
-                               List<CweMatch> cweMatches, List<String> callChain) {
+    public CodeAnalysisResult(String fileName, String changeType, String relevanceReason, String relevanceLayer,
+                              List<MethodAnalysis> methods, List<CweMatch> cweMatches,
+                              List<String> callChain) {
         this.fileName = fileName;
+        this.changeType = changeType;
+        this.relevanceReason = relevanceReason;
+        this.relevanceLayer = relevanceLayer;
         this.methods = methods;
         this.cweMatches = cweMatches;
         this.callChain = callChain;
     }
 
     public String getFileName() { return fileName; }
+    public String getChangeType() { return changeType; }
+    public String getRelevanceReason() { return relevanceReason; }
+    public String getRelevanceLayer() { return relevanceLayer; }
     public List<MethodAnalysis> getMethods() { return methods; }
     public List<CweMatch> getCweMatches() { return cweMatches; }
     public List<String> getCallChain() { return callChain; }

@@ -198,15 +198,17 @@ public class PatchLocateStage implements Stage {
     private StageResult buildSuccess(PipelineContext ctx, String cveId,
                                       LocateStrategy.PatchResult pr, String strategyName) throws Exception {
         List<PatchInfo.FileDiff> diffs = DiffParser.parse(pr.getRawDiff());
-        PatchInfo.PatchEvidence evidence = PatchEvidenceExtractor.extract(diffs, pr.getRawDiff());
+        List<PatchInfo.PatchFile> files = new ArrayList<>();
+        for (PatchInfo.FileDiff diff : diffs) {
+            files.add(new PatchInfo.PatchFile(diff.getFilePath(), diff.getChangeType()));
+        }
         PatchInfo patchInfo = new PatchInfo(pr.getCommitHash(), pr.getCommitMessage(), "",
-                diffs, pr.getRawDiff(), strategyName, evidence);
+                files, pr.getRawDiff(), strategyName);
         ctx.getWorkspaceManager().writeStageData(cveId, 2, patchInfo);
         ctx.getWorkspaceManager().writeDiff(cveId, pr.getRawDiff());
-        ctx.reportProgress("Found " + diffs.size() + " Java files changed via " + strategyName);
-        log.info("Patch found via {}: {} ({} Java files, evidence={})",
-                strategyName, pr.getCommitHash(), diffs.size(),
-                evidence != null ? evidence.getPrimaryCategory() : "unknown");
+        ctx.reportProgress("Found " + files.size() + " Java patch files via " + strategyName);
+        log.info("Patch found via {}: {} ({} Java files)",
+                strategyName, pr.getCommitHash(), files.size());
         return StageResult.success(2, name(), patchInfo);
     }
 

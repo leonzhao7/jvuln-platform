@@ -8,6 +8,8 @@ import java.util.regex.Pattern;
 public class DiffParser {
 
     private static final Pattern FILE_HEADER = Pattern.compile("^diff --git a/(.*) b/(.*)$", Pattern.MULTILINE);
+    private static final Pattern OLD_FILE_HEADER = Pattern.compile("^---\\s+(.*)$", Pattern.MULTILINE);
+    private static final Pattern NEW_FILE_HEADER = Pattern.compile("^\\+\\+\\+\\s+(.*)$", Pattern.MULTILINE);
     private static final Pattern JAVA_METHOD = Pattern.compile(
             "(public|protected|private|static|\\s)+(\\w+\\s+)+\\w+\\s*\\([^)]*\\)");
 
@@ -24,6 +26,7 @@ public class DiffParser {
 
             String filePath = fileMatcher.group(2);
             if (!filePath.endsWith(".java")) continue;
+            String changeType = detectChangeType(section);
 
             List<String> added = new ArrayList<>();
             List<String> removed = new ArrayList<>();
@@ -38,9 +41,23 @@ public class DiffParser {
 
             List<PatchInfo.MethodChange> methods = extractMethodChanges(section);
 
-            diffs.add(new PatchInfo.FileDiff(filePath, section, added, removed, methods));
+            diffs.add(new PatchInfo.FileDiff(filePath, changeType, section, added, removed, methods));
         }
         return diffs;
+    }
+
+    private static String detectChangeType(String section) {
+        Matcher oldMatcher = OLD_FILE_HEADER.matcher(section);
+        Matcher newMatcher = NEW_FILE_HEADER.matcher(section);
+        String oldPath = oldMatcher.find() ? oldMatcher.group(1).trim() : "";
+        String newPath = newMatcher.find() ? newMatcher.group(1).trim() : "";
+        if ("/dev/null".equals(oldPath)) {
+            return "added";
+        }
+        if ("/dev/null".equals(newPath)) {
+            return "deleted";
+        }
+        return "modified";
     }
 
     private static List<PatchInfo.MethodChange> extractMethodChanges(String section) {

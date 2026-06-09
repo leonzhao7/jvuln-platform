@@ -89,7 +89,7 @@ public class DiffRelevanceFilter {
         }
 
         log.info("DiffFilter: {} files — applying pre-filter (cve={})", changes.size(), cveId);
-        List<JavaFileChange> preFiltered = preFilter(changes, cveDescription);
+        List<JavaFileChange> preFiltered = preFilterOnly(changes, cveDescription);
         log.info("DiffFilter: pre-filter kept {}/{} files", preFiltered.size(), changes.size());
 
         if (preFiltered.size() <= FILE_THRESHOLD) {
@@ -116,7 +116,7 @@ public class DiffRelevanceFilter {
      *   - Its combined diff content contains no security keywords
      * This is intentionally conservative: ambiguous files are kept.
      */
-    private List<JavaFileChange> preFilter(List<JavaFileChange> changes, String cveDescription) {
+    public List<JavaFileChange> preFilterOnly(List<JavaFileChange> changes, String cveDescription) {
         // Build CVE-specific tokens from the description (component names, class names)
         Set<String> cveTokens = extractCveTokens(cveDescription);
 
@@ -134,8 +134,10 @@ public class DiffRelevanceFilter {
     private boolean isObviouslyUnrelated(JavaFileChange c, Set<String> cveTokens) {
         // Keep if it has substantial removed code (rewrites / deletions)
         if (c.removedLineCount() >= 5) return false;
+        // Keep if it adds a substantial new implementation file; Stage 3 will decide later.
+        if (c.addedLineCount() >= 20) return false;
 
-        String combined = (c.removedCode + " " + c.addedCode).toLowerCase();
+        String combined = (c.filePath + " " + c.removedCode + " " + c.addedCode).toLowerCase();
 
         // Keep if any security keyword appears
         for (String kw : SECURITY_KEYWORDS) {

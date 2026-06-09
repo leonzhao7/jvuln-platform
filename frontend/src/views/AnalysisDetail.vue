@@ -21,11 +21,127 @@ const sseActive = ref(false)
 const sseMessages = ref<string[]>([])
 let evtSource: EventSource | null = null
 
+function lowerText(value: unknown) {
+  return typeof value === 'string' ? value.toLowerCase() : ''
+}
+
+function inferStage3Layer(file: any) {
+  const fileName = lowerText(file?.fileName)
+  const reason = lowerText(file?.relevanceReason)
+  const methods = Array.isArray(file?.methods) ? file.methods.map((m: any) => lowerText(m?.methodName)).join(' ') : ''
+  const cwes = Array.isArray(file?.cweMatches) ? file.cweMatches.map((m: any) => lowerText(m?.cweId)).join(' ') : ''
+  const combined = `${fileName}\n${reason}\n${methods}\n${cwes}`
+
+  if (fileName.includes('trustedprefixestaginspector')
+      || fileName.includes('trustedtaginspector')
+      || fileName.includes('customclassloaderconstructor')
+      || fileName.includes('/internal/logger')) {
+    return 'optional_support'
+  }
+  if (fileName.includes('loaderoptions')
+      || fileName.includes('config')
+      || fileName.includes('settings')
+      || fileName.includes('policy')
+      || fileName.includes('options')) {
+    return 'policy_config'
+  }
+  if (combined.includes('inspector')
+      || combined.includes('validator')
+      || combined.includes('guard')
+      || combined.includes('deny')
+      || combined.includes('allowlist')
+      || combined.includes('whitelist')
+      || combined.includes('isglobaltagallowed')
+      || combined.includes('restrict')
+      || combined.includes('enforces')
+      || combined.includes('blocks unsafe')) {
+    return 'enforcement_guard'
+  }
+  if (cwes
+      || combined.includes('directly implicated')
+      || combined.includes('unsafe java object constructor')
+      || combined.includes('object construction path')
+      || combined.includes('arbitrary type instantiation')
+      || combined.includes('sink')) {
+    return 'root_cause'
+  }
+  if (combined.includes('wires')
+      || combined.includes('wire')
+      || combined.includes('propagat')
+      || combined.includes('carries')
+      || combined.includes('api boundary')
+      || combined.includes('tag semantics')
+      || combined.includes('/nodes/')
+      || combined.includes('/yaml.java')
+      || combined.includes('/tag.java')
+      || combined.includes('/node.java')
+      || combined.includes('/composer/')) {
+    return 'propagation_or_api_wiring'
+  }
+  return 'uncategorized'
+}
+
 const task = computed(() => detail.value?.task)
 const stages = computed(() => detail.value?.stages ?? [])
-const stage3Files = computed<any[]>(() => stageData.value[3]?.analyzedFiles ?? [])
+const stage3Files = computed<any[]>(() =>
+  (stageData.value[3]?.analyzedFiles ?? []).map((file: any) => ({
+    ...file,
+    relevanceLayer: file?.relevanceLayer || inferStage3Layer(file),
+  }))
+)
+const stage3LayerOrder = [
+  'root_cause',
+  'enforcement_guard',
+  'policy_config',
+  'propagation_or_api_wiring',
+  'optional_support',
+  'uncategorized',
+]
+const stage3LayerGroups = computed(() =>
+  stage3LayerOrder
+    .map(layer => ({
+      layer,
+      files: stage3Files.value.filter(file => (file.relevanceLayer || 'uncategorized') === layer),
+    }))
+    .filter(group => group.files.length > 0)
+)
+const stage3LayerSummary = computed(() => {
+  const raw = stageData.value[3]?.layerSummary
+  if (Array.isArray(raw) && raw.length) {
+    return raw
+      .map((item: any) => ({
+        layer: item?.layer || 'uncategorized',
+        count: Number(item?.count || 0),
+      }))
+      .filter((item: any) => item.count > 0)
+  }
+  return stage3LayerGroups.value.map(group => ({
+    layer: group.layer,
+    count: group.files.length,
+  }))
+})
+const stage3TraditionalFileCount = computed(() =>
+  Number(stageData.value[3]?.traditionalAnalyzedFileCount ?? stage3Files.value.length)
+)
+const stage3RelevantFileCount = computed(() => stage3Files.value.length)
+const stage2Files = computed<any[]>(() => {
+  const stage2 = stageData.value[2] ?? {}
+  const files = Array.isArray(stage2.files) ? stage2.files : (Array.isArray(stage2.diffs) ? stage2.diffs : [])
+  return files.map((file: any) => ({
+    filePath: file.filePath,
+    changeType: file.changeType || 'modified',
+  }))
+})
 const hasStage3CallChains = computed(() =>
   stage3Files.value.some(file => Array.isArray(file.callChain) && file.callChain.length > 0)
+)
+const stage3CallChainGroups = computed(() =>
+  stage3LayerGroups.value
+    .map(group => ({
+      layer: group.layer,
+      files: group.files.filter(file => Array.isArray(file.callChain) && file.callChain.length > 0),
+    }))
+    .filter(group => group.files.length > 0)
 )
 
 const stageIcons = ['01', '02', '03', '04', '05']
@@ -86,33 +202,28 @@ const load = async () => {
 }
 
 const loadStageData = async () => {
+  stageData.value = {}
   diffContent.value = ''
   diffLoading.value = false
-  const stgs = detail.value?.stages ?? []
-  for (const s of stgs) {
-    if (s.status === 'COMPLETED' || s.status === 'FAILED') {
-      try {
-        if (s.stageNum === 1) stageData.value[1] = await api.getIntelligence(cveId)
-        if (s.stageNum === 2) stageData.value[2] = await api.getPatch(cveId)
-        if (s.stageNum === 3) stageData.value[3] = await api.getCodeAnalysis(cveId)
-        if (s.stageNum === 4) stageData.value[4] = await api.getReasoning(cveId)
-        if (s.stageNum === 5) {
-          stageData.value[5] = await api.getArtifacts(cveId)
-          try { const r = await api.getReport(cveId); reportMarkdown.value = r.markdown } catch {}
-        }
-      } catch { /* stage data may not exist yet */ }
-    }
-  }
-  if (detail.value?.stages.find(s => s.stageNum === 2 && s.status === 'COMPLETED')) {
-    diffLoading.value = true
-    try {
-      const d = await api.getDiff(cveId)
-      diffContent.value = d.diff
-    } catch {
-      diffContent.value = ''
-    } finally {
-      diffLoading.value = false
-    }
+  reportMarkdown.value = ''
+
+  try { stageData.value[1] = await api.getIntelligence(cveId) } catch {}
+  try { stageData.value[2] = await api.getPatch(cveId) } catch {}
+  try { stageData.value[3] = await api.getCodeAnalysis(cveId) } catch {}
+  try { stageData.value[4] = await api.getReasoning(cveId) } catch {}
+  try {
+    stageData.value[5] = await api.getArtifacts(cveId)
+    try { const r = await api.getReport(cveId); reportMarkdown.value = r.markdown } catch {}
+  } catch {}
+
+  diffLoading.value = true
+  try {
+    const d = await api.getDiff(cveId)
+    diffContent.value = d.diff
+  } catch {
+    diffContent.value = ''
+  } finally {
+    diffLoading.value = false
   }
 }
 
@@ -207,6 +318,17 @@ const severityClass = (s: string) => {
   if (v.includes('MEDIUM') || v.includes('中')) return 'jv-tag jv-tag-medium'
   return 'jv-tag jv-tag-low'
 }
+
+const patchChangeTypeLabel = (changeType?: string) => {
+  const key = changeType || 'modified'
+  return t(`analysis.patch.changeTypes.${key}`)
+}
+
+const stage3LayerTitle = (layer?: string) =>
+  t(`analysis.stage3Layers.${layer || 'uncategorized'}.title`)
+
+const stage3LayerDescription = (layer?: string) =>
+  t(`analysis.stage3Layers.${layer || 'uncategorized'}.description`)
 
 const hasEvidenceList = (value: unknown) =>
   Array.isArray(value) && value.every(item => typeof item === 'string' || typeof item === 'number')
@@ -362,24 +484,16 @@ const renderMarkdown = (md: string) => {
               </el-descriptions-item>
             </el-descriptions>
 
-            <div v-if="stageData[2].diffs?.length" class="jv-patch-files">
+            <div v-if="stage2Files.length" class="jv-patch-files">
               <div class="jv-section-label">
-                {{ t('analysis.patch.changedFiles') }} ({{ stageData[2].diffs.length }})
+                {{ t('analysis.patch.changedFiles') }} ({{ stage2Files.length }})
               </div>
-              <div v-for="file in stageData[2].diffs" :key="file.filePath" class="jv-patch-file">
+              <div v-for="file in stage2Files" :key="file.filePath" class="jv-patch-file">
                 <div class="jv-patch-file-header">
                   <span>{{ file.filePath }}</span>
-                  <span class="jv-patch-file-stats">
-                    +{{ file.addedLines?.length ?? 0 }} / -{{ file.removedLines?.length ?? 0 }}
+                  <span :class="['jv-patch-change-type', `jv-patch-change-${file.changeType}`]">
+                    {{ patchChangeTypeLabel(file.changeType) }}
                   </span>
-                </div>
-
-                <div v-if="file.methodChanges?.length" class="jv-patch-methods">
-                  <div class="jv-field-label">{{ t('analysis.patch.methodChanges') }}</div>
-                  <div v-for="m in file.methodChanges" :key="`${file.filePath}-${m.methodName}-${m.changeType}`" class="jv-patch-method">
-                    <span class="jv-patch-method-name">{{ m.methodName }}</span>
-                    <span class="jv-patch-method-type">{{ m.changeType }}</span>
-                  </div>
                 </div>
               </div>
             </div>
@@ -400,41 +514,65 @@ const renderMarkdown = (md: string) => {
               />
             </div>
 
+            <div v-if="stage3LayerSummary.length" class="jv-stage3-section">
+              <div class="jv-section-label" style="margin-bottom:12px">{{ t('analysis.stage3LayerSummary') }}</div>
+              <div class="jv-stage3-summary-meta">
+                {{ t('analysis.stage3RelevantFiles', { kept: stage3RelevantFileCount, total: stage3TraditionalFileCount }) }}
+              </div>
+              <div class="jv-stage3-summary-grid">
+                <div v-for="item in stage3LayerSummary" :key="`summary-${item.layer}`" class="jv-stage3-summary-card">
+                  <div class="jv-stage3-summary-title">{{ stage3LayerTitle(item.layer) }}</div>
+                  <div class="jv-stage3-summary-count">{{ item.count }}</div>
+                  <div class="jv-stage3-summary-desc">{{ stage3LayerDescription(item.layer) }}</div>
+                </div>
+              </div>
+            </div>
+
             <div v-if="stage3Files.length" class="jv-stage3-section">
               <div class="jv-section-label" style="margin-bottom:12px">{{ t('analysis.cweAnalysis') }}</div>
-              <div v-for="(file, fi) in stage3Files" :key="fi" class="jv-file-block">
-                <div class="jv-file-header">
-                  <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">
-                    {{ file.fileName }}
-                  </span>
-                </div>
-
-                <div v-if="file.cweMatches?.length" style="margin-bottom:16px">
-                  <div class="jv-section-label" style="margin-bottom:8px">
-                    {{ t('analysis.cweMatches') }} ({{ file.cweMatches.length }})
-                  </div>
-                  <div v-for="c in file.cweMatches" :key="c.cweId + c.matchedCode" class="jv-cwe-block">
-                    <div class="cwe-id">{{ c.cweId }}: {{ c.cweName }}</div>
-                    <div class="cwe-code">{{ c.matchedCode }}</div>
-                    <div class="cwe-expl">{{ c.explanation }}</div>
+              <div v-for="group in stage3LayerGroups" :key="group.layer" class="jv-stage3-layer-group">
+                <div class="jv-stage3-layer-header">
+                  <div>
+                    <div class="jv-stage3-layer-title">{{ stage3LayerTitle(group.layer) }} ({{ group.files.length }})</div>
+                    <div class="jv-stage3-layer-desc">{{ stage3LayerDescription(group.layer) }}</div>
                   </div>
                 </div>
-
-                <div v-for="m in file.methods" :key="m.methodName" style="margin-bottom:16px">
-                  <div style="color:var(--text-primary); font-weight:500; font-size:13px; margin-bottom:8px; font-family:var(--font-mono)">
-                    {{ m.methodName }}()
-                    <span style="color:var(--text-disabled); font-weight:400; font-size:11px; margin-left:8px">
-                      → {{ m.calledMethods?.join(', ') }}
+                <div v-for="(file, fi) in group.files" :key="`${group.layer}-${fi}`" class="jv-file-block">
+                  <div class="jv-file-header">
+                    <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">
+                      {{ file.fileName }}
                     </span>
+                    <span class="jv-stage3-layer-badge">{{ stage3LayerTitle(file.relevanceLayer) }}</span>
                   </div>
-                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
-                    <div>
-                      <div class="jv-code-label-vuln">{{ t('analysis.vulnerable') }}</div>
-                      <pre class="jv-code-vuln">{{ m.vulnerableCode }}</pre>
+                  <div v-if="file.relevanceReason" class="jv-stage3-file-reason">{{ file.relevanceReason }}</div>
+
+                  <div v-if="file.cweMatches?.length" style="margin-bottom:16px">
+                    <div class="jv-section-label" style="margin-bottom:8px">
+                      {{ t('analysis.cweMatches') }} ({{ file.cweMatches.length }})
                     </div>
-                    <div>
-                      <div class="jv-code-label-fixed">{{ t('analysis.fixed') }}</div>
-                      <pre class="jv-code-fixed">{{ m.fixedCode }}</pre>
+                    <div v-for="c in file.cweMatches" :key="c.cweId + c.matchedCode" class="jv-cwe-block">
+                      <div class="cwe-id">{{ c.cweId }}: {{ c.cweName }}</div>
+                      <div class="cwe-code">{{ c.matchedCode }}</div>
+                      <div class="cwe-expl">{{ c.explanation }}</div>
+                    </div>
+                  </div>
+
+                  <div v-for="m in file.methods" :key="m.methodName" style="margin-bottom:16px">
+                    <div style="color:var(--text-primary); font-weight:500; font-size:13px; margin-bottom:8px; font-family:var(--font-mono)">
+                      {{ m.methodName }}()
+                      <span style="color:var(--text-disabled); font-weight:400; font-size:11px; margin-left:8px">
+                        → {{ m.calledMethods?.join(', ') }}
+                      </span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
+                      <div>
+                        <div class="jv-code-label-vuln">{{ t('analysis.vulnerable') }}</div>
+                        <pre class="jv-code-vuln">{{ m.vulnerableCode }}</pre>
+                      </div>
+                      <div>
+                        <div class="jv-code-label-fixed">{{ t('analysis.fixed') }}</div>
+                        <pre class="jv-code-fixed">{{ m.fixedCode }}</pre>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -443,12 +581,19 @@ const renderMarkdown = (md: string) => {
 
             <div v-if="hasStage3CallChains" class="jv-stage3-section">
               <div class="jv-section-label" style="margin-bottom:12px">{{ t('analysis.callChain') }}</div>
-              <template v-for="(file, fi) in stage3Files" :key="`chain-${fi}`">
-                <div v-if="file.callChain?.length" class="jv-file-block">
+              <template v-for="group in stage3CallChainGroups" :key="`chain-${group.layer}`">
+                <div class="jv-stage3-layer-header" style="margin-bottom:12px">
+                  <div>
+                    <div class="jv-stage3-layer-title">{{ stage3LayerTitle(group.layer) }} ({{ group.files.length }})</div>
+                    <div class="jv-stage3-layer-desc">{{ stage3LayerDescription(group.layer) }}</div>
+                  </div>
+                </div>
+                <div v-for="(file, fi) in group.files" :key="`chain-${group.layer}-${fi}`" class="jv-file-block">
                   <div class="jv-file-header">
                     <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">
                       {{ file.fileName }}
                     </span>
+                    <span class="jv-stage3-layer-badge">{{ stage3LayerTitle(file.relevanceLayer) }}</span>
                   </div>
                   <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
                     <span v-for="(c, ci) in file.callChain" :key="c" class="jv-chain-item">
@@ -962,29 +1107,27 @@ const renderMarkdown = (md: string) => {
   font-size: 12px;
   color: var(--accent-light);
 }
-.jv-patch-file-stats {
-  color: var(--text-disabled);
+.jv-patch-change-type {
   white-space: nowrap;
-}
-.jv-patch-methods {
-  padding: 0 12px 12px;
-}
-.jv-patch-method {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 6px 8px 0 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
 }
-.jv-patch-method-name {
-  color: var(--text-primary);
+.jv-patch-change-added {
+  color: #42be65;
+  background: rgba(66,190,101,.12);
+  border-color: rgba(66,190,101,.28);
 }
-.jv-patch-method-type {
-  color: var(--accent-light);
-  background: rgba(15,98,254,.1);
-  border: 1px solid rgba(15,98,254,.25);
-  padding: 1px 6px;
+.jv-patch-change-modified {
+  color: #78a9ff;
+  background: rgba(120,169,255,.12);
+  border-color: rgba(120,169,255,.28);
+}
+.jv-patch-change-deleted {
+  color: #fa4d56;
+  background: rgba(250,77,86,.12);
+  border-color: rgba(250,77,86,.28);
 }
 /* Section label */
 .jv-section-label {
@@ -997,6 +1140,76 @@ const renderMarkdown = (md: string) => {
 
 .jv-stage3-section {
   margin-bottom: 28px;
+}
+.jv-stage3-summary-meta {
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.jv-stage3-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.jv-stage3-summary-card {
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  padding: 12px;
+}
+.jv-stage3-summary-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+.jv-stage3-summary-count {
+  margin: 8px 0 6px;
+  font-family: var(--font-mono);
+  font-size: 24px;
+  color: var(--text-primary);
+}
+.jv-stage3-summary-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.jv-stage3-layer-group {
+  margin-bottom: 24px;
+}
+.jv-stage3-layer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+}
+.jv-stage3-layer-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.jv-stage3-layer-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.jv-stage3-layer-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-light);
+  border: 1px solid rgba(120,169,255,.3);
+  background: rgba(120,169,255,.08);
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.jv-stage3-file-reason {
+  margin: -10px 0 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 /* File block */

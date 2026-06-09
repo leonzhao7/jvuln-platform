@@ -1,5 +1,7 @@
 package com.jvuln.patcher;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.util.List;
 
 public class PatchInfo {
@@ -7,51 +9,58 @@ public class PatchInfo {
     private final String commitHash;
     private final String commitMessage;
     private final String parentHash;
-    private final List<FileDiff> diffs;
+    private final List<PatchFile> files;
     private final String rawDiff;
     private final String strategy;
-    private final PatchEvidence patchEvidence;
 
     public PatchInfo(String commitHash, String commitMessage, String parentHash,
-                     List<FileDiff> diffs, String strategy) {
-        this(commitHash, commitMessage, parentHash, diffs, null, strategy);
+                     List<PatchFile> files, String strategy) {
+        this(commitHash, commitMessage, parentHash, files, null, strategy);
     }
 
     public PatchInfo(String commitHash, String commitMessage, String parentHash,
-                     List<FileDiff> diffs, String rawDiff, String strategy) {
-        this(commitHash, commitMessage, parentHash, diffs, rawDiff, strategy, null);
-    }
-
-    public PatchInfo(String commitHash, String commitMessage, String parentHash,
-                     List<FileDiff> diffs, String rawDiff, String strategy,
-                     PatchEvidence patchEvidence) {
+                     List<PatchFile> files, String rawDiff, String strategy) {
         this.commitHash = commitHash;
         this.commitMessage = commitMessage;
         this.parentHash = parentHash;
-        this.diffs = diffs;
+        this.files = files;
         this.rawDiff = rawDiff;
         this.strategy = strategy;
-        this.patchEvidence = patchEvidence;
     }
 
     public String getCommitHash() { return commitHash; }
     public String getCommitMessage() { return commitMessage; }
     public String getParentHash() { return parentHash; }
-    public List<FileDiff> getDiffs() { return diffs; }
+    public List<PatchFile> getFiles() { return files; }
+    @JsonIgnore
     public String getRawDiff() { return rawDiff; }
     public String getStrategy() { return strategy; }
-    public PatchEvidence getPatchEvidence() { return patchEvidence; }
+
+    public static class PatchFile {
+        private final String filePath;
+        private final String changeType;
+
+        public PatchFile(String filePath, String changeType) {
+            this.filePath = filePath;
+            this.changeType = changeType;
+        }
+
+        public String getFilePath() { return filePath; }
+        public String getChangeType() { return changeType; }
+    }
 
     public static class FileDiff {
         private final String filePath;
+        private final String changeType;
         private final String diffContent;
         private final List<String> addedLines;
         private final List<String> removedLines;
         private final List<MethodChange> methodChanges;
 
-        public FileDiff(String filePath, String diffContent, List<String> addedLines,
+        public FileDiff(String filePath, String changeType, String diffContent, List<String> addedLines,
                         List<String> removedLines, List<MethodChange> methodChanges) {
             this.filePath = filePath;
+            this.changeType = changeType;
             this.diffContent = diffContent;
             this.addedLines = addedLines;
             this.removedLines = removedLines;
@@ -59,6 +68,7 @@ public class PatchInfo {
         }
 
         public String getFilePath() { return filePath; }
+        public String getChangeType() { return changeType; }
         public String getDiffContent() { return diffContent; }
         public List<String> getAddedLines() { return addedLines; }
         public List<String> getRemovedLines() { return removedLines; }

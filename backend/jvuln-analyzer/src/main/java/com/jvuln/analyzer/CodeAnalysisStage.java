@@ -31,12 +31,20 @@ public class CodeAnalysisStage implements Stage {
     private static final Logger log = LoggerFactory.getLogger(CodeAnalysisStage.class);
 
     private final DiffRelevanceFilter relevanceFilter;
+    private final AnalysisRelevanceFilter analysisRelevanceFilter;
+    private final AnalysisLayerClassifier analysisLayerClassifier;
+    private final PatchEvidenceSynthesizer patchEvidenceSynthesizer;
     private final VulnerabilityFactResolver factResolver;
     private final ObjectMapper mapper;
 
-    public CodeAnalysisStage(DiffRelevanceFilter relevanceFilter, VulnerabilityFactResolver factResolver,
-                             ObjectMapper mapper) {
+    public CodeAnalysisStage(DiffRelevanceFilter relevanceFilter, AnalysisRelevanceFilter analysisRelevanceFilter,
+                             AnalysisLayerClassifier analysisLayerClassifier,
+                             PatchEvidenceSynthesizer patchEvidenceSynthesizer,
+                             VulnerabilityFactResolver factResolver, ObjectMapper mapper) {
         this.relevanceFilter = relevanceFilter;
+        this.analysisRelevanceFilter = analysisRelevanceFilter;
+        this.analysisLayerClassifier = analysisLayerClassifier;
+        this.patchEvidenceSynthesizer = patchEvidenceSynthesizer;
         this.factResolver = factResolver;
         this.mapper = mapper;
     }
@@ -71,41 +79,55 @@ public class CodeAnalysisStage implements Stage {
             return StageResult.failure(3, name(), "No Java file changes found in diff");
         }
 
-        // Filter out unrelated files from noisy diffs (e.g. maven-source-diff version bumps)
+        // First, do a conservative traditional pre-filter to avoid obvious release noise.
         String cveDescription = extractStage1String(ctx, "description");
         String groupId = extractStage1Nested(ctx, "artifact", "groupId");
         String artifactId = extractStage1Nested(ctx, "artifact", "artifactId");
         String affectedComponent = (groupId != null && artifactId != null)
                 ? groupId + ":" + artifactId : null;
 
-        List<JavaFileChange> relevant = relevanceFilter.filter(
-                fileChanges, cveId, cveDescription, affectedComponent);
-
-        ctx.reportProgress("Analyzing " + relevant.size() + " Java file(s)"
-                + (relevant.size() < fileChanges.size()
-                   ? " (filtered from " + fileChanges.size() + ")" : ""));
-
-        List<CodeAnalysisResult> results = new ArrayList<>();
-        for (JavaFileChange change : relevant) {
-            ctx.reportProgress("Analyzing " + shortName(change.filePath));
-            CodeAnalysisResult result = analyzeChange(change);
-            results.add(result);
+        List<JavaFileChange> candidates = relevanceFilter.preFilterOnly(fileChanges, cveDescription);
+        if (candidates.isEmpty()) {
+            candidates = fileChanges;
         }
 
-        java.util.Map<String, Object> output = new java.util.LinkedHashMap<>();
-        output.put("analyzedFiles", results);
-        int totalCwe = 0;
-        for (CodeAnalysisResult r : results) totalCwe += r.getCweMatches().size();
-        output.put("totalCweMatches", totalCwe);
+        ctx.reportProgress("Analyzing " + candidates.size() + " Java file(s)"
+                + (candidates.size() < fileChanges.size()
+                   ? " (filtered from " + fileChanges.size() + ")" : ""));
+
+        List<CodeAnalysisResult> traditionalResults = new ArrayList<>();
+        for (JavaFileChange change : candidates) {
+            ctx.reportProgress("Analyzing " + shortName(change.filePath));
+            CodeAnalysisResult result = analyzeChange(change);
+            traditionalResults.add(result);
+        }
+
         Object stage1Data = ctx.getCompletedStages().get(1) != null
                 ? ctx.getCompletedStages().get(1).getData() : null;
         Object stage2Data = ctx.getCompletedStages().get(2) != null
                 ? ctx.getCompletedStages().get(2).getData() : null;
+
+        List<CodeAnalysisResult> results = analysisRelevanceFilter.filter(
+                cveId, cveDescription, affectedComponent, stage2Data, traditionalResults);
+        results = analysisLayerClassifier.classify(results);
+        List<java.util.Map<String, Object>> patchScope = extractPatchScope(stage2Data, fileChanges);
+        java.util.Map<String, Object> patchEvidence = patchEvidenceSynthesizer.build(fileChanges, results);
+
+        java.util.Map<String, Object> output = new java.util.LinkedHashMap<>();
+        output.put("patchScope", patchScope);
+        output.put("patchEvidence", patchEvidence);
+        output.put("analyzedFiles", results);
+        output.put("layerSummary", analysisLayerClassifier.summarize(results));
+        output.put("traditionalAnalyzedFileCount", traditionalResults.size());
+        output.put("filteredAnalyzedFileCount", results.size());
+        int totalCwe = 0;
+        for (CodeAnalysisResult r : results) totalCwe += r.getCweMatches().size();
+        output.put("totalCweMatches", totalCwe);
         output.put("vulnerabilityFacts",
-                factResolver.resolve(cveId, stage1Data, stage2Data, results));
+                factResolver.resolve(cveId, stage1Data, stage2Data, patchEvidence, results));
 
         ctx.getWorkspaceManager().writeStageData(cveId, 3, output);
-        ctx.reportProgress("Code analysis complete: " + results.size() + " file(s) analyzed");
+        ctx.reportProgress("Code analysis complete: " + results.size() + " relevant file(s) retained");
         return StageResult.success(3, name(), output);
     }
 
@@ -143,6 +165,7 @@ public class CodeAnalysisStage implements Stage {
 
             String filePath = m.group(2);
             if (!filePath.endsWith(".java")) continue;
+            String changeType = detectChangeType(section);
 
             StringBuilder removed = new StringBuilder();
             StringBuilder added = new StringBuilder();
@@ -155,9 +178,56 @@ public class CodeAnalysisStage implements Stage {
             }
 
             Set<String> methodNames = extractMethodNames(section);
-            changes.add(new JavaFileChange(filePath, section, removed.toString(), added.toString(), methodNames));
+            changes.add(new JavaFileChange(filePath, changeType, section,
+                    removed.toString(), added.toString(), methodNames));
         }
         return changes;
+    }
+
+    private List<java.util.Map<String, Object>> extractPatchScope(Object stage2Data, List<JavaFileChange> fileChanges) {
+        List<java.util.Map<String, Object>> files = new ArrayList<>();
+        try {
+            JsonNode root = mapper.valueToTree(stage2Data);
+            JsonNode nodes = root.path("files");
+            if (!nodes.isArray() || nodes.size() == 0) {
+                nodes = root.path("diffs");
+            }
+            if (nodes.isArray()) {
+                for (JsonNode node : nodes) {
+                    String filePath = node.path("filePath").asText("");
+                    if (filePath.isEmpty()) {
+                        continue;
+                    }
+                    java.util.Map<String, Object> file = new java.util.LinkedHashMap<>();
+                    file.put("filePath", filePath);
+                    file.put("changeType", node.path("changeType").asText("modified"));
+                    files.add(file);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        if (!files.isEmpty()) {
+            return files;
+        }
+
+        for (JavaFileChange change : fileChanges) {
+            java.util.Map<String, Object> file = new java.util.LinkedHashMap<>();
+            file.put("filePath", change.filePath);
+            file.put("changeType", change.changeType);
+            files.add(file);
+        }
+        return files;
+    }
+
+    private String detectChangeType(String section) {
+        if (section.contains("--- /dev/null")) {
+            return "added";
+        }
+        if (section.contains("+++ /dev/null")) {
+            return "deleted";
+        }
+        return "modified";
     }
 
     private Set<String> extractMethodNames(String diffSection) {
@@ -177,6 +247,11 @@ public class CodeAnalysisStage implements Stage {
     private CodeAnalysisResult analyzeChange(JavaFileChange change) {
         List<CodeAnalysisResult.MethodAnalysis> methods = new ArrayList<>();
         List<CodeAnalysisResult.CweMatch> cweMatches = new ArrayList<>();
+        Set<String> effectiveMethodNames = new LinkedHashSet<>(change.methodNames);
+        String analysisCode = change.removedCode + "\n" + change.addedCode;
+        if (effectiveMethodNames.isEmpty()) {
+            effectiveMethodNames.addAll(extractDeclaredMethods(change));
+        }
 
         // CWE pattern matching on the removed (vulnerable) code
         List<CwePatternMatcher.MatchResult> patternHits =
@@ -187,23 +262,53 @@ public class CodeAnalysisStage implements Stage {
         }
 
         // Per-method analysis
-        for (String methodName : change.methodNames) {
-            List<String> calledMethods = extractCallsFromDiff(change.removedCode, methodName);
+        for (String methodName : effectiveMethodNames) {
+            List<String> calledMethods = extractCallsFromDiff(analysisCode, methodName);
             String vulnSnippet = extractMethodSnippet(change.rawSection, methodName, true);
             String fixSnippet = extractMethodSnippet(change.rawSection, methodName, false);
 
             methods.add(new CodeAnalysisResult.MethodAnalysis(
-                    methodName, buildSignature(change.removedCode, methodName),
+                    methodName, buildSignature(analysisCode, methodName),
                     vulnSnippet, fixSnippet, calledMethods));
         }
 
         // Also try JavaParser on removed code to enrich method signatures
         enrichWithJavaParser(methods, change.removedCode);
+        enrichWithJavaParser(methods, change.addedCode);
 
         // Build call chain between changed methods
-        List<String> callChain = buildCallChain(change.methodNames, change.removedCode);
+        List<String> callChain = buildCallChain(effectiveMethodNames, change.removedCode + "\n" + change.addedCode);
 
-        return new CodeAnalysisResult(change.filePath, methods, cweMatches, callChain);
+        return new CodeAnalysisResult(change.filePath, change.changeType, null, null, methods, cweMatches, callChain);
+    }
+
+    private Set<String> extractDeclaredMethods(JavaFileChange change) {
+        Set<String> names = new LinkedHashSet<>();
+        collectDeclaredMethods(names, change.removedCode);
+        collectDeclaredMethods(names, change.addedCode);
+        return names;
+    }
+
+    private void collectDeclaredMethods(Set<String> names, String code) {
+        if (code == null || code.trim().isEmpty()) {
+            return;
+        }
+        try {
+            JavaParser parser = new JavaParser();
+            ParseResult<CompilationUnit> result = parser.parse(code);
+            CompilationUnit cu = result.getResult().orElse(null);
+            if (cu == null) {
+                result = parser.parse("class __Temp__ {\n" + code + "\n}");
+                cu = result.getResult().orElse(null);
+            }
+            if (cu == null) {
+                return;
+            }
+            for (MethodDeclaration md : cu.findAll(MethodDeclaration.class)) {
+                names.add(md.getNameAsString());
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private List<String> extractCallsFromDiff(String code, String fromMethod) {

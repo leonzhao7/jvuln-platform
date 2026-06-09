@@ -23,10 +23,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/analysis")
 public class AnalysisController {
+
+    private static final Pattern DIFF_HEADER =
+            Pattern.compile("^diff --git a/(.+) b/(.+)$", Pattern.MULTILINE);
 
     private final PipelineEngine pipelineEngine;
     private final CveTaskRepository taskRepo;
@@ -197,16 +202,28 @@ public class AnalysisController {
     }
 
     private boolean sectionMatchesAny(String section, Set<String> analyzedFiles) {
-        // First line: "diff --git a/path/to/File.java b/path/to/File.java"
-        String firstLine = section.indexOf('\n') > 0
-                ? section.substring(0, section.indexOf('\n')) : section;
+        Matcher matcher = DIFF_HEADER.matcher(section);
+        if (!matcher.find()) {
+            return false;
+        }
+        String leftPath = matcher.group(1);
+        String rightPath = matcher.group(2);
+        String leftName = baseName(leftPath);
+        String rightName = baseName(rightPath);
         for (String name : analyzedFiles) {
-            if (firstLine.contains(name)) return true;
-            // Also match by just the filename
-            String shortName = name.contains("/") ? name.substring(name.lastIndexOf('/') + 1) : name;
-            if (firstLine.contains(shortName)) return true;
+            if (name.equals(leftPath) || name.equals(rightPath)) return true;
+            String shortName = baseName(name);
+            if (shortName.equals(leftName) || shortName.equals(rightName)) return true;
         }
         return false;
+    }
+
+    private String baseName(String path) {
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        int idx = path.lastIndexOf('/');
+        return idx >= 0 ? path.substring(idx + 1) : path;
     }
 
     private int countDiffSections(String diff) {

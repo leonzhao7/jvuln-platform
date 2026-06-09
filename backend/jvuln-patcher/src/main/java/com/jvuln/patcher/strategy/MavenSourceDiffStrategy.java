@@ -16,12 +16,14 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import java.util.stream.Stream;
 
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -236,6 +238,7 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
     private String convertToGitDiff(String diff, Path prevDir, Path fixedDir,
                                      String prevVersion, String fixedVersion) {
         if (diff.trim().isEmpty()) return diff;
+        Set<String> emittedPaths = new LinkedHashSet<>();
         // Split on each per-file block header ("diff -rU3 fileA fileB")
         // Note: diff.split("(?m)(?=^diff )") needs the (?m) flag inside the regex
         String[] sections = diff.split("(?m)(?=^diff )");
@@ -250,6 +253,7 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
             String prevPath = m.group(1).replace(prevDir.toString(), "").replaceAll("^/", "");
             String fixedPath = m.group(2).replace(fixedDir.toString(), "").replaceAll("^/", "");
             if (!prevPath.endsWith(".java") && !fixedPath.endsWith(".java")) continue;
+            emittedPaths.add(!fixedPath.isEmpty() ? fixedPath : prevPath);
             result.append("diff --git a/").append(prevPath).append(" b/").append(fixedPath).append("\n");
             result.append("--- a/").append(prevPath).append("\n");
             result.append("+++ b/").append(fixedPath).append("\n");
@@ -257,7 +261,84 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
             String body = section.substring(m.end()).trim();
             if (!body.isEmpty()) result.append(body).append("\n");
         }
+        appendOnlyInEntries(result, diff, prevDir, fixedDir, emittedPaths);
         return result.toString();
+    }
+
+    private void appendOnlyInEntries(StringBuilder result, String rawDiff, Path prevDir, Path fixedDir,
+                                     Set<String> emittedPaths) {
+        Pattern onlyIn = Pattern.compile("(?m)^Only in (.*?):\\s*(.+)$");
+        Matcher matcher = onlyIn.matcher(rawDiff);
+        while (matcher.find()) {
+            Path baseDir = Paths.get(matcher.group(1).trim());
+            String childName = matcher.group(2).trim();
+            Path candidate = baseDir.resolve(childName).normalize();
+            if (candidate.startsWith(fixedDir)) {
+                appendSyntheticEntries(result, candidate, fixedDir, "added", emittedPaths);
+            } else if (candidate.startsWith(prevDir)) {
+                appendSyntheticEntries(result, candidate, prevDir, "deleted", emittedPaths);
+            }
+        }
+    }
+
+    private void appendSyntheticEntries(StringBuilder result, Path candidate, Path rootDir, String changeType,
+                                        Set<String> emittedPaths) {
+        if (!Files.exists(candidate)) {
+            return;
+        }
+        try {
+            if (Files.isDirectory(candidate)) {
+                try (Stream<Path> walk = Files.walk(candidate)) {
+                    walk.filter(Files::isRegularFile)
+                            .filter(path -> path.getFileName().toString().endsWith(".java"))
+                            .sorted()
+                            .forEach(path -> appendSyntheticFileDiff(result, path, rootDir, changeType, emittedPaths));
+                }
+                return;
+            }
+            if (candidate.getFileName().toString().endsWith(".java")) {
+                appendSyntheticFileDiff(result, candidate, rootDir, changeType, emittedPaths);
+            }
+        } catch (Exception e) {
+            log.debug("MavenSourceDiff: failed to append synthetic {} entry {}: {}",
+                    changeType, candidate, e.getMessage());
+        }
+    }
+
+    private void appendSyntheticFileDiff(StringBuilder result, Path file, Path rootDir, String changeType,
+                                         Set<String> emittedPaths) {
+        try {
+            String relativePath = normalizeRelativePath(rootDir.relativize(file));
+            if (!emittedPaths.add(relativePath)) {
+                return;
+            }
+            List<String> lines = Files.readAllLines(file);
+            result.append("diff --git a/").append(relativePath).append(" b/").append(relativePath).append("\n");
+            if ("added".equals(changeType)) {
+                result.append("new file mode 100644\n");
+                result.append("--- /dev/null\n");
+                result.append("+++ b/").append(relativePath).append("\n");
+                result.append("@@ -0,0 +1,").append(lines.size()).append(" @@\n");
+                for (String line : lines) {
+                    result.append("+").append(line).append("\n");
+                }
+            } else {
+                result.append("deleted file mode 100644\n");
+                result.append("--- a/").append(relativePath).append("\n");
+                result.append("+++ /dev/null\n");
+                result.append("@@ -1,").append(lines.size()).append(" +0,0 @@\n");
+                for (String line : lines) {
+                    result.append("-").append(line).append("\n");
+                }
+            }
+        } catch (Exception e) {
+            log.debug("MavenSourceDiff: failed to synthesize {} diff for {}: {}",
+                    changeType, file, e.getMessage());
+        }
+    }
+
+    private String normalizeRelativePath(Path path) {
+        return path.toString().replace(File.separatorChar, '/');
     }
 
     /**

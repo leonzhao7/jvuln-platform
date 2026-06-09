@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
@@ -25,6 +26,7 @@ public class GiteeSource implements IntelSource {
 
     private static final Logger log = LoggerFactory.getLogger(GiteeSource.class);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
+    private static final int MAX_IN_MEMORY_SIZE = 5 * 1024 * 1024;
     private static final Pattern GITEE_URL_PATTERN =
             Pattern.compile("https?://gitee\\.com/([^/]+)/([^/#?]+)(?:/.*)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern VERSION_PATTERN =
@@ -41,6 +43,9 @@ public class GiteeSource implements IntelSource {
         this.webClient = WebClient.builder()
                 .baseUrl("https://gitee.com")
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .exchangeStrategies(ExchangeStrategies.builder()
+                        .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(MAX_IN_MEMORY_SIZE))
+                        .build())
                 .defaultHeader("User-Agent", "JVuln-Platform/1.0")
                 .build();
     }
@@ -56,6 +61,8 @@ public class GiteeSource implements IntelSource {
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/v5/search/issues")
                         .queryParam("q", cveId)
+                        .queryParam("page", 1)
+                        .queryParam("per_page", 20)
                         .build())
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
