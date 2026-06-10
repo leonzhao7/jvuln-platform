@@ -76,6 +76,13 @@ export const api = {
   activateLlmConfig: (id: number) => http.post<LlmConfig>(`/config/llm/${id}/activate`).then(r => r.data),
   testLlmConfig: (id: number) =>
     http.post<{ ok: boolean; model?: string; response?: string; tokens?: string; error?: string }>(`/config/llm/${id}/test`).then(r => r.data),
+
+  // Java Profiles
+  listJavaProfiles: () => http.get<JavaProfile[]>('/config/java-profiles').then(r => r.data),
+  createJavaProfile: (p: Omit<JavaProfile, 'id' | 'isDefault'>) => http.post<JavaProfile>('/config/java-profiles', p).then(r => r.data),
+  updateJavaProfile: (id: number, p: Partial<JavaProfile>) => http.put<JavaProfile>(`/config/java-profiles/${id}`, p).then(r => r.data),
+  deleteJavaProfile: (id: number) => http.delete(`/config/java-profiles/${id}`),
+  setDefaultJavaProfile: (id: number) => http.post<JavaProfile>(`/config/java-profiles/${id}/set-default`).then(r => r.data),
 }
 
 export interface LlmConfig {
@@ -88,4 +95,15 @@ export interface LlmConfig {
   temperature: number
   maxTokens: number
   active: boolean
+}
+
+export interface JavaProfile {
+  id?: number
+  name: string
+  javaVersion: string
+  javaHome: string
+  springBootVersion: string
+  mavenJavaVersion: string
+  syntaxConstraints: string
+  isDefault: boolean
 }

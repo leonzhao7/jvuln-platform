@@ -9,6 +9,8 @@ import com.jvuln.llm.PromptRegistry;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageResult;
 import com.jvuln.pipeline.stage.Stage;
+import com.jvuln.store.JavaProfileRepository;
+import com.jvuln.store.entity.JavaProfile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -65,10 +67,13 @@ public class ArtifactGenStage implements Stage {
 
     private final PromptRegistry promptRegistry;
     private final ObjectMapper mapper;
+    private final JavaProfileRepository javaProfileRepo;
 
-    public ArtifactGenStage(PromptRegistry promptRegistry, ObjectMapper mapper) {
+    public ArtifactGenStage(PromptRegistry promptRegistry, ObjectMapper mapper,
+                            JavaProfileRepository javaProfileRepo) {
         this.promptRegistry = promptRegistry;
         this.mapper = mapper;
+        this.javaProfileRepo = javaProfileRepo;
     }
 
     @Override
@@ -89,20 +94,25 @@ public class ArtifactGenStage implements Stage {
         String triggerChain = extractTriggerChain(ctx.getCompletedStages().get(4).getData());
         String rootCause = extractRootCause(ctx.getCompletedStages().get(4).getData());
         String artifact = extractArtifact(rawIntelligence);
+        JavaProfile javaProfile = resolveJavaProfile(rawIntelligence);
+        log.info("Selected Java profile: {} (Java {} / Spring Boot {})",
+                javaProfile.getName(), javaProfile.getJavaVersion(), javaProfile.getSpringBootVersion());
+        ctx.reportProgress("Using Java profile: " + javaProfile.getName());
         VerificationPlan verificationPlan = buildVerificationPlan(ctx, intelligence, vulnerabilityFacts,
                 triggerChain, rootCause, patchDiff, artifact);
 
         Path cvePath = ctx.getWorkspaceManager().getCvePath(ctx.getCveId());
         AgentContext agentCtx = new AgentContext(cvePath, ctx);
         agentCtx.verificationPlan = verificationPlan;
+        agentCtx.javaProfile = javaProfile;
         Path checkpointFile = cvePath.resolve("stages/5_checkpoint.json");
         Path memoryFile = cvePath.resolve("stages/5_memory.json");
 
         try {
-            writeMinimalSkeleton(cvePath.resolve("vuln-demo"));
+            writeMinimalSkeleton(cvePath.resolve("vuln-demo"), javaProfile);
             agentCtx.discoverExistingFiles();
 
-            String systemPrompt = promptRegistry.getSystemPrompt("gen_agent");
+            String systemTemplate = promptRegistry.getSystemPrompt("gen_agent");
             String userTemplate = promptRegistry.getUserPrompt("gen_agent");
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
@@ -112,6 +122,12 @@ public class ArtifactGenStage implements Stage {
             vars.put("patch_diff", patchDiff);
             vars.put("artifact", artifact);
             vars.put("verification_plan", renderJson(verificationPlan.toMap()));
+            vars.put("java_version", javaProfile.getJavaVersion());
+            vars.put("spring_boot_version", javaProfile.getSpringBootVersion());
+            vars.put("syntax_constraints", javaProfile.getSyntaxConstraints() != null
+                    ? javaProfile.getSyntaxConstraints()
+                    : "Java " + javaProfile.getJavaVersion() + " syntax");
+            String systemPrompt = promptRegistry.render(systemTemplate, vars);
             String baseUserPrompt = promptRegistry.render(userTemplate, vars);
 
             AttemptMemory memory = loadAttemptMemory(memoryFile);
@@ -1463,7 +1479,7 @@ public class ArtifactGenStage implements Stage {
 
     // ==================== Skeleton ====================
 
-    private void writeMinimalSkeleton(Path vulnDemoPath) throws IOException {
+    private void writeMinimalSkeleton(Path vulnDemoPath, JavaProfile profile) throws IOException {
         Files.createDirectories(vulnDemoPath.resolve("src/main/java/com/jvuln/demo"));
         Files.createDirectories(vulnDemoPath.resolve("src/main/resources"));
         Files.createDirectories(vulnDemoPath.getParent().resolve("poc"));
@@ -1477,7 +1493,7 @@ public class ArtifactGenStage implements Stage {
                 + "    <parent>\n"
                 + "        <groupId>org.springframework.boot</groupId>\n"
                 + "        <artifactId>spring-boot-starter-parent</artifactId>\n"
-                + "        <version>2.7.18</version>\n"
+                + "        <version>" + profile.getSpringBootVersion() + "</version>\n"
                 + "        <relativePath/>\n"
                 + "    </parent>\n"
                 + "    <groupId>com.jvuln</groupId>\n"
@@ -1485,7 +1501,7 @@ public class ArtifactGenStage implements Stage {
                 + "    <version>0.0.1-SNAPSHOT</version>\n"
                 + "    <packaging>jar</packaging>\n"
                 + "    <properties>\n"
-                + "        <java.version>1.8</java.version>\n"
+                + "        <java.version>" + profile.getMavenJavaVersion() + "</java.version>\n"
                 + "        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n"
                 + "    </properties>\n"
                 + "    <dependencies>\n"
@@ -1553,10 +1569,17 @@ public class ArtifactGenStage implements Stage {
         writeSkeletonFile(vulnDemoPath.resolve("src/main/resources/application.properties"),
                 properties, false, false);
 
-        String build = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\nmvn package -DskipTests -q\n";
+        String javaHome = profile.getJavaHome();
+        String build = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\n"
+                + "export JAVA_HOME=\"" + javaHome + "\"\n"
+                + "export PATH=\"$JAVA_HOME/bin:$PATH\"\n"
+                + "mvn package -DskipTests -q\n";
         writeSkeletonFile(vulnDemoPath.resolve("build.sh"), build, true, false);
 
-        String run = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\nexec java -jar target/*.jar --server.port=" + VULN_DEMO_PORT + "\n";
+        String run = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\n"
+                + "export JAVA_HOME=\"" + javaHome + "\"\n"
+                + "export PATH=\"$JAVA_HOME/bin:$PATH\"\n"
+                + "exec java -jar target/*.jar --server.port=" + VULN_DEMO_PORT + "\n";
         writeSkeletonFile(vulnDemoPath.resolve("run.sh"), run, true, false);
 
         log.info("Ensured baseline skeleton: pom.xml, Application.java, LabInfoController.java, application.properties, build.sh, run.sh");
@@ -1639,6 +1662,79 @@ public class ArtifactGenStage implements Stage {
             return artifact.isTextual() ? artifact.asText() : mapper.writeValueAsString(artifact);
         }
         return "";
+    }
+
+    // ==================== Java Profile Selection ====================
+
+    private JavaProfile resolveJavaProfile(Object rawIntelligence) {
+        List<JavaProfile> profiles = javaProfileRepo.findAll();
+        if (profiles.isEmpty()) {
+            return getHardcodedFallback();
+        }
+
+        try {
+            JsonNode intel = mapper.valueToTree(rawIntelligence);
+            String groupId = intel.at("/artifact/groupId").asText("");
+            String artifactId = intel.at("/artifact/artifactId").asText("");
+            String affectedTo = intel.at("/affectedVersions/to").asText("");
+            String fixedVersion = intel.at("/fixedVersion").asText("");
+
+            // Rule: Spring Boot 3.x components → Java 17
+            if (isSpringBoot3Component(groupId, artifactId, affectedTo, fixedVersion)) {
+                JavaProfile p = findProfileByVersion(profiles, "17");
+                if (p != null) return p;
+            }
+            // Rule: Spring Framework 6.x → Java 17
+            if (isSpringFramework6(groupId, artifactId, affectedTo, fixedVersion)) {
+                JavaProfile p = findProfileByVersion(profiles, "17");
+                if (p != null) return p;
+            }
+            // Rule: Jakarta EE namespace → Java 17
+            if (groupId.startsWith("jakarta.")) {
+                JavaProfile p = findProfileByVersion(profiles, "17");
+                if (p != null) return p;
+            }
+        } catch (Exception e) {
+            log.warn("Error during Java profile resolution, using default: {}", e.getMessage());
+        }
+
+        return profiles.stream()
+                .filter(p -> Boolean.TRUE.equals(p.getIsDefault()))
+                .findFirst()
+                .orElse(profiles.get(0));
+    }
+
+    private boolean isSpringBoot3Component(String groupId, String artifactId, String affectedTo, String fixedVersion) {
+        if (!"org.springframework.boot".equals(groupId)) return false;
+        return versionStartsWith(affectedTo, "3.") || versionStartsWith(fixedVersion, "3.");
+    }
+
+    private boolean isSpringFramework6(String groupId, String artifactId, String affectedTo, String fixedVersion) {
+        if (!"org.springframework".equals(groupId)) return false;
+        return versionStartsWith(affectedTo, "6.") || versionStartsWith(fixedVersion, "6.");
+    }
+
+    private boolean versionStartsWith(String version, String prefix) {
+        return version != null && !version.isEmpty() && version.startsWith(prefix);
+    }
+
+    private JavaProfile findProfileByVersion(List<JavaProfile> profiles, String javaVersion) {
+        return profiles.stream()
+                .filter(p -> javaVersion.equals(p.getJavaVersion()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private JavaProfile getHardcodedFallback() {
+        JavaProfile fallback = new JavaProfile();
+        fallback.setName("Default (Java 8)");
+        fallback.setJavaVersion("8");
+        fallback.setJavaHome(System.getProperty("java.home", "/usr/lib/jvm/java-8-openjdk-amd64"));
+        fallback.setSpringBootVersion("2.7.18");
+        fallback.setMavenJavaVersion("1.8");
+        fallback.setSyntaxConstraints("Java 8 syntax only (no var, no List.of, no records, no text blocks)");
+        fallback.setIsDefault(Boolean.TRUE);
+        return fallback;
     }
 
     // ==================== Utilities ====================
@@ -3300,6 +3396,7 @@ public class ArtifactGenStage implements Stage {
         ValidationResult lastValidation;
         PhaseDirective lastDirective;
         AgentPhase phase = AgentPhase.PLAN;
+        JavaProfile javaProfile;
         Map<String, FileSnapshot> baselineSnapshot = new LinkedHashMap<>();
         Map<String, FileSnapshot> previousSnapshot = new LinkedHashMap<>();
         String baseUserPrompt = "";

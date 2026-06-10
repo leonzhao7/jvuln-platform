@@ -28,7 +28,7 @@ Build a vulnerability reproduction environment for the following CVE.
 - `vuln-demo/run.sh` — runs `java -jar target/*.jar --server.port=18080`
 
 ## Editable Baseline Files
-- `vuln-demo/pom.xml` — Spring Boot 2.7.18 / Java 8 baseline; update dependencies for the affected component
+- `vuln-demo/pom.xml` — Spring Boot {{spring_boot_version}} / Java {{java_version}} baseline; update dependencies for the affected component
 - `vuln-demo/src/main/resources/application.properties` — baseline config; update only for the CVE-specific vulnerable path
 
 ## Instructions
