@@ -88,13 +88,14 @@ public class ArtifactGenStage implements Stage {
 
         Object rawIntelligence = ctx.getCompletedStages().get(1).getData();
         String intelligence = trimIntelligence(rawIntelligence);
+        log.info("Stage 5 intelligence (first 500 chars): {}", intelligence.substring(0, Math.min(500, intelligence.length())));
         String patchDiff = extractDiff(ctx, ctx.getCompletedStages().get(2).getData(), 4000);
         StageResult stage3 = ctx.getCompletedStages().get(3);
         String vulnerabilityFacts = extractVulnerabilityFacts(stage3 != null ? stage3.getData() : null);
         String triggerChain = extractTriggerChain(ctx.getCompletedStages().get(4).getData());
         String rootCause = extractRootCause(ctx.getCompletedStages().get(4).getData());
         String artifact = extractArtifact(rawIntelligence);
-        JavaProfile javaProfile = resolveJavaProfile(rawIntelligence);
+        JavaProfile javaProfile = resolveJavaProfile(ctx, rawIntelligence);
         log.info("Selected Java profile: {} (Java {} / Spring Boot {})",
                 javaProfile.getName(), javaProfile.getJavaVersion(), javaProfile.getSpringBootVersion());
         ctx.reportProgress("Using Java profile: " + javaProfile.getName());
@@ -115,6 +116,7 @@ public class ArtifactGenStage implements Stage {
             String systemTemplate = promptRegistry.getSystemPrompt("gen_agent");
             String userTemplate = promptRegistry.getUserPrompt("gen_agent");
             Map<String, String> vars = new HashMap<>();
+            vars.put("cve_id", ctx.getCveId());
             vars.put("intelligence", intelligence);
             vars.put("vulnerability_facts", vulnerabilityFacts);
             vars.put("trigger_chain", triggerChain);
@@ -1031,7 +1033,7 @@ public class ArtifactGenStage implements Stage {
         Map<String, Object> planSchema = new LinkedHashMap<>();
         planSchema.put("type", "object");
         Map<String, Object> planProps = new LinkedHashMap<>();
-        planProps.put("goal", prop("string", "Short goal for this Stage 5 attempt"));
+        planProps.put("goal", prop("string", "Short goal for this Stage 5 attempt. MUST start with the exact CVE ID from the system prompt (e.g., 'Build CVE-YYYY-NNNNN reproduction environment')."));
         planProps.put("firstBatchFiles", stringArrayProp("Files to generate in the first broad batch"));
         planProps.put("minimalDeliverables", stringArrayProp("Smallest runnable candidate to prove before polishing"));
         planProps.put("validationSequence", stringArrayProp("Planned validation order, for example build -> startup -> poc"));
@@ -1366,6 +1368,10 @@ public class ArtifactGenStage implements Stage {
         if (path.contains("..")) {
             throw new IOException("path traversal not allowed");
         }
+        if ("vuln-demo/build.sh".equals(path) || "vuln-demo/run.sh".equals(path)) {
+            throw new IOException(path + " is managed by the backend (JAVA_HOME, Maven settings). Do not modify it. "
+                    + "If you need a different Java version or build configuration, adjust pom.xml instead.");
+        }
 
         Path target = ctx.cvePath.resolve(path);
         Files.createDirectories(target.getParent());
@@ -1666,7 +1672,7 @@ public class ArtifactGenStage implements Stage {
 
     // ==================== Java Profile Selection ====================
 
-    private JavaProfile resolveJavaProfile(Object rawIntelligence) {
+    private JavaProfile resolveJavaProfile(PipelineContext ctx, Object rawIntelligence) {
         List<JavaProfile> profiles = javaProfileRepo.findAll();
         if (profiles.isEmpty()) {
             return getHardcodedFallback();
@@ -1679,50 +1685,73 @@ public class ArtifactGenStage implements Stage {
             String affectedTo = intel.at("/affectedVersions/to").asText("");
             String fixedVersion = intel.at("/fixedVersion").asText("");
 
-            // Rule: Spring Boot 3.x components → Java 17
-            if (isSpringBoot3Component(groupId, artifactId, affectedTo, fixedVersion)) {
-                JavaProfile p = findProfileByVersion(profiles, "17");
-                if (p != null) return p;
+            StringBuilder profileList = new StringBuilder();
+            for (JavaProfile p : profiles) {
+                profileList.append(String.format("- %s: Java %s, Spring Boot %s%s\n",
+                    p.getName(), p.getJavaVersion(), p.getSpringBootVersion(),
+                    Boolean.TRUE.equals(p.getIsDefault()) ? " (default)" : ""));
             }
-            // Rule: Spring Framework 6.x → Java 17
-            if (isSpringFramework6(groupId, artifactId, affectedTo, fixedVersion)) {
-                JavaProfile p = findProfileByVersion(profiles, "17");
-                if (p != null) return p;
+
+            String sysPrompt = "You are a Java/Spring Boot/library compatibility expert. " +
+                "Given a CVE's affected component and the available Java profiles, " +
+                "select the best profile AND recommend a Spring Boot version that is compatible " +
+                "with the vulnerable library version.\n\n" +
+                "Return strict JSON: {\"profile\": \"profile-name\", \"springBootVersion\": \"x.y.z\"}\n" +
+                "The springBootVersion must be compatible with the vulnerable library version. " +
+                "For example, Tomcat 9.x needs Spring Boot 2.7.x, Tomcat 10.1.x needs Spring Boot 3.x, " +
+                "Tomcat 11.x needs Spring Boot 3.4.x+. Return ONLY the JSON.";
+            String userPrompt = String.format(
+                "CVE artifact: %s:%s\n" +
+                "Affected versions: %s\n" +
+                "Fixed version: %s\n\n" +
+                "Available profiles:\n%s",
+                groupId, artifactId, affectedTo, fixedVersion, profileList.toString()
+            );
+
+            LlmRequest req = LlmRequest.reasoning(sysPrompt, userPrompt);
+            LlmResponse resp = ctx.getLlmClient().chat(req);
+            String raw = resp.getContent().trim();
+
+            // Strip markdown code fences if present
+            if (raw.startsWith("```")) {
+                raw = raw.replaceAll("(?s)^```[a-z]*\\n?", "").replaceAll("(?s)\\n?```$", "").trim();
             }
-            // Rule: Jakarta EE namespace → Java 17
-            if (groupId.startsWith("jakarta.")) {
-                JavaProfile p = findProfileByVersion(profiles, "17");
-                if (p != null) return p;
+
+            JsonNode result = mapper.readTree(raw);
+            String selectedName = result.path("profile").asText("").trim();
+            String recommendedSBVersion = result.path("springBootVersion").asText("").trim();
+
+            JavaProfile selected = profiles.stream()
+                .filter(p -> p.getName().equalsIgnoreCase(selectedName))
+                .findFirst()
+                .orElse(null);
+
+            if (selected != null) {
+                if (!recommendedSBVersion.isEmpty() && !recommendedSBVersion.equals(selected.getSpringBootVersion())) {
+                    log.info("LLM recommends Spring Boot {} (profile default: {})", recommendedSBVersion, selected.getSpringBootVersion());
+                    // Clone profile with overridden Spring Boot version
+                    JavaProfile overridden = new JavaProfile();
+                    overridden.setName(selected.getName());
+                    overridden.setJavaVersion(selected.getJavaVersion());
+                    overridden.setJavaHome(selected.getJavaHome());
+                    overridden.setSpringBootVersion(recommendedSBVersion);
+                    overridden.setMavenJavaVersion(selected.getMavenJavaVersion());
+                    overridden.setSyntaxConstraints(selected.getSyntaxConstraints());
+                    return overridden;
+                }
+                log.info("LLM selected Java profile: {}", selectedName);
+                return selected;
+            } else {
+                log.warn("LLM returned unknown profile '{}', using default", selectedName);
             }
         } catch (Exception e) {
-            log.warn("Error during Java profile resolution, using default: {}", e.getMessage());
+            log.warn("Error during LLM-based Java profile resolution: {}", e.getMessage());
         }
 
         return profiles.stream()
                 .filter(p -> Boolean.TRUE.equals(p.getIsDefault()))
                 .findFirst()
                 .orElse(profiles.get(0));
-    }
-
-    private boolean isSpringBoot3Component(String groupId, String artifactId, String affectedTo, String fixedVersion) {
-        if (!"org.springframework.boot".equals(groupId)) return false;
-        return versionStartsWith(affectedTo, "3.") || versionStartsWith(fixedVersion, "3.");
-    }
-
-    private boolean isSpringFramework6(String groupId, String artifactId, String affectedTo, String fixedVersion) {
-        if (!"org.springframework".equals(groupId)) return false;
-        return versionStartsWith(affectedTo, "6.") || versionStartsWith(fixedVersion, "6.");
-    }
-
-    private boolean versionStartsWith(String version, String prefix) {
-        return version != null && !version.isEmpty() && version.startsWith(prefix);
-    }
-
-    private JavaProfile findProfileByVersion(List<JavaProfile> profiles, String javaVersion) {
-        return profiles.stream()
-                .filter(p -> javaVersion.equals(p.getJavaVersion()))
-                .findFirst()
-                .orElse(null);
     }
 
     private JavaProfile getHardcodedFallback() {
@@ -1789,14 +1818,8 @@ public class ArtifactGenStage implements Stage {
         if (memory == null) {
             return;
         }
-        ctx.turns = memory.turns;
-        ctx.reviewRevisions = memory.reviewRevisions;
-        if (ctx.verificationPlan == null && memory.verificationPlan != null) {
-            ctx.verificationPlan = memory.verificationPlan;
-        }
-        if (ctx.executionPlan == null && memory.executionPlan != null) {
-            ctx.executionPlan = memory.executionPlan;
-        }
+        // Do NOT restore executionPlan — Agent must always create a fresh plan
+        // based on the current CVE context. Prior plans may be stale or wrong.
         ctx.lastValidation = memory.lastValidation;
         ctx.verificationReview = memory.lastReview;
         ctx.sessionSummary = memory.sessionSummary == null ? "" : memory.sessionSummary;
@@ -2461,13 +2484,13 @@ public class ArtifactGenStage implements Stage {
                 gap = "compile_failed";
                 expected = "mvn package -DskipTests succeeds for vuln-demo.";
                 actual = result == null ? "No compile result yet." : result.compileMessage;
-                fixHint = "Only fix the compile error. Do not add new exploration.";
+                fixHint = deriveCompileFixHint(ctx, result);
                 break;
             case STARTUP_FIX:
                 gap = "startup_failed";
                 expected = "The generated lab starts successfully on port 18080.";
                 actual = result == null ? "No startup result yet." : result.startupMessage;
-                fixHint = "Only fix startup and configuration issues. Keep PoC unchanged unless startup depends on it.";
+                fixHint = deriveStartupFixHint(ctx, result);
                 break;
             case POC_FIX:
                 gap = result == null ? "poc_unverified" : derivePocGap(result);
@@ -2517,8 +2540,105 @@ public class ArtifactGenStage implements Stage {
         StringBuilder sb = new StringBuilder();
         sb.append("BACKEND DIRECTIVE\n");
         sb.append(renderJson(directive.toMap())).append("\n");
-        sb.append("Only perform actions in allowedNextActions. Pick the smallest action that closes the current gap.");
+
+        AgentPhase phase = directive.phase;
+        if (phase == AgentPhase.COMPILE_FIX || phase == AgentPhase.STARTUP_FIX || phase == AgentPhase.POC_FIX) {
+            sb.append("Diagnose the failure first: use read_file, read_log, inspect_runtime to understand the root cause. ");
+            sb.append("Once you understand why it failed, make targeted changes to fix it. ");
+            sb.append("Available actions: ").append(String.join(", ", directive.allowedNextActions)).append(".");
+        } else {
+            sb.append("Available actions: ").append(String.join(", ", directive.allowedNextActions)).append(".");
+        }
         return sb.toString();
+    }
+
+    private String deriveCompileFixHint(AgentContext ctx, ValidationResult result) {
+        if (result == null || result.compileMessage == null) {
+            return "Analyze the compilation error and fix it.";
+        }
+
+        String diagnosis = diagnoseFailure(ctx, "COMPILE", result.compileMessage,
+            ctx.buildHistory.isEmpty() ? null : ctx.buildHistory.get(ctx.buildHistory.size() - 1).output);
+
+        return diagnosis.isEmpty()
+            ? "Read the compilation error, identify the root cause, then fix it."
+            : diagnosis;
+    }
+
+    private String deriveStartupFixHint(AgentContext ctx, ValidationResult result) {
+        if (result == null || result.startupMessage == null) {
+            return "Analyze why the application failed to start and fix it.";
+        }
+
+        String diagnosis = diagnoseFailure(ctx, "STARTUP", result.startupMessage,
+            ctx.startupHistory.isEmpty() ? null : ctx.startupHistory.get(ctx.startupHistory.size() - 1).output);
+
+        return diagnosis.isEmpty()
+            ? "Read the startup logs, identify the root cause, then fix configuration or code issues."
+            : diagnosis;
+    }
+
+    private String derivePocFixHint(AgentContext ctx, ValidationResult result) {
+        if (ctx != null && ctx.verificationPlan != null) {
+            StringBuilder sb = new StringBuilder();
+
+            String diagnosis = diagnoseFailure(ctx, "POC",
+                result == null ? "PoC not verified" : result.pocMessage,
+                ctx.commandHistory.isEmpty() ? null : ctx.commandHistory.get(ctx.commandHistory.size() - 1).output);
+
+            if (!diagnosis.isEmpty()) {
+                sb.append(diagnosis).append("\n\n");
+            }
+
+            if (!ctx.verificationPlan.successSignals.isEmpty()) {
+                sb.append("Success signals: ")
+                        .append(joinItems(ctx.verificationPlan.successSignals, "; "))
+                        .append(".");
+            }
+            if (!ctx.verificationPlan.requiredEvidence.isEmpty()) {
+                sb.append(" Required evidence: ")
+                        .append(joinItems(ctx.verificationPlan.requiredEvidence, "; "))
+                        .append(".");
+            }
+            if (!ctx.verificationPlan.falsePositiveGuards.isEmpty()) {
+                sb.append(" False-positive guards: ")
+                        .append(joinItems(ctx.verificationPlan.falsePositiveGuards, "; "))
+                        .append(".");
+            }
+            return sb.toString().trim().isEmpty()
+                ? "Analyze why the PoC failed and fix the demo or PoC to satisfy the verification plan."
+                : sb.toString();
+        }
+        return "Analyze why the PoC failed and fix it to satisfy the verification signals.";
+    }
+
+    private String diagnoseFailure(AgentContext ctx, String failureType, String errorMessage, String fullLog) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("You are analyzing a ").append(failureType).append(" failure in CVE reproduction lab generation.\n\n");
+        prompt.append("ERROR MESSAGE:\n").append(errorMessage).append("\n\n");
+
+        if (fullLog != null && !fullLog.trim().isEmpty() && fullLog.length() < 8000) {
+            prompt.append("FULL LOG:\n").append(fullLog).append("\n\n");
+        }
+
+        prompt.append("RECENT BUILD HISTORY:\n").append(renderJson(recentHistory(ctx.buildHistory))).append("\n\n");
+        prompt.append("RECENT STARTUP HISTORY:\n").append(renderJson(recentHistory(ctx.startupHistory))).append("\n\n");
+        prompt.append("RECENT COMMAND HISTORY:\n").append(renderJson(recentHistory(ctx.commandHistory))).append("\n\n");
+
+        prompt.append("Analyze the root cause in 2-3 sentences. What specifically failed and why? ");
+        prompt.append("Suggest concrete next steps to fix it. Be specific about file names and line numbers if applicable.");
+
+        try {
+            LlmRequest req = LlmRequest.reasoning(
+                "You are a Java/Spring Boot/CVE expert analyzing build/runtime failures.",
+                prompt.toString()
+            );
+            LlmResponse response = chatWithRetry(ctx.pipeCtx, req, 1);
+            return response == null ? "" : response.getContent().trim();
+        } catch (Exception e) {
+            log.warn("Failure diagnosis failed: {}", e.getMessage());
+            return "";
+        }
     }
 
     private String derivePocGap(ValidationResult result) {
@@ -2556,30 +2676,6 @@ public class ArtifactGenStage implements Stage {
             }
         }
         return "The PoC must satisfy the verification plan's success signals.";
-    }
-
-    private String derivePocFixHint(AgentContext ctx, ValidationResult result) {
-        if (ctx != null && ctx.verificationPlan != null) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("Modify only the demo or PoC needed to satisfy the verification plan.");
-            if (!ctx.verificationPlan.successSignals.isEmpty()) {
-                sb.append(" Success signals: ")
-                        .append(joinItems(ctx.verificationPlan.successSignals, "; "))
-                        .append(".");
-            }
-            if (!ctx.verificationPlan.requiredEvidence.isEmpty()) {
-                sb.append(" Required evidence: ")
-                        .append(joinItems(ctx.verificationPlan.requiredEvidence, "; "))
-                        .append(".");
-            }
-            if (!ctx.verificationPlan.falsePositiveGuards.isEmpty()) {
-                sb.append(" False-positive guards: ")
-                        .append(joinItems(ctx.verificationPlan.falsePositiveGuards, "; "))
-                        .append(".");
-            }
-            return sb.toString();
-        }
-        return "Modify only the demo or PoC pieces needed to satisfy the missing verification signal.";
     }
 
     private boolean requiresExecutionPlan(String toolName) {
@@ -3575,6 +3671,15 @@ public class ArtifactGenStage implements Stage {
             }
             if (lastValidation != null) {
                 output.put("validation", lastValidation.toMap());
+            }
+
+            // Java Profile info
+            if (javaProfile != null) {
+                Map<String, Object> profileInfo = new LinkedHashMap<>();
+                profileInfo.put("name", javaProfile.getName());
+                profileInfo.put("javaVersion", javaProfile.getJavaVersion());
+                profileInfo.put("springBootVersion", javaProfile.getSpringBootVersion());
+                output.put("javaProfile", profileInfo);
             }
 
             // Reproduction steps — only when vuln-demo compiled successfully

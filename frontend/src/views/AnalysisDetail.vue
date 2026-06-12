@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type TaskDetail } from '../api'
+import { api, type TaskDetail, type TranscriptEvent } from '../api'
 import { ElMessage } from 'element-plus'
 import DiffViewer from '../components/DiffViewer.vue'
 import { useI18n } from '../i18n'
@@ -18,6 +18,8 @@ const diffContent = ref('')
 const diffLoading = ref(false)
 const reportMarkdown = ref('')
 const sseActive = ref(false)
+const transcriptEvents = ref<TranscriptEvent[]>([])
+const transcriptExpanded = ref(false)
 const sseMessages = ref<string[]>([])
 let evtSource: EventSource | null = null
 
@@ -214,6 +216,7 @@ const loadStageData = async () => {
   try {
     stageData.value[5] = await api.getArtifacts(cveId)
     try { const r = await api.getReport(cveId); reportMarkdown.value = r.markdown } catch {}
+    try { transcriptEvents.value = await api.getTranscript(cveId) } catch { transcriptEvents.value = [] }
   } catch {}
 
   diffLoading.value = true
@@ -789,6 +792,7 @@ const renderMarkdown = (md: string) => {
               <span>{{ t('analysis.artifacts.fileCount', { count: stageData[5].fileCount ?? 0 }) }}</span>
               <span v-if="stageData[5].agentTurns != null">{{ t('analysis.artifacts.agentTurns') }}: {{ stageData[5].agentTurns }}</span>
               <span v-if="stageData[5].reviewRevisions != null">{{ t('analysis.artifacts.reviewRevisions') }}: {{ stageData[5].reviewRevisions }}</span>
+              <span v-if="stageData[5].javaProfile">{{ t('analysis.artifacts.javaProfile') }}: {{ stageData[5].javaProfile.name }} (Java {{ stageData[5].javaProfile.javaVersion }}, Spring Boot {{ stageData[5].javaProfile.springBootVersion }})</span>
             </div>
 
             <div v-if="stageData[5].executionPlan" class="jv-reasoning-section">
@@ -942,6 +946,24 @@ const renderMarkdown = (md: string) => {
                   </div>
                   <code class="jv-repro-step-cmd">{{ s.command }}</code>
                   <div class="jv-repro-step-desc">{{ s.description }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Agent Transcript -->
+            <div v-if="transcriptEvents.length" class="jv-reasoning-section">
+              <div class="jv-section-label" style="cursor:pointer; user-select:none" @click="transcriptExpanded = !transcriptExpanded">
+                Agent Transcript ({{ transcriptEvents.length }} events)
+                <span style="font-size:11px; margin-left:8px; color:var(--text-muted)">{{ transcriptExpanded ? '▼' : '▶' }}</span>
+              </div>
+              <div v-if="transcriptExpanded" class="jv-transcript-list">
+                <div v-for="(evt, idx) in transcriptEvents" :key="idx" class="jv-transcript-event">
+                  <div class="jv-transcript-header">
+                    <span class="jv-transcript-turn">Turn {{ evt.turn }}</span>
+                    <span class="jv-transcript-type" :class="'jv-type-' + evt.type">{{ evt.type }}</span>
+                    <span class="jv-transcript-phase">{{ evt.phase }}</span>
+                  </div>
+                  <pre class="jv-transcript-payload">{{ JSON.stringify(evt.payload, null, 2) }}</pre>
                 </div>
               </div>
             </div>
@@ -1624,6 +1646,69 @@ const renderMarkdown = (md: string) => {
 .jv-repro-step-desc {
   font-size: 12px;
   color: var(--text-secondary);
+}
+.jv-transcript-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+.jv-transcript-event {
+  background: rgba(0,0,0,.2);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 8px;
+  padding: 12px;
+}
+.jv-transcript-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.jv-transcript-turn {
+  font-weight: 600;
+  color: var(--accent);
+}
+.jv-transcript-type {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+.jv-type-assistant {
+  background: rgba(16,185,129,.15);
+  color: #10b981;
+}
+.jv-type-directive {
+  background: rgba(59,130,246,.15);
+  color: #3b82f6;
+}
+.jv-type-tool_results {
+  background: rgba(168,85,247,.15);
+  color: #a855f7;
+}
+.jv-type-compact {
+  background: rgba(234,179,8,.15);
+  color: #eab308;
+}
+.jv-transcript-phase {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.jv-transcript-payload {
+  background: rgba(0,0,0,.3);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 6px;
+  padding: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  max-height: 400px;
+  overflow: auto;
+  margin: 0;
 }
 .jv-paused-banner {
   background: rgba(250,77,86,.08);

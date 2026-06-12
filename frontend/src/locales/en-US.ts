@@ -186,6 +186,7 @@ const enUS = {
       validationEvidence: 'Validation Evidence',
       agentTurns: 'Agent Turns',
       reviewRevisions: 'Review Revisions',
+      javaProfile: 'Java Profile',
     },
     reasoning: {
       triggerChain: 'Trigger Chain',

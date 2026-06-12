@@ -186,6 +186,7 @@ const zhCN = {
       validationEvidence: '验证证据',
       agentTurns: 'Agent 轮次',
       reviewRevisions: '复核修订',
+      javaProfile: 'Java 配置',
     },
     reasoning: {
       triggerChain: '触发链',

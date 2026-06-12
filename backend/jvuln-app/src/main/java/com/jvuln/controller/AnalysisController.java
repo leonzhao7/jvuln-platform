@@ -466,6 +466,35 @@ public class AnalysisController {
         return value == null ? "" : String.valueOf(value);
     }
 
+    @GetMapping("/{cveId}/transcript")
+    public ResponseEntity<?> getTranscript(@PathVariable String cveId) {
+        try {
+            Path transcriptFile = workspaceManager.getCvePath(cveId).resolve("stages/5_transcript.jsonl");
+            if (!Files.exists(transcriptFile)) {
+                return ResponseEntity.ok(Collections.emptyList());
+            }
+            List<String> lines = Files.readAllLines(transcriptFile, StandardCharsets.UTF_8);
+            List<Object> events = new java.util.ArrayList<>();
+            for (String line : lines) {
+                if (line.trim().isEmpty()) continue;
+                try {
+                    JsonNode node = mapper.readTree(line);
+                    String type = node.path("type").asText("");
+                    // Only include relevant types for frontend display
+                    if ("assistant".equals(type) || "directive".equals(type)
+                            || "tool_results".equals(type) || "compact".equals(type)) {
+                        events.add(mapper.readValue(line, Object.class));
+                    }
+                } catch (Exception ignored) {}
+            }
+            return ResponseEntity.ok(events);
+        } catch (IOException e) {
+            Map<String, String> err = new HashMap<>();
+            err.put("error", e.getMessage());
+            return ResponseEntity.status(500).body(err);
+        }
+    }
+
     private String stageName(int num) {
         switch (num) {
             case 1: return "Intelligence Collection";
