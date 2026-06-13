@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { ElSkeleton } from 'element-plus'
 import { html as diff2htmlHtml } from 'diff2html'
 import { ColorSchemeType } from 'diff2html/lib/types'
@@ -19,15 +19,47 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 const viewType = ref<'side-by-side' | 'line-by-line'>('side-by-side')
-const diffHtml = ref('')
+const expandedFile = ref<string | null>(null)
 
-const render = () => {
-  if (!props.diffContent) {
-    diffHtml.value = ''
-    return
+interface FileDiff {
+  fileName: string
+  diffContent: string
+  stats: {
+    additions: number
+    deletions: number
   }
-  diffHtml.value = diff2htmlHtml(props.diffContent, {
-    drawFileList: true,
+}
+
+const fileDiffs = computed<FileDiff[]>(() => {
+  if (!props.diffContent) return []
+
+  // 按文件分割diff
+  const fileBlocks = props.diffContent.split(/(?=^diff --git)/gm).filter(block => block.trim())
+
+  return fileBlocks.map(block => {
+    // 提取文件名
+    const fileMatch = block.match(/^diff --git a\/(.*?) b\//m)
+    const fileName = fileMatch ? fileMatch[1] : 'unknown'
+
+    // 统计增删行数
+    const additions = (block.match(/^\+(?!\+)/gm) || []).length
+    const deletions = (block.match(/^-(?!-)/gm) || []).length
+
+    return {
+      fileName,
+      diffContent: block,
+      stats: { additions, deletions }
+    }
+  })
+})
+
+const toggleFile = (fileName: string) => {
+  expandedFile.value = expandedFile.value === fileName ? null : fileName
+}
+
+const renderFileDiff = (diffContent: string) => {
+  return diff2htmlHtml(diffContent, {
+    drawFileList: false,
     matching: 'lines',
     outputFormat: viewType.value,
     renderNothingWhenEmpty: false,
@@ -35,16 +67,11 @@ const render = () => {
   })
 }
 
-watch(() => [props.diffContent, viewType.value], render, { immediate: true })
-
 const toggleView = () => {
   viewType.value = viewType.value === 'side-by-side' ? 'line-by-line' : 'side-by-side'
 }
 
-const fileCount = computed(() => {
-  if (!props.diffContent) return 0
-  return (props.diffContent.match(/^diff --git/gm) || []).length
-})
+const fileCount = computed(() => fileDiffs.value.length)
 
 const resolvedEmptyText = computed(() => props.emptyText || t('diff.empty'))
 </script>
@@ -65,7 +92,24 @@ const resolvedEmptyText = computed(() => props.emptyText || t('diff.empty'))
 
     <el-skeleton v-if="loading" :rows="10" animated />
 
-    <div v-else-if="diffHtml" class="diff-wrapper d2h-dark-color-scheme" v-html="diffHtml" />
+    <div v-else-if="fileDiffs.length" class="jv-file-diffs">
+      <div v-for="file in fileDiffs" :key="file.fileName" class="jv-file-diff-block">
+        <div class="jv-file-diff-header" @click="toggleFile(file.fileName)">
+          <div class="jv-file-diff-info">
+            <span class="jv-file-diff-icon">{{ expandedFile === file.fileName ? '▼' : '▶' }}</span>
+            <span class="jv-file-diff-name">{{ file.fileName }}</span>
+            <span class="jv-file-diff-stats">
+              <span class="additions">+{{ file.stats.additions }}</span>
+              <span class="deletions">-{{ file.stats.deletions }}</span>
+            </span>
+          </div>
+        </div>
+
+        <div v-if="expandedFile === file.fileName" class="jv-file-diff-content">
+          <div class="diff-wrapper d2h-dark-color-scheme" v-html="renderFileDiff(file.diffContent)" />
+        </div>
+      </div>
+    </div>
 
     <el-empty v-else :description="resolvedEmptyText" />
   </div>
@@ -194,5 +238,79 @@ const resolvedEmptyText = computed(() => props.emptyText || t('diff.empty'))
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-disabled);
+}
+
+/* 文件列表 */
+.jv-file-diffs {
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.jv-file-diff-block {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.jv-file-diff-block:last-child {
+  border-bottom: none;
+}
+
+.jv-file-diff-header {
+  background: var(--bg-base);
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background .15s;
+  border-left: 3px solid var(--accent);
+}
+.jv-file-diff-header:hover {
+  background: var(--bg-hover);
+}
+
+.jv-file-diff-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jv-file-diff-icon {
+  font-size: 10px;
+  color: var(--text-disabled);
+  width: 12px;
+  transition: transform .2s;
+}
+
+.jv-file-diff-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent-light);
+  flex: 1;
+}
+
+.jv-file-diff-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.jv-file-diff-stats .additions {
+  color: #42be65;
+}
+.jv-file-diff-stats .deletions {
+  color: #fa4d56;
+}
+
+.jv-file-diff-content {
+  animation: slideDown .2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

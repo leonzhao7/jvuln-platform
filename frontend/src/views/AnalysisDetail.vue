@@ -91,41 +91,6 @@ const stage3Files = computed<any[]>(() =>
     relevanceLayer: file?.relevanceLayer || inferStage3Layer(file),
   }))
 )
-const stage3LayerOrder = [
-  'root_cause',
-  'enforcement_guard',
-  'policy_config',
-  'propagation_or_api_wiring',
-  'optional_support',
-  'uncategorized',
-]
-const stage3LayerGroups = computed(() =>
-  stage3LayerOrder
-    .map(layer => ({
-      layer,
-      files: stage3Files.value.filter(file => (file.relevanceLayer || 'uncategorized') === layer),
-    }))
-    .filter(group => group.files.length > 0)
-)
-const stage3LayerSummary = computed(() => {
-  const raw = stageData.value[3]?.layerSummary
-  if (Array.isArray(raw) && raw.length) {
-    return raw
-      .map((item: any) => ({
-        layer: item?.layer || 'uncategorized',
-        count: Number(item?.count || 0),
-      }))
-      .filter((item: any) => item.count > 0)
-  }
-  return stage3LayerGroups.value.map(group => ({
-    layer: group.layer,
-    count: group.files.length,
-  }))
-})
-const stage3TraditionalFileCount = computed(() =>
-  Number(stageData.value[3]?.traditionalAnalyzedFileCount ?? stage3Files.value.length)
-)
-const stage3RelevantFileCount = computed(() => stage3Files.value.length)
 const stage2Files = computed<any[]>(() => {
   const stage2 = stageData.value[2] ?? {}
   const files = Array.isArray(stage2.files) ? stage2.files : (Array.isArray(stage2.diffs) ? stage2.diffs : [])
@@ -134,17 +99,6 @@ const stage2Files = computed<any[]>(() => {
     changeType: file.changeType || 'modified',
   }))
 })
-const hasStage3CallChains = computed(() =>
-  stage3Files.value.some(file => Array.isArray(file.callChain) && file.callChain.length > 0)
-)
-const stage3CallChainGroups = computed(() =>
-  stage3LayerGroups.value
-    .map(group => ({
-      layer: group.layer,
-      files: group.files.filter(file => Array.isArray(file.callChain) && file.callChain.length > 0),
-    }))
-    .filter(group => group.files.length > 0)
-)
 
 const stageIcons = ['01', '02', '03', '04', '05']
 const stageNames = computed(() => array<string>('analysis.stageNames'))
@@ -327,11 +281,6 @@ const patchChangeTypeLabel = (changeType?: string) => {
   return t(`analysis.patch.changeTypes.${key}`)
 }
 
-const stage3LayerTitle = (layer?: string) =>
-  t(`analysis.stage3Layers.${layer || 'uncategorized'}.title`)
-
-const stage3LayerDescription = (layer?: string) =>
-  t(`analysis.stage3Layers.${layer || 'uncategorized'}.description`)
 
 const hasEvidenceList = (value: unknown) =>
   Array.isArray(value) && value.every(item => typeof item === 'string' || typeof item === 'number')
@@ -515,97 +464,6 @@ const renderMarkdown = (md: string) => {
                 :title="t('analysis.codeDiff')"
                 :empty-text="t('diff.empty')"
               />
-            </div>
-
-            <div v-if="stage3LayerSummary.length" class="jv-stage3-section">
-              <div class="jv-section-label" style="margin-bottom:12px">{{ t('analysis.stage3LayerSummary') }}</div>
-              <div class="jv-stage3-summary-meta">
-                {{ t('analysis.stage3RelevantFiles', { kept: stage3RelevantFileCount, total: stage3TraditionalFileCount }) }}
-              </div>
-              <div class="jv-stage3-summary-grid">
-                <div v-for="item in stage3LayerSummary" :key="`summary-${item.layer}`" class="jv-stage3-summary-card">
-                  <div class="jv-stage3-summary-title">{{ stage3LayerTitle(item.layer) }}</div>
-                  <div class="jv-stage3-summary-count">{{ item.count }}</div>
-                  <div class="jv-stage3-summary-desc">{{ stage3LayerDescription(item.layer) }}</div>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="stage3Files.length" class="jv-stage3-section">
-              <div class="jv-section-label" style="margin-bottom:12px">{{ t('analysis.cweAnalysis') }}</div>
-              <div v-for="group in stage3LayerGroups" :key="group.layer" class="jv-stage3-layer-group">
-                <div class="jv-stage3-layer-header">
-                  <div>
-                    <div class="jv-stage3-layer-title">{{ stage3LayerTitle(group.layer) }} ({{ group.files.length }})</div>
-                    <div class="jv-stage3-layer-desc">{{ stage3LayerDescription(group.layer) }}</div>
-                  </div>
-                </div>
-                <div v-for="(file, fi) in group.files" :key="`${group.layer}-${fi}`" class="jv-file-block">
-                  <div class="jv-file-header">
-                    <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">
-                      {{ file.fileName }}
-                    </span>
-                    <span class="jv-stage3-layer-badge">{{ stage3LayerTitle(file.relevanceLayer) }}</span>
-                  </div>
-                  <div v-if="file.relevanceReason" class="jv-stage3-file-reason">{{ file.relevanceReason }}</div>
-
-                  <div v-if="file.cweMatches?.length" style="margin-bottom:16px">
-                    <div class="jv-section-label" style="margin-bottom:8px">
-                      {{ t('analysis.cweMatches') }} ({{ file.cweMatches.length }})
-                    </div>
-                    <div v-for="c in file.cweMatches" :key="c.cweId + c.matchedCode" class="jv-cwe-block">
-                      <div class="cwe-id">{{ c.cweId }}: {{ c.cweName }}</div>
-                      <div class="cwe-code">{{ c.matchedCode }}</div>
-                      <div class="cwe-expl">{{ c.explanation }}</div>
-                    </div>
-                  </div>
-
-                  <div v-for="m in file.methods" :key="m.methodName" style="margin-bottom:16px">
-                    <div style="color:var(--text-primary); font-weight:500; font-size:13px; margin-bottom:8px; font-family:var(--font-mono)">
-                      {{ m.methodName }}()
-                      <span style="color:var(--text-disabled); font-weight:400; font-size:11px; margin-left:8px">
-                        → {{ m.calledMethods?.join(', ') }}
-                      </span>
-                    </div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px">
-                      <div>
-                        <div class="jv-code-label-vuln">{{ t('analysis.vulnerable') }}</div>
-                        <pre class="jv-code-vuln">{{ m.vulnerableCode }}</pre>
-                      </div>
-                      <div>
-                        <div class="jv-code-label-fixed">{{ t('analysis.fixed') }}</div>
-                        <pre class="jv-code-fixed">{{ m.fixedCode }}</pre>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="hasStage3CallChains" class="jv-stage3-section">
-              <div class="jv-section-label" style="margin-bottom:12px">{{ t('analysis.callChain') }}</div>
-              <template v-for="group in stage3CallChainGroups" :key="`chain-${group.layer}`">
-                <div class="jv-stage3-layer-header" style="margin-bottom:12px">
-                  <div>
-                    <div class="jv-stage3-layer-title">{{ stage3LayerTitle(group.layer) }} ({{ group.files.length }})</div>
-                    <div class="jv-stage3-layer-desc">{{ stage3LayerDescription(group.layer) }}</div>
-                  </div>
-                </div>
-                <div v-for="(file, fi) in group.files" :key="`chain-${group.layer}-${fi}`" class="jv-file-block">
-                  <div class="jv-file-header">
-                    <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">
-                      {{ file.fileName }}
-                    </span>
-                    <span class="jv-stage3-layer-badge">{{ stage3LayerTitle(file.relevanceLayer) }}</span>
-                  </div>
-                  <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
-                    <span v-for="(c, ci) in file.callChain" :key="c" class="jv-chain-item">
-                      {{ c }}
-                      <span v-if="Number(ci) < file.callChain.length - 1" style="color:var(--text-disabled); margin-left:6px">→</span>
-                    </span>
-                  </div>
-                </div>
-              </template>
             </div>
 
           </div>
@@ -1246,6 +1104,10 @@ const renderMarkdown = (md: string) => {
   border-left: 3px solid var(--accent);
   padding: 8px 12px;
   margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 /* Call chain */
