@@ -19,13 +19,8 @@
     <description>Java Vulnerability Analysis Platform</description>
 
     <modules>
-        <module>jvuln-store</module>
-        <module>jvuln-llm</module>
-        <module>jvuln-collector</module>
-        <module>jvuln-patcher</module>
-        <module>jvuln-analyzer</module>
-        <module>jvuln-pipeline</module>
-        <module>jvuln-generator</module>
+        <module>jvuln-utils</module>
+        <module>jvuln-stages</module>
         <module>jvuln-app</module>
     </modules>
 
@@ -39,37 +34,12 @@
             <!-- Internal modules -->
             <dependency>
                 <groupId>com.jvuln</groupId>
-                <artifactId>jvuln-store</artifactId>
+                <artifactId>jvuln-utils</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.jvuln</groupId>
-                <artifactId>jvuln-llm</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.jvuln</groupId>
-                <artifactId>jvuln-collector</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.jvuln</groupId>
-                <artifactId>jvuln-patcher</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.jvuln</groupId>
-                <artifactId>jvuln-analyzer</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.jvuln</groupId>
-                <artifactId>jvuln-pipeline</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.jvuln</groupId>
-                <artifactId>jvuln-generator</artifactId>
+                <artifactId>jvuln-stages</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
