@@ -772,7 +772,7 @@ const renderMarkdown = (md: string) => {
 /* Pipeline */
 .jv-pipeline-row {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 1px;
   background: var(--border-subtle);
   border: 1px solid var(--border-subtle);

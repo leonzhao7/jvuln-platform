@@ -21,7 +21,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Component
+//@Component  // Disabled: Gitee search returns too many false positives from affected products' issues
 public class GiteeSource implements IntelSource {
 
     private static final Logger log = LoggerFactory.getLogger(GiteeSource.class);

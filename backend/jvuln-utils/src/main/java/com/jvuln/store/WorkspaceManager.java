@@ -50,9 +50,8 @@ public class WorkspaceManager {
         switch (stageNum) {
             case 1: filename = "1_intelligence.json"; break;
             case 2: filename = "2_patch.json"; break;
-            case 3: filename = "3_analysis.json"; break;
-            case 4: filename = "4_reasoning.json"; break;
-            case 5: filename = "5_artifacts.json"; break;
+            case 3: filename = "3_reasoning.json"; break;
+            case 4: filename = "4_artifacts.json"; break;
             default: throw new IllegalArgumentException("Invalid stage: " + stageNum);
         }
         return getCvePath(cveId).resolve("stages").resolve(filename);

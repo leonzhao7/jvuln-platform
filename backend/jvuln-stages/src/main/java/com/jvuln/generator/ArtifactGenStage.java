@@ -183,8 +183,8 @@ public class ArtifactGenStage implements Stage {
 
             // Agent loop
             agentCtx.baseUserPrompt = userPrompt;
-            agentCtx.transcriptFile = cvePath.resolve("stages/5_transcript.jsonl");
-            agentCtx.contextSummaryFile = cvePath.resolve("stages/5_context_summary.md");
+            agentCtx.transcriptFile = cvePath.resolve("stages/4_transcript.jsonl");
+            agentCtx.contextSummaryFile = cvePath.resolve("stages/4_context_summary.md");
             agentCtx.baselineSnapshot = captureWorkspaceSnapshot(agentCtx);
             agentCtx.previousSnapshot = new LinkedHashMap<>(agentCtx.baselineSnapshot);
             appendTranscript(agentCtx, "session_start", 0, buildSessionStartEvent(agentCtx, resumedTurns));
@@ -252,9 +252,9 @@ public class ArtifactGenStage implements Stage {
                     output.put("pauseReason", errMsg);
                     output.put("pausedAtTurn", turn + 1);
                     output.remove("reproductionSteps");
-                    ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 5, output);
+                    ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 4, output);
                     ctx.reportProgress("Agent paused: " + errMsg);
-                    return StageResult.failure(5, name(), "Agent paused: " + errMsg);
+                    return StageResult.failure(4, name(), "Agent paused: " + errMsg);
                 }
 
                 messages.add(LlmRequest.Message.assistantWithBlocks(response.getContentBlocks()));
@@ -427,12 +427,12 @@ public class ArtifactGenStage implements Stage {
             }
             persistAttemptMemory(memoryFile, agentCtx, failureReason == null ? "completed" : "failed",
                     failureReason == null ? "" : failureReason);
-            ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 5, output);
+            ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 4, output);
             ctx.reportProgress("Agent completed in " + agentCtx.turns + " turns");
             if (failureReason != null) {
-                return StageResult.failure(5, name(), failureReason);
+                return StageResult.failure(4, name(), failureReason);
             }
-            return StageResult.success(5, name(), output);
+            return StageResult.success(4, name(), output);
 
         } finally {
             agentCtx.cleanup();

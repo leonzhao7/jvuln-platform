@@ -99,18 +99,25 @@ public class CveIntelligence {
         private final String url;
         private final String source;
         private final String summary;
+        private final String category;  // fix, analysis, advisory, poc, other
 
         public Article(String title, String url, String source, String summary) {
+            this(title, url, source, summary, null);
+        }
+
+        public Article(String title, String url, String source, String summary, String category) {
             this.title = title;
             this.url = url;
             this.source = source;
             this.summary = summary;
+            this.category = category;
         }
 
         public String getTitle() { return title; }
         public String getUrl() { return url; }
         public String getSource() { return source; }
         public String getSummary() { return summary; }
+        public String getCategory() { return category; }
     }
 
     public static class ReferenceFinding {

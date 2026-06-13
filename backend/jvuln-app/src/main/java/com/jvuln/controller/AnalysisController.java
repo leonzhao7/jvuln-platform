@@ -68,7 +68,7 @@ public class AnalysisController {
         task.setWorkspacePath("workspace/" + cveId);
         taskRepo.save(task);
 
-        for (int i = 1; i <= 5; i++) {
+        for (int i = 1; i <= 4; i++) {
             StageRecord record = new StageRecord();
             record.setCveId(cveId);
             record.setStageNum(i);
@@ -247,9 +247,9 @@ public class AnalysisController {
     @GetMapping("/{cveId}/stages/{stageNum}/json")
     public ResponseEntity<?> getStageJson(@PathVariable String cveId,
                                           @PathVariable int stageNum) {
-        if (stageNum < 1 || stageNum > 5) {
+        if (stageNum < 1 || stageNum > 4) {
             Map<String, String> err = new HashMap<>();
-            err.put("error", "stageNum must be between 1 and 5");
+            err.put("error", "stageNum must be between 1 and 4");
             return ResponseEntity.badRequest().body(err);
         }
         return readStageJson(cveId, stageNum);
@@ -286,7 +286,7 @@ public class AnalysisController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Sync DB stage statuses to match what's actually on disk. Stage 5 inspects its JSON status. */
+    /** Sync DB stage statuses to match what's actually on disk. Stage 4 inspects its JSON status. */
     @PostMapping("/{cveId}/sync-status")
     public ResponseEntity<?> syncStatus(@PathVariable String cveId) {
         CveTask task = taskRepo.findByCveId(cveId).orElse(null);
@@ -370,7 +370,7 @@ public class AnalysisController {
             }
             return StageFileStatus.completed();
         } catch (Exception e) {
-            return StageFileStatus.failed("Could not read Stage 5 data: " + e.getMessage());
+            return StageFileStatus.failed("Could not read Stage 4 data: " + e.getMessage());
         }
     }
 
@@ -412,7 +412,7 @@ public class AnalysisController {
 
     @SuppressWarnings("unchecked")
     private Object normalizeStageData(int stageNum, Object data) {
-        if (stageNum != 5 || !(data instanceof Map)) {
+        if (stageNum != 4 || !(data instanceof Map)) {
             return data;
         }
 
@@ -469,7 +469,7 @@ public class AnalysisController {
     @GetMapping("/{cveId}/transcript")
     public ResponseEntity<?> getTranscript(@PathVariable String cveId) {
         try {
-            Path transcriptFile = workspaceManager.getCvePath(cveId).resolve("stages/5_transcript.jsonl");
+            Path transcriptFile = workspaceManager.getCvePath(cveId).resolve("stages/4_transcript.jsonl");
             if (!Files.exists(transcriptFile)) {
                 return ResponseEntity.ok(Collections.emptyList());
             }
@@ -498,10 +498,9 @@ public class AnalysisController {
     private String stageName(int num) {
         switch (num) {
             case 1: return "Intelligence Collection";
-            case 2: return "Patch Locating";
-            case 3: return "Code Analysis";
-            case 4: return "Vulnerability Reasoning";
-            case 5: return "Artifact Generation";
+            case 2: return "Patch Analysis";
+            case 3: return "Vulnerability Reasoning";
+            case 4: return "Artifact Generation";
             default: return "Unknown";
         }
     }

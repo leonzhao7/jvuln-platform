@@ -49,9 +49,9 @@ public class ReasoningStage implements Stage {
 
         String intelligence = trimIntelligence(ctx.getCompletedStages().get(1).getData());
         Object rawDiffData  = ctx.getCompletedStages().get(2).getData();
-        StageResult stage3  = ctx.getCompletedStages().get(3);
-        String codeAnalysis = trimCodeAnalysis(stage3 != null ? stage3.getData() : null);
-        String vulnerabilityFacts = extractVulnerabilityFacts(stage3 != null ? stage3.getData() : null);
+        StageResult stage2  = ctx.getCompletedStages().get(2);
+        String codeAnalysis = trimCodeAnalysis(stage2 != null ? stage2.getData() : null);
+        String vulnerabilityFacts = extractVulnerabilityFacts(stage2 != null ? stage2.getData() : null);
 
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             if (attempt > 0) {
@@ -86,19 +86,19 @@ public class ReasoningStage implements Stage {
                     throw new RuntimeException("LLM response is empty after stripping markdown fence");
                 }
                 Object parsed = mapper.readValue(json, Object.class);
-                ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 4, parsed);
+                ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 3, parsed);
                 ctx.reportProgress("AI reasoning completed (tokens: "
                         + response.getPromptTokens() + "/" + response.getCompletionTokens() + ")");
-                return StageResult.success(4, name(), parsed);
+                return StageResult.success(3, name(), parsed);
             } catch (Exception e) {
                 log.warn("Reasoning attempt {} failed: {}", attempt + 1, e.getMessage());
                 if (attempt == MAX_RETRIES) {
-                    return StageResult.failure(4, name(),
+                    return StageResult.failure(3, name(),
                             "AI reasoning failed after " + (MAX_RETRIES + 1) + " attempts: " + e.getMessage());
                 }
             }
         }
-        return StageResult.failure(4, name(), "Unexpected reasoning failure");
+        return StageResult.failure(3, name(), "Unexpected reasoning failure");
     }
 
     /** Keep only the fields the reasoning prompt cares about. */
