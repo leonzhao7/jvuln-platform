@@ -25,7 +25,8 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Component
+// @Component - Disabled: merged into PatchAnalysisStage
+@Deprecated
 public class CodeAnalysisStage implements Stage {
 
     private static final Logger log = LoggerFactory.getLogger(CodeAnalysisStage.class);

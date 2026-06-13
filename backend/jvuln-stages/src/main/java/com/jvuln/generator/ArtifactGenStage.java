@@ -77,7 +77,7 @@ public class ArtifactGenStage implements Stage {
     }
 
     @Override
-    public int number() { return 5; }
+    public int number() { return 4; }
 
     @Override
     public String name() { return "Artifact Generation"; }
@@ -88,12 +88,12 @@ public class ArtifactGenStage implements Stage {
 
         Object rawIntelligence = ctx.getCompletedStages().get(1).getData();
         String intelligence = trimIntelligence(rawIntelligence);
-        log.info("Stage 5 intelligence (first 500 chars): {}", intelligence.substring(0, Math.min(500, intelligence.length())));
+        log.info("Stage 4 intelligence (first 500 chars): {}", intelligence.substring(0, Math.min(500, intelligence.length())));
         String patchDiff = extractDiff(ctx, ctx.getCompletedStages().get(2).getData(), 4000);
-        StageResult stage3 = ctx.getCompletedStages().get(3);
-        String vulnerabilityFacts = extractVulnerabilityFacts(stage3 != null ? stage3.getData() : null);
-        String triggerChain = extractTriggerChain(ctx.getCompletedStages().get(4).getData());
-        String rootCause = extractRootCause(ctx.getCompletedStages().get(4).getData());
+        StageResult stage2 = ctx.getCompletedStages().get(2);
+        String vulnerabilityFacts = extractVulnerabilityFacts(stage2 != null ? stage2.getData() : null);
+        String triggerChain = extractTriggerChain(ctx.getCompletedStages().get(3).getData());
+        String rootCause = extractRootCause(ctx.getCompletedStages().get(3).getData());
         String artifact = extractArtifact(rawIntelligence);
         JavaProfile javaProfile = resolveJavaProfile(ctx, rawIntelligence);
         log.info("Selected Java profile: {} (Java {} / Spring Boot {})",
@@ -106,8 +106,8 @@ public class ArtifactGenStage implements Stage {
         AgentContext agentCtx = new AgentContext(cvePath, ctx);
         agentCtx.verificationPlan = verificationPlan;
         agentCtx.javaProfile = javaProfile;
-        Path checkpointFile = cvePath.resolve("stages/5_checkpoint.json");
-        Path memoryFile = cvePath.resolve("stages/5_memory.json");
+        Path checkpointFile = cvePath.resolve("stages/4_checkpoint.json");
+        Path memoryFile = cvePath.resolve("stages/4_memory.json");
 
         try {
             writeMinimalSkeleton(cvePath.resolve("vuln-demo"), javaProfile);
@@ -141,8 +141,8 @@ public class ArtifactGenStage implements Stage {
                 try {
                     JsonNode ckpt = mapper.readTree(checkpointFile.toFile());
                     resumedTurns = ckpt.path("completedTurns").asInt(0);
-                    log.info("Found Stage 5 checkpoint from previous attempt at turn {}", resumedTurns);
-                    ctx.reportProgress("Loaded previous Stage 5 checkpoint from turn " + resumedTurns);
+                    log.info("Found Stage 4 checkpoint from previous attempt at turn {}", resumedTurns);
+                    ctx.reportProgress("Loaded previous Stage 4 checkpoint from turn " + resumedTurns);
                 } catch (Exception e) {
                     log.warn("Could not read checkpoint, starting fresh: {}", e.getMessage());
                 }
@@ -157,7 +157,7 @@ public class ArtifactGenStage implements Stage {
             if ((resumedTurns > 0 || memory.hasRecords()) && !agentCtx.existingFiles.isEmpty()) {
                 StringBuilder sb = new StringBuilder(baseUserPrompt);
                 sb.append("\n\n## RESUME CONTEXT\n");
-                sb.append("This is a fresh Stage 5 attempt.\n");
+                sb.append("This is a fresh Stage 4 attempt.\n");
                 if (resumedTurns > 0) {
                     sb.append("The previous attempt stopped after ").append(resumedTurns).append(" turns.\n");
                 }
@@ -448,7 +448,7 @@ public class ArtifactGenStage implements Stage {
             ckpt.put("error", error);
             ckpt.put("writtenFiles", new ArrayList<>(ctx.writtenFiles));
             ckpt.put("timestamp", System.currentTimeMillis());
-            Path file = cvePath.resolve("stages/5_checkpoint.json");
+            Path file = cvePath.resolve("stages/4_checkpoint.json");
             Files.createDirectories(file.getParent());
             mapper.writeValue(file.toFile(), ckpt);
             log.info("Saved checkpoint at turn {}", ctx.turns);
@@ -546,7 +546,7 @@ public class ArtifactGenStage implements Stage {
                 + "\nThe next BACKEND CONTEXT PACKET is authoritative for current files and validation state."));
         ctx.compactionCount++;
         appendTranscript(ctx, "compact", ctx.turns, summary);
-        log.info("Compacted Stage 5 agent context: reason={} previousChars={} compactions={}",
+        log.info("Compacted Stage 4 agent context: reason={} previousChars={} compactions={}",
                 reason, chars, ctx.compactionCount);
     }
 
@@ -861,7 +861,7 @@ public class ArtifactGenStage implements Stage {
             Files.write(ctx.transcriptFile, line.getBytes(StandardCharsets.UTF_8),
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (Exception e) {
-            log.warn("Failed to append Stage 5 transcript: {}", e.getMessage());
+            log.warn("Failed to append Stage 4 transcript: {}", e.getMessage());
         }
     }
 
@@ -891,7 +891,7 @@ public class ArtifactGenStage implements Stage {
             Files.createDirectories(ctx.contextSummaryFile.getParent());
             Files.write(ctx.contextSummaryFile, summary.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
-            log.warn("Failed to write Stage 5 context summary: {}", e.getMessage());
+            log.warn("Failed to write Stage 4 context summary: {}", e.getMessage());
         }
     }
 
@@ -1033,7 +1033,7 @@ public class ArtifactGenStage implements Stage {
         Map<String, Object> planSchema = new LinkedHashMap<>();
         planSchema.put("type", "object");
         Map<String, Object> planProps = new LinkedHashMap<>();
-        planProps.put("goal", prop("string", "Short goal for this Stage 5 attempt. MUST start with the exact CVE ID from the system prompt (e.g., 'Build CVE-YYYY-NNNNN reproduction environment')."));
+        planProps.put("goal", prop("string", "Short goal for this Stage 4 attempt. MUST start with the exact CVE ID from the system prompt (e.g., 'Build CVE-YYYY-NNNNN reproduction environment')."));
         planProps.put("firstBatchFiles", stringArrayProp("Files to generate in the first broad batch"));
         planProps.put("minimalDeliverables", stringArrayProp("Smallest runnable candidate to prove before polishing"));
         planProps.put("validationSequence", stringArrayProp("Planned validation order, for example build -> startup -> poc"));
@@ -1780,7 +1780,7 @@ public class ArtifactGenStage implements Stage {
         try {
             return AttemptMemory.fromJson(mapper.readTree(file.toFile()));
         } catch (Exception e) {
-            log.warn("Could not load Stage 5 memory: {}", e.getMessage());
+            log.warn("Could not load Stage 4 memory: {}", e.getMessage());
             return new AttemptMemory();
         }
     }
@@ -1810,7 +1810,7 @@ public class ArtifactGenStage implements Stage {
             mapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), memory.toMap());
             ctx.attemptMemory = memory;
         } catch (Exception e) {
-            log.warn("Failed to persist Stage 5 memory: {}", e.getMessage());
+            log.warn("Failed to persist Stage 4 memory: {}", e.getMessage());
         }
     }
 
@@ -2326,7 +2326,7 @@ public class ArtifactGenStage implements Stage {
         if (ctx.noProgressTurns >= MAX_NO_PROGRESS_TURNS) {
             String validation = ctx.lastValidation == null ? "none" : ctx.lastValidation.summary();
             String gap = ctx.lastDirective == null ? "" : ctx.lastDirective.gap;
-            ctx.abortReason = "Stage 5 stopped after " + ctx.noProgressTurns
+            ctx.abortReason = "Stage 4 stopped after " + ctx.noProgressTurns
                     + " consecutive no-progress turns. Phase=" + ctx.phase
                     + ", validation=" + validation
                     + (gap == null || gap.isEmpty() ? "" : ", gap=" + gap)

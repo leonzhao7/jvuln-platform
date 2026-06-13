@@ -23,100 +23,26 @@ const transcriptExpanded = ref(false)
 const sseMessages = ref<string[]>([])
 let evtSource: EventSource | null = null
 
-function lowerText(value: unknown) {
-  return typeof value === 'string' ? value.toLowerCase() : ''
-}
-
-function inferStage3Layer(file: any) {
-  const fileName = lowerText(file?.fileName)
-  const reason = lowerText(file?.relevanceReason)
-  const methods = Array.isArray(file?.methods) ? file.methods.map((m: any) => lowerText(m?.methodName)).join(' ') : ''
-  const cwes = Array.isArray(file?.cweMatches) ? file.cweMatches.map((m: any) => lowerText(m?.cweId)).join(' ') : ''
-  const combined = `${fileName}\n${reason}\n${methods}\n${cwes}`
-
-  if (fileName.includes('trustedprefixestaginspector')
-      || fileName.includes('trustedtaginspector')
-      || fileName.includes('customclassloaderconstructor')
-      || fileName.includes('/internal/logger')) {
-    return 'optional_support'
-  }
-  if (fileName.includes('loaderoptions')
-      || fileName.includes('config')
-      || fileName.includes('settings')
-      || fileName.includes('policy')
-      || fileName.includes('options')) {
-    return 'policy_config'
-  }
-  if (combined.includes('inspector')
-      || combined.includes('validator')
-      || combined.includes('guard')
-      || combined.includes('deny')
-      || combined.includes('allowlist')
-      || combined.includes('whitelist')
-      || combined.includes('isglobaltagallowed')
-      || combined.includes('restrict')
-      || combined.includes('enforces')
-      || combined.includes('blocks unsafe')) {
-    return 'enforcement_guard'
-  }
-  if (cwes
-      || combined.includes('directly implicated')
-      || combined.includes('unsafe java object constructor')
-      || combined.includes('object construction path')
-      || combined.includes('arbitrary type instantiation')
-      || combined.includes('sink')) {
-    return 'root_cause'
-  }
-  if (combined.includes('wires')
-      || combined.includes('wire')
-      || combined.includes('propagat')
-      || combined.includes('carries')
-      || combined.includes('api boundary')
-      || combined.includes('tag semantics')
-      || combined.includes('/nodes/')
-      || combined.includes('/yaml.java')
-      || combined.includes('/tag.java')
-      || combined.includes('/node.java')
-      || combined.includes('/composer/')) {
-    return 'propagation_or_api_wiring'
-  }
-  return 'uncategorized'
-}
-
 const task = computed(() => detail.value?.task)
 const stages = computed(() => detail.value?.stages ?? [])
-const stage3Files = computed<any[]>(() =>
-  (stageData.value[3]?.analyzedFiles ?? []).map((file: any) => ({
-    ...file,
-    relevanceLayer: file?.relevanceLayer || inferStage3Layer(file),
-  }))
-)
-const stage2Files = computed<any[]>(() => {
-  const stage2 = stageData.value[2] ?? {}
-  const files = Array.isArray(stage2.files) ? stage2.files : (Array.isArray(stage2.diffs) ? stage2.diffs : [])
-  return files.map((file: any) => ({
-    filePath: file.filePath,
-    changeType: file.changeType || 'modified',
-  }))
-})
 
-const stageIcons = ['01', '02', '03', '04', '05']
+const stageIcons = ['01', '02', '03', '04']
 const stageNames = computed(() => array<string>('analysis.stageNames'))
 
 const selectedStageRecord = computed(() =>
   stages.value.find(s => s.stageNum === selectedStage.value)
 )
-const stage5Data = computed(() => stageData.value[5] ?? null)
-const stage5PocFiles = computed<any[]>(() =>
-  (stage5Data.value?.files ?? []).filter((item: any) => item.type === 'poc')
+const stage4Data = computed(() => stageData.value[4] ?? null)
+const stage4PocFiles = computed<any[]>(() =>
+  (stage4Data.value?.files ?? []).filter((item: any) => item.type === 'poc')
 )
-const stage5ValidationArtifacts = computed(() => {
-  const artifacts = stage5Data.value?.validation?.artifacts
+const stage4ValidationArtifacts = computed(() => {
+  const artifacts = stage4Data.value?.validation?.artifacts
   if (!artifacts || typeof artifacts !== 'object') return []
   return Object.entries(artifacts).map(([key, value]) => ({ key, value }))
 })
-const stage5PlanSections = computed(() => {
-  const plan = stage5Data.value?.executionPlan
+const stage4PlanSections = computed(() => {
+  const plan = stage4Data.value?.executionPlan
   if (!plan) return []
   return [
     { key: 'firstBatchFiles', label: t('analysis.artifacts.planFirstBatchFiles'), items: plan.firstBatchFiles ?? [] },
@@ -165,10 +91,9 @@ const loadStageData = async () => {
 
   try { stageData.value[1] = await api.getIntelligence(cveId) } catch {}
   try { stageData.value[2] = await api.getPatch(cveId) } catch {}
-  try { stageData.value[3] = await api.getCodeAnalysis(cveId) } catch {}
-  try { stageData.value[4] = await api.getReasoning(cveId) } catch {}
+  try { stageData.value[3] = await api.getReasoning(cveId) } catch {}
   try {
-    stageData.value[5] = await api.getArtifacts(cveId)
+    stageData.value[4] = await api.getArtifacts(cveId)
     try { const r = await api.getReport(cveId); reportMarkdown.value = r.markdown } catch {}
     try { transcriptEvents.value = await api.getTranscript(cveId) } catch { transcriptEvents.value = [] }
   } catch {}
@@ -274,11 +199,6 @@ const severityClass = (s: string) => {
   if (v.includes('HIGH') || v.includes('高')) return 'jv-tag jv-tag-high'
   if (v.includes('MEDIUM') || v.includes('中')) return 'jv-tag jv-tag-medium'
   return 'jv-tag jv-tag-low'
-}
-
-const patchChangeTypeLabel = (changeType?: string) => {
-  const key = changeType || 'modified'
-  return t(`analysis.patch.changeTypes.${key}`)
 }
 
 
@@ -421,42 +341,23 @@ const renderMarkdown = (md: string) => {
           <el-empty v-else :description="t('analysis.intelligenceUnavailable')" />
         </div>
 
-        <!-- Patch Locate -->
+        <!-- Patch Analysis (Combined Stage 2 & 3) -->
         <div v-else-if="selectedStage === 2">
           <div v-if="stageData[2]">
+            <!-- Patch Info -->
             <el-descriptions :column="2" border size="small">
               <el-descriptions-item :label="t('analysis.patch.commitHash')">
-                <span style="font-family:var(--font-mono)">{{ stageData[2].commitHash || '—' }}</span>
+                <span style="font-family:var(--font-mono)">{{ stageData[2].patchInfo?.commitHash || '—' }}</span>
               </el-descriptions-item>
               <el-descriptions-item :label="t('analysis.patch.strategy')">
-                <span style="font-family:var(--font-mono)">{{ stageData[2].strategy || '—' }}</span>
+                <span style="font-family:var(--font-mono)">{{ stageData[2].patchInfo?.strategyName || '—' }}</span>
               </el-descriptions-item>
               <el-descriptions-item :label="t('analysis.patch.commitMessage')" :span="2">
-                {{ stageData[2].commitMessage || '—' }}
+                {{ stageData[2].patchInfo?.commitMessage || '—' }}
               </el-descriptions-item>
             </el-descriptions>
 
-            <div v-if="stage2Files.length" class="jv-patch-files">
-              <div class="jv-section-label">
-                {{ t('analysis.patch.changedFiles') }} ({{ stage2Files.length }})
-              </div>
-              <div v-for="file in stage2Files" :key="file.filePath" class="jv-patch-file">
-                <div class="jv-patch-file-header">
-                  <span>{{ file.filePath }}</span>
-                  <span :class="['jv-patch-change-type', `jv-patch-change-${file.changeType}`]">
-                    {{ patchChangeTypeLabel(file.changeType) }}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-          </div>
-          <el-empty v-else :description="t('analysis.patchUnavailable')" />
-        </div>
-
-        <!-- Code Analysis -->
-        <div v-else-if="selectedStage === 3">
-          <div v-if="stage3Files.length || diffContent">
+            <!-- Diff Viewer -->
             <div v-if="diffContent || diffLoading" class="jv-stage3-section">
               <DiffViewer
                 :diff-content="diffContent"
@@ -467,41 +368,41 @@ const renderMarkdown = (md: string) => {
             </div>
 
           </div>
-          <el-empty v-else :description="t('analysis.codeAnalysisUnavailable')" />
+          <el-empty v-else :description="t('analysis.patchUnavailable')" />
         </div>
 
         <!-- AI Reasoning -->
-        <div v-else-if="selectedStage === 4">
-          <div v-if="stageData[4]" class="jv-reasoning">
+        <div v-else-if="selectedStage === 3">
+          <div v-if="stageData[3]" class="jv-reasoning">
 
             <!-- Trigger Chain -->
-            <div v-if="stageData[4].trigger_chain" class="jv-reasoning-section">
+            <div v-if="stageData[3].trigger_chain" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.reasoning.triggerChain') }}</div>
               <div class="jv-reasoning-field">
                 <span class="jv-field-label">{{ t('analysis.reasoning.triggerSummary') }}:</span>
-                {{ stageData[4].trigger_chain.summary }}
+                {{ stageData[3].trigger_chain.summary }}
               </div>
               <div class="jv-trigger-steps">
-                <div v-for="step in stageData[4].trigger_chain.steps" :key="step.seq" class="jv-trigger-step">
+                <div v-for="step in stageData[3].trigger_chain.steps" :key="step.seq" class="jv-trigger-step">
                   <span class="jv-step-seq">{{ step.seq }}</span>
                   <span class="jv-step-class">{{ step.class }}.{{ step.method }}()</span>
                   <span class="jv-step-desc">{{ step.description }}</span>
                 </div>
               </div>
               <div class="jv-reasoning-meta">
-                <span><span class="jv-field-label">{{ t('analysis.reasoning.entryPoint') }}:</span> {{ stageData[4].trigger_chain.entry_point }}</span>
-                <span><span class="jv-field-label">{{ t('analysis.reasoning.sink') }}:</span> {{ stageData[4].trigger_chain.sink }}</span>
+                <span><span class="jv-field-label">{{ t('analysis.reasoning.entryPoint') }}:</span> {{ stageData[3].trigger_chain.entry_point }}</span>
+                <span><span class="jv-field-label">{{ t('analysis.reasoning.sink') }}:</span> {{ stageData[3].trigger_chain.sink }}</span>
               </div>
             </div>
 
             <!-- Code Analysis -->
-            <div v-if="stageData[4].code_analysis" class="jv-reasoning-section">
+            <div v-if="stageData[3].code_analysis" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.reasoning.rootCause') }}</div>
-              <div class="jv-reasoning-text">{{ stageData[4].code_analysis.vuln_root_cause }}</div>
+              <div class="jv-reasoning-text">{{ stageData[3].code_analysis.vuln_root_cause }}</div>
 
-              <div v-if="stageData[4].code_analysis.vuln_code_walkthrough?.length" style="margin-top:12px">
+              <div v-if="stageData[3].code_analysis.vuln_code_walkthrough?.length" style="margin-top:12px">
                 <div class="jv-field-label" style="margin-bottom:6px">{{ t('analysis.reasoning.codeWalkthrough') }}</div>
-                <div v-for="(w, i) in stageData[4].code_analysis.vuln_code_walkthrough" :key="i" class="jv-walkthrough-item">
+                <div v-for="(w, i) in stageData[3].code_analysis.vuln_code_walkthrough" :key="i" class="jv-walkthrough-item">
                   <code class="jv-walkthrough-line">{{ w.line }}</code>
                   <span class="jv-walkthrough-expl">{{ w.explanation }}</span>
                 </div>
@@ -509,56 +410,56 @@ const renderMarkdown = (md: string) => {
 
               <div class="jv-reasoning-field" style="margin-top:12px">
                 <span class="jv-field-label">{{ t('analysis.reasoning.fixDescription') }}:</span>
-                {{ stageData[4].code_analysis.fix_description }}
+                {{ stageData[3].code_analysis.fix_description }}
               </div>
               <div class="jv-reasoning-field">
                 <span class="jv-field-label">{{ t('analysis.reasoning.fixCompleteness') }}:</span>
-                {{ stageData[4].code_analysis.fix_completeness }}
+                {{ stageData[3].code_analysis.fix_completeness }}
               </div>
             </div>
 
             <!-- Impact -->
-            <div v-if="stageData[4].impact" class="jv-reasoning-section">
+            <div v-if="stageData[3].impact" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.reasoning.impact') }}</div>
               <div class="jv-reasoning-meta">
-                <span><span class="jv-field-label">{{ t('analysis.reasoning.severity') }}:</span> <span :class="severityClass(stageData[4].impact.severity)">{{ stageData[4].impact.severity }}</span></span>
-                <span><span class="jv-field-label">{{ t('analysis.reasoning.attackVector') }}:</span> {{ stageData[4].impact.attack_vector }}</span>
+                <span><span class="jv-field-label">{{ t('analysis.reasoning.severity') }}:</span> <span :class="severityClass(stageData[3].impact.severity)">{{ stageData[3].impact.severity }}</span></span>
+                <span><span class="jv-field-label">{{ t('analysis.reasoning.attackVector') }}:</span> {{ stageData[3].impact.attack_vector }}</span>
               </div>
-              <div v-if="stageData[4].impact.prerequisites?.length" class="jv-reasoning-field">
+              <div v-if="stageData[3].impact.prerequisites?.length" class="jv-reasoning-field">
                 <span class="jv-field-label">{{ t('analysis.reasoning.prerequisites') }}:</span>
-                <ul class="jv-inline-list"><li v-for="p in stageData[4].impact.prerequisites" :key="p">{{ p }}</li></ul>
+                <ul class="jv-inline-list"><li v-for="p in stageData[3].impact.prerequisites" :key="p">{{ p }}</li></ul>
               </div>
-              <div v-if="stageData[4].impact.consequences?.length" class="jv-reasoning-field">
+              <div v-if="stageData[3].impact.consequences?.length" class="jv-reasoning-field">
                 <span class="jv-field-label">{{ t('analysis.reasoning.consequences') }}:</span>
-                <ul class="jv-inline-list"><li v-for="c in stageData[4].impact.consequences" :key="c">{{ c }}</li></ul>
+                <ul class="jv-inline-list"><li v-for="c in stageData[3].impact.consequences" :key="c">{{ c }}</li></ul>
               </div>
-              <div v-if="stageData[4].impact.real_world_scenarios?.length" class="jv-reasoning-field">
+              <div v-if="stageData[3].impact.real_world_scenarios?.length" class="jv-reasoning-field">
                 <span class="jv-field-label">{{ t('analysis.reasoning.realWorldScenarios') }}:</span>
-                <ul class="jv-inline-list"><li v-for="s in stageData[4].impact.real_world_scenarios" :key="s">{{ s }}</li></ul>
+                <ul class="jv-inline-list"><li v-for="s in stageData[3].impact.real_world_scenarios" :key="s">{{ s }}</li></ul>
               </div>
             </div>
 
             <!-- Secure Coding -->
-            <div v-if="stageData[4].secure_coding" class="jv-reasoning-section">
+            <div v-if="stageData[3].secure_coding" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.reasoning.secureCoding') }}</div>
-              <div v-if="stageData[4].secure_coding.violated_principles?.length" class="jv-reasoning-field">
+              <div v-if="stageData[3].secure_coding.violated_principles?.length" class="jv-reasoning-field">
                 <span class="jv-field-label">{{ t('analysis.reasoning.violatedPrinciples') }}:</span>
-                <ul class="jv-inline-list"><li v-for="v in stageData[4].secure_coding.violated_principles" :key="v">{{ v }}</li></ul>
+                <ul class="jv-inline-list"><li v-for="v in stageData[3].secure_coding.violated_principles" :key="v">{{ v }}</li></ul>
               </div>
-              <div v-if="stageData[4].secure_coding.recommendations?.length" class="jv-reasoning-field">
+              <div v-if="stageData[3].secure_coding.recommendations?.length" class="jv-reasoning-field">
                 <span class="jv-field-label">{{ t('analysis.reasoning.recommendations') }}:</span>
-                <ul class="jv-inline-list"><li v-for="r in stageData[4].secure_coding.recommendations" :key="r">{{ r }}</li></ul>
+                <ul class="jv-inline-list"><li v-for="r in stageData[3].secure_coding.recommendations" :key="r">{{ r }}</li></ul>
               </div>
-              <div v-if="stageData[4].secure_coding.similar_patterns?.length" class="jv-reasoning-field">
+              <div v-if="stageData[3].secure_coding.similar_patterns?.length" class="jv-reasoning-field">
                 <span class="jv-field-label">{{ t('analysis.reasoning.similarPatterns') }}:</span>
-                <ul class="jv-inline-list"><li v-for="s in stageData[4].secure_coding.similar_patterns" :key="s">{{ s }}</li></ul>
+                <ul class="jv-inline-list"><li v-for="s in stageData[3].secure_coding.similar_patterns" :key="s">{{ s }}</li></ul>
               </div>
             </div>
 
             <!-- Detection Points -->
-            <div v-if="stageData[4].detection_points?.length" class="jv-reasoning-section">
-              <div class="jv-section-label">{{ t('analysis.reasoning.detectionPoints') }} ({{ stageData[4].detection_points.length }})</div>
-              <div v-for="dp in stageData[4].detection_points" :key="dp.id" class="jv-dp-card">
+            <div v-if="stageData[3].detection_points?.length" class="jv-reasoning-section">
+              <div class="jv-section-label">{{ t('analysis.reasoning.detectionPoints') }} ({{ stageData[3].detection_points.length }})</div>
+              <div v-for="dp in stageData[3].detection_points" :key="dp.id" class="jv-dp-card">
                 <div class="jv-dp-header">
                   <span class="jv-dp-id">{{ dp.id }}</span>
                   <span :class="'jv-dp-type jv-dp-type-' + dp.type">{{ t(`analysis.reasoning.dpTypes.${dp.type}`) }}</span>
@@ -607,153 +508,153 @@ const renderMarkdown = (md: string) => {
 
           </div>
           <div v-else style="text-align:center; padding:40px">
-            <div v-if="stages.find(s => s.stageNum === 4 && s.status === 'FAILED')"
+            <div v-if="stages.find(s => s.stageNum === 3 && s.status === 'FAILED')"
               style="color:var(--critical)">
-              {{ t('analysis.stage4Failed', { error: stages.find(s => s.stageNum === 4)?.errorMsg ?? '' }) }}
+              {{ t('analysis.stage4Failed', { error: stages.find(s => s.stageNum === 3)?.errorMsg ?? '' }) }}
               <br/>
-              <el-button style="margin-top:12px" @click="rerun(4)">{{ t('analysis.retryReasoning') }}</el-button>
+              <el-button style="margin-top:12px" @click="rerun(3)">{{ t('analysis.retryReasoning') }}</el-button>
             </div>
             <div v-else style="color:var(--text-disabled)">{{ t('analysis.reasoningUnavailable') }}</div>
           </div>
         </div>
 
         <!-- Artifacts / Education Lab -->
-        <div v-else-if="selectedStage === 5">
-          <div v-if="stageData[5] && (stageData[5].status === 'generated' || stageData[5].status === 'paused')">
+        <div v-else-if="selectedStage === 4">
+          <div v-if="stageData[4] && (stageData[4].status === 'generated' || stageData[4].status === 'paused')">
 
             <!-- Paused banner -->
-            <div v-if="stageData[5].status === 'paused'" class="jv-paused-banner">
+            <div v-if="stageData[4].status === 'paused'" class="jv-paused-banner">
               <div class="jv-paused-title">{{ t('analysis.artifacts.pausedTitle') }}</div>
-              <div class="jv-paused-reason">{{ stageData[5].pauseReason }}</div>
+              <div class="jv-paused-reason">{{ stageData[4].pauseReason }}</div>
               <div style="margin-top:8px; font-size:12px; color:var(--text-secondary)">
-                {{ t('analysis.artifacts.pausedAt', { turn: stageData[5].pausedAtTurn }) }}
+                {{ t('analysis.artifacts.pausedAt', { turn: stageData[4].pausedAtTurn }) }}
               </div>
-              <el-button type="primary" size="small" style="margin-top:10px" @click="rerun(5)">
+              <el-button type="primary" size="small" style="margin-top:10px" @click="rerun(4)">
                 {{ t('analysis.artifacts.continueAgent') }}
               </el-button>
             </div>
 
             <!-- Verification Status -->
             <div class="jv-artifacts-status">
-              <span class="jv-vstatus" :class="vstClass(artifactCompileStatus(stageData[5]))">
-                {{ t('analysis.artifacts.compileStatus') }}: {{ vstLabel(artifactCompileStatus(stageData[5])) }}
+              <span class="jv-vstatus" :class="vstClass(artifactCompileStatus(stageData[4]))">
+                {{ t('analysis.artifacts.compileStatus') }}: {{ vstLabel(artifactCompileStatus(stageData[4])) }}
               </span>
-              <span class="jv-vstatus" :class="vstClass(artifactStartupStatus(stageData[5]))">
-                {{ t('analysis.artifacts.startupStatus') }}: {{ vstLabel(artifactStartupStatus(stageData[5])) }}
+              <span class="jv-vstatus" :class="vstClass(artifactStartupStatus(stageData[4]))">
+                {{ t('analysis.artifacts.startupStatus') }}: {{ vstLabel(artifactStartupStatus(stageData[4])) }}
               </span>
-              <span class="jv-vstatus" :class="vstClass(stageData[5].poc?.status)">
-                {{ t('analysis.artifacts.pocStatus') }}: {{ vstLabel(stageData[5].poc?.status) }}
+              <span class="jv-vstatus" :class="vstClass(stageData[4].poc?.status)">
+                {{ t('analysis.artifacts.pocStatus') }}: {{ vstLabel(stageData[4].poc?.status) }}
               </span>
             </div>
 
             <div class="jv-artifacts-summary">
-              <span>{{ t('analysis.artifacts.fileCount', { count: stageData[5].fileCount ?? 0 }) }}</span>
-              <span v-if="stageData[5].agentTurns != null">{{ t('analysis.artifacts.agentTurns') }}: {{ stageData[5].agentTurns }}</span>
-              <span v-if="stageData[5].reviewRevisions != null">{{ t('analysis.artifacts.reviewRevisions') }}: {{ stageData[5].reviewRevisions }}</span>
-              <span v-if="stageData[5].javaProfile">{{ t('analysis.artifacts.javaProfile') }}: {{ stageData[5].javaProfile.name }} (Java {{ stageData[5].javaProfile.javaVersion }}, Spring Boot {{ stageData[5].javaProfile.springBootVersion }})</span>
+              <span>{{ t('analysis.artifacts.fileCount', { count: stageData[4].fileCount ?? 0 }) }}</span>
+              <span v-if="stageData[4].agentTurns != null">{{ t('analysis.artifacts.agentTurns') }}: {{ stageData[4].agentTurns }}</span>
+              <span v-if="stageData[4].reviewRevisions != null">{{ t('analysis.artifacts.reviewRevisions') }}: {{ stageData[4].reviewRevisions }}</span>
+              <span v-if="stageData[4].javaProfile">{{ t('analysis.artifacts.javaProfile') }}: {{ stageData[4].javaProfile.name }} (Java {{ stageData[4].javaProfile.javaVersion }}, Spring Boot {{ stageData[4].javaProfile.springBootVersion }})</span>
             </div>
 
-            <div v-if="stageData[5].executionPlan" class="jv-reasoning-section">
+            <div v-if="stageData[4].executionPlan" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.artifacts.executionPlan') }}</div>
-              <div class="jv-stage5-plan-grid">
-                <div class="jv-stage5-plan-card">
-                  <div class="jv-stage5-card-label">{{ t('analysis.artifacts.planGoal') }}</div>
-                  <div class="jv-stage5-card-text">{{ stageData[5].executionPlan.goal }}</div>
+              <div class="jv-stage4-plan-grid">
+                <div class="jv-stage4-plan-card">
+                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.planGoal') }}</div>
+                  <div class="jv-stage4-card-text">{{ stageData[4].executionPlan.goal }}</div>
                 </div>
-                <div class="jv-stage5-plan-card">
-                  <div class="jv-stage5-card-label">{{ t('analysis.artifacts.planReportStrategy') }}</div>
-                  <div class="jv-stage5-card-text">{{ stageData[5].executionPlan.reportStrategy }}</div>
+                <div class="jv-stage4-plan-card">
+                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.planReportStrategy') }}</div>
+                  <div class="jv-stage4-card-text">{{ stageData[4].executionPlan.reportStrategy }}</div>
                 </div>
               </div>
-              <div v-if="stage5PlanSections.length" class="jv-stage5-plan-lists">
-                <div v-for="section in stage5PlanSections" :key="section.key" class="jv-stage5-plan-list">
-                  <div class="jv-stage5-card-label">{{ section.label }}</div>
-                  <ul class="jv-stage5-list">
+              <div v-if="stage4PlanSections.length" class="jv-stage4-plan-lists">
+                <div v-for="section in stage4PlanSections" :key="section.key" class="jv-stage4-plan-list">
+                  <div class="jv-stage4-card-label">{{ section.label }}</div>
+                  <ul class="jv-stage4-list">
                     <li v-for="item in section.items" :key="`${section.key}-${item}`">{{ item }}</li>
                   </ul>
                 </div>
               </div>
             </div>
 
-            <div v-if="stageData[5].validation" class="jv-reasoning-section">
+            <div v-if="stageData[4].validation" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.artifacts.backendValidation') }}</div>
-              <div class="jv-stage5-validation-grid">
-                <div class="jv-stage5-plan-card">
-                  <div class="jv-stage5-card-label">{{ t('analysis.artifacts.validationFocus') }}</div>
-                  <div class="jv-stage5-card-text">{{ stageData[5].validation.focus || 'full' }}</div>
+              <div class="jv-stage4-validation-grid">
+                <div class="jv-stage4-plan-card">
+                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationFocus') }}</div>
+                  <div class="jv-stage4-card-text">{{ stageData[4].validation.focus || 'full' }}</div>
                 </div>
-                <div class="jv-stage5-plan-card">
-                  <div class="jv-stage5-card-label">{{ t('analysis.artifacts.validationCompile') }}</div>
-                  <div class="jv-stage5-card-text">{{ stageData[5].validation.compileOk ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
+                <div class="jv-stage4-plan-card">
+                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationCompile') }}</div>
+                  <div class="jv-stage4-card-text">{{ stageData[4].validation.compileOk ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
                 </div>
-                <div class="jv-stage5-plan-card">
-                  <div class="jv-stage5-card-label">{{ t('analysis.artifacts.validationStartup') }}</div>
-                  <div class="jv-stage5-card-text">{{ stageData[5].validation.startupOk ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
+                <div class="jv-stage4-plan-card">
+                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationStartup') }}</div>
+                  <div class="jv-stage4-card-text">{{ stageData[4].validation.startupOk ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
                 </div>
-                <div class="jv-stage5-plan-card">
-                  <div class="jv-stage5-card-label">{{ t('analysis.artifacts.validationPoc') }}</div>
-                  <div class="jv-stage5-card-text">{{ stageData[5].validation.pocVerified ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
-                </div>
-              </div>
-              <div class="jv-stage5-validation-messages">
-                <div v-if="stageData[5].validation.compileMessage" class="jv-stage5-plan-card">
-                  <div class="jv-stage5-card-label">{{ t('analysis.artifacts.validationCompileMessage') }}</div>
-                  <pre class="jv-stage5-pre">{{ stageData[5].validation.compileMessage }}</pre>
-                </div>
-                <div v-if="stageData[5].validation.startupMessage" class="jv-stage5-plan-card">
-                  <div class="jv-stage5-card-label">{{ t('analysis.artifacts.validationStartupMessage') }}</div>
-                  <pre class="jv-stage5-pre">{{ stageData[5].validation.startupMessage }}</pre>
-                </div>
-                <div v-if="stageData[5].validation.pocMessage" class="jv-stage5-plan-card">
-                  <div class="jv-stage5-card-label">{{ t('analysis.artifacts.validationPocMessage') }}</div>
-                  <pre class="jv-stage5-pre">{{ stageData[5].validation.pocMessage }}</pre>
+                <div class="jv-stage4-plan-card">
+                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationPoc') }}</div>
+                  <div class="jv-stage4-card-text">{{ stageData[4].validation.pocVerified ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
                 </div>
               </div>
-              <div v-if="stage5ValidationArtifacts.length" class="jv-stage5-validation-artifacts">
-                <div class="jv-stage5-card-label">{{ t('analysis.artifacts.validationEvidence') }}</div>
-                <div class="jv-stage5-evidence-grid">
-                  <div v-for="item in stage5ValidationArtifacts" :key="item.key" class="jv-stage5-evidence-card">
-                    <div class="jv-stage5-evidence-key">{{ item.key }}</div>
-                    <ul v-if="hasEvidenceList(item.value)" class="jv-stage5-list">
+              <div class="jv-stage4-validation-messages">
+                <div v-if="stageData[4].validation.compileMessage" class="jv-stage4-plan-card">
+                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationCompileMessage') }}</div>
+                  <pre class="jv-stage4-pre">{{ stageData[4].validation.compileMessage }}</pre>
+                </div>
+                <div v-if="stageData[4].validation.startupMessage" class="jv-stage4-plan-card">
+                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationStartupMessage') }}</div>
+                  <pre class="jv-stage4-pre">{{ stageData[4].validation.startupMessage }}</pre>
+                </div>
+                <div v-if="stageData[4].validation.pocMessage" class="jv-stage4-plan-card">
+                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationPocMessage') }}</div>
+                  <pre class="jv-stage4-pre">{{ stageData[4].validation.pocMessage }}</pre>
+                </div>
+              </div>
+              <div v-if="stage4ValidationArtifacts.length" class="jv-stage4-validation-artifacts">
+                <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationEvidence') }}</div>
+                <div class="jv-stage4-evidence-grid">
+                  <div v-for="item in stage4ValidationArtifacts" :key="item.key" class="jv-stage4-evidence-card">
+                    <div class="jv-stage4-evidence-key">{{ item.key }}</div>
+                    <ul v-if="hasEvidenceList(item.value)" class="jv-stage4-list">
                       <li v-for="entry in item.value as Array<string | number>" :key="String(entry)">{{ entry }}</li>
                     </ul>
-                    <pre v-else class="jv-stage5-pre">{{ formatEvidenceValue(item.value) }}</pre>
+                    <pre v-else class="jv-stage4-pre">{{ formatEvidenceValue(item.value) }}</pre>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div v-if="stageData[5].failureReason || stageData[5].verification?.reason || stageData[5].poc?.reason" class="jv-reasoning-section">
+            <div v-if="stageData[4].failureReason || stageData[4].verification?.reason || stageData[4].poc?.reason" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.artifacts.verificationReview') }}</div>
               <div class="jv-artifacts-review">
-                <div v-if="stageData[5].verification?.verdict" class="jv-artifacts-review-verdict">
-                  {{ t('analysis.artifacts.reviewVerdict') }}: {{ stageData[5].verification?.verdict }}
+                <div v-if="stageData[4].verification?.verdict" class="jv-artifacts-review-verdict">
+                  {{ t('analysis.artifacts.reviewVerdict') }}: {{ stageData[4].verification?.verdict }}
                 </div>
                 <div class="jv-artifacts-review-reason">
-                  {{ stageData[5].verification?.reason || stageData[5].poc?.reason || stageData[5].failureReason }}
+                  {{ stageData[4].verification?.reason || stageData[4].poc?.reason || stageData[4].failureReason }}
                 </div>
-                <div v-if="stageData[5].verification?.matchedSignals?.length" class="jv-artifacts-review-actions">
+                <div v-if="stageData[4].verification?.matchedSignals?.length" class="jv-artifacts-review-actions">
                   <div class="jv-artifacts-review-actions-title">{{ t('analysis.artifacts.matchedSignals') }}</div>
                   <ul>
-                    <li v-for="signal in stageData[5].verification.matchedSignals" :key="signal">{{ signal }}</li>
+                    <li v-for="signal in stageData[4].verification.matchedSignals" :key="signal">{{ signal }}</li>
                   </ul>
                 </div>
-                <div v-if="stageData[5].verification?.missingEvidence?.length" class="jv-artifacts-review-actions">
+                <div v-if="stageData[4].verification?.missingEvidence?.length" class="jv-artifacts-review-actions">
                   <div class="jv-artifacts-review-actions-title">{{ t('analysis.artifacts.missingEvidence') }}</div>
                   <ul>
-                    <li v-for="item in stageData[5].verification.missingEvidence" :key="item">{{ item }}</li>
+                    <li v-for="item in stageData[4].verification.missingEvidence" :key="item">{{ item }}</li>
                   </ul>
                 </div>
-                <div v-if="stageData[5].verification?.falsePositiveRisks?.length" class="jv-artifacts-review-actions">
+                <div v-if="stageData[4].verification?.falsePositiveRisks?.length" class="jv-artifacts-review-actions">
                   <div class="jv-artifacts-review-actions-title">{{ t('analysis.artifacts.falsePositiveRisks') }}</div>
                   <ul>
-                    <li v-for="risk in stageData[5].verification.falsePositiveRisks" :key="risk">{{ risk }}</li>
+                    <li v-for="risk in stageData[4].verification.falsePositiveRisks" :key="risk">{{ risk }}</li>
                   </ul>
                 </div>
-                <div v-if="stageData[5].verification?.nextActions?.length" class="jv-artifacts-review-actions">
+                <div v-if="stageData[4].verification?.nextActions?.length" class="jv-artifacts-review-actions">
                   <div class="jv-artifacts-review-actions-title">{{ t('analysis.artifacts.nextActions') }}</div>
                   <ul>
-                    <li v-for="action in stageData[5].verification.nextActions" :key="action">{{ action }}</li>
+                    <li v-for="action in stageData[4].verification.nextActions" :key="action">{{ action }}</li>
                   </ul>
                 </div>
                 <el-button v-if="stages.find(s => s.stageNum === 5 && s.status === 'FAILED')" style="margin-top:12px" @click="rerun(5)">
@@ -766,7 +667,7 @@ const renderMarkdown = (md: string) => {
             <div class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.artifacts.fileList') }}</div>
               <div class="jv-artifacts-files">
-                <div v-for="f in stageData[5].files" :key="f.path" class="jv-artifact-file">
+                <div v-for="f in stageData[4].files" :key="f.path" class="jv-artifact-file">
                   <span :class="'jv-artifact-type jv-artifact-type-' + f.type">{{ f.type }}</span>
                   <code>{{ f.path }}</code>
                 </div>
@@ -778,15 +679,15 @@ const renderMarkdown = (md: string) => {
               <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
               <div class="jv-report-preview" v-html="renderMarkdown(reportMarkdown)"></div>
             </div>
-            <div v-else-if="stageData[5].report?.status === 'generated'" class="jv-reasoning-section">
+            <div v-else-if="stageData[4].report?.status === 'generated'" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
               <div style="color:var(--text-disabled); font-size:13px">{{ t('analysis.artifacts.noReport') }}</div>
             </div>
 
             <!-- PoC files -->
-            <div v-if="stageData[5].poc?.files?.length" class="jv-reasoning-section">
+            <div v-if="stageData[4].poc?.files?.length" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.artifacts.pocPreview') }}</div>
-              <div v-for="f in stage5PocFiles" :key="f.path" class="jv-poc-block">
+              <div v-for="f in stage4PocFiles" :key="f.path" class="jv-poc-block">
                 <div class="jv-file-header">
                   <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">{{ f.path }}</span>
                 </div>
@@ -794,10 +695,10 @@ const renderMarkdown = (md: string) => {
             </div>
 
             <!-- Reproduction Steps -->
-            <div v-if="stageData[5].reproductionSteps?.length" class="jv-reasoning-section">
+            <div v-if="stageData[4].reproductionSteps?.length" class="jv-reasoning-section">
               <div class="jv-section-label">{{ t('analysis.artifacts.reproductionSteps') }}</div>
               <div class="jv-reproduction-steps">
-                <div v-for="s in stageData[5].reproductionSteps" :key="s.step" class="jv-repro-step">
+                <div v-for="s in stageData[4].reproductionSteps" :key="s.step" class="jv-repro-step">
                   <div class="jv-repro-step-header">
                     <span class="jv-repro-step-num">{{ s.step }}</span>
                     <span class="jv-repro-step-title">{{ s.title }}</span>
@@ -830,7 +731,7 @@ const renderMarkdown = (md: string) => {
           <div v-else style="text-align:center; padding:40px">
             <div v-if="stages.find(s => s.stageNum === 5 && s.status === 'FAILED')"
               style="color:var(--critical)">
-              {{ t('analysis.stage5Failed', { error: stages.find(s => s.stageNum === 5)?.errorMsg ?? '' }) }}
+              {{ t('analysis.stage4Failed', { error: stages.find(s => s.stageNum === 5)?.errorMsg ?? '' }) }}
               <br/>
               <el-button style="margin-top:12px" @click="rerun(5)">{{ t('analysis.retryArtifacts') }}</el-button>
             </div>
@@ -1308,29 +1209,29 @@ const renderMarkdown = (md: string) => {
   background: var(--bg-base);
   border-left: 3px solid #42be65;
 }
-.jv-stage5-plan-grid,
-.jv-stage5-validation-grid,
-.jv-stage5-evidence-grid {
+.jv-stage4-plan-grid,
+.jv-stage4-validation-grid,
+.jv-stage4-evidence-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
-.jv-stage5-plan-lists,
-.jv-stage5-validation-messages,
-.jv-stage5-validation-artifacts {
+.jv-stage4-plan-lists,
+.jv-stage4-validation-messages,
+.jv-stage4-validation-artifacts {
   margin-top: 14px;
 }
-.jv-stage5-plan-list + .jv-stage5-plan-list {
+.jv-stage4-plan-list + .jv-stage4-plan-list {
   margin-top: 12px;
 }
-.jv-stage5-plan-card,
-.jv-stage5-evidence-card {
+.jv-stage4-plan-card,
+.jv-stage4-evidence-card {
   background: var(--bg-base);
   border: 1px solid var(--border-subtle);
   padding: 12px 14px;
 }
-.jv-stage5-card-label,
-.jv-stage5-evidence-key {
+.jv-stage4-card-label,
+.jv-stage4-evidence-key {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-disabled);
@@ -1338,20 +1239,20 @@ const renderMarkdown = (md: string) => {
   letter-spacing: .5px;
   margin-bottom: 8px;
 }
-.jv-stage5-card-text {
+.jv-stage4-card-text {
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
 }
-.jv-stage5-list {
+.jv-stage4-list {
   margin: 0;
   padding-left: 18px;
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.6;
 }
-.jv-stage5-pre {
+.jv-stage4-pre {
   margin: 0;
   color: var(--text-secondary);
   font-size: 12px;

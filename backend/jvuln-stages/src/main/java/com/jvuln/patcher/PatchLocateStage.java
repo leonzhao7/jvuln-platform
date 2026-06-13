@@ -21,7 +21,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
-@Component
+// @Component - Disabled: merged into PatchAnalysisStage
+@Deprecated
 public class PatchLocateStage implements Stage {
 
     private static final Logger log = LoggerFactory.getLogger(PatchLocateStage.class);

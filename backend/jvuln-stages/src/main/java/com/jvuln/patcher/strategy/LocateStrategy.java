@@ -13,6 +13,7 @@ public interface LocateStrategy {
         private final String commitHash;
         private final String commitMessage;
         private final String rawDiff;
+        private String strategyName;
 
         public PatchResult(String commitUrl, String commitHash, String commitMessage, String rawDiff) {
             this.commitUrl = commitUrl;
@@ -25,5 +26,7 @@ public interface LocateStrategy {
         public String getCommitHash() { return commitHash; }
         public String getCommitMessage() { return commitMessage; }
         public String getRawDiff() { return rawDiff; }
+        public String getStrategyName() { return strategyName; }
+        public void setStrategyName(String strategyName) { this.strategyName = strategyName; }
     }
 }

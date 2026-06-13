@@ -32,7 +32,7 @@ public class ReasoningStage implements Stage {
     }
 
     @Override
-    public int number() { return 4; }
+    public int number() { return 3; }
 
     @Override
     public String name() { return "Vulnerability Reasoning"; }

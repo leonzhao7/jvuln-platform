@@ -2,16 +2,16 @@ package com.jvuln.analyzer;
 
 import java.util.Set;
 
-class JavaFileChange {
-    final String filePath;
-    final String changeType;
-    final String rawSection;
-    final String removedCode;
-    final String addedCode;
-    final Set<String> methodNames;
+public class JavaFileChange {
+    public final String filePath;
+    public final String changeType;
+    public final String rawSection;
+    public final String removedCode;
+    public final String addedCode;
+    public final Set<String> methodNames;
 
-    JavaFileChange(String filePath, String changeType, String rawSection, String removedCode,
-                   String addedCode, Set<String> methodNames) {
+    public JavaFileChange(String filePath, String changeType, String rawSection, String removedCode,
+                          String addedCode, Set<String> methodNames) {
         this.filePath = filePath;
         this.changeType = changeType;
         this.rawSection = rawSection;
@@ -20,17 +20,17 @@ class JavaFileChange {
         this.methodNames = methodNames;
     }
 
-    int removedLineCount() {
+    public int removedLineCount() {
         if (removedCode.isEmpty()) return 0;
         return (int) removedCode.chars().filter(c -> c == '\n').count();
     }
 
-    int addedLineCount() {
+    public int addedLineCount() {
         if (addedCode.isEmpty()) return 0;
         return (int) addedCode.chars().filter(c -> c == '\n').count();
     }
 
-    String combinedText() {
+    public String combinedText() {
         return (filePath == null ? "" : filePath) + "\n"
                 + (removedCode == null ? "" : removedCode) + "\n"
                 + (addedCode == null ? "" : addedCode);
