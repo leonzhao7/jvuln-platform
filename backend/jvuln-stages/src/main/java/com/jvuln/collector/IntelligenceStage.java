@@ -27,10 +27,13 @@ public class IntelligenceStage implements Stage {
             Pattern.compile("v?(\\d+(?:\\.\\d+)+)\\s+and below", Pattern.CASE_INSENSITIVE);
     private final List<IntelSource> sources;
     private final ReferenceEnricher referenceEnricher;
+    private final ArticleClassifier articleClassifier;
 
-    public IntelligenceStage(List<IntelSource> sources, ReferenceEnricher referenceEnricher) {
+    public IntelligenceStage(List<IntelSource> sources, ReferenceEnricher referenceEnricher,
+                             ArticleClassifier articleClassifier) {
         this.sources = sources;
         this.referenceEnricher = referenceEnricher;
+        this.articleClassifier = articleClassifier;
     }
 
     @Override
@@ -175,6 +178,10 @@ public class IntelligenceStage implements Stage {
             fixCommits.addAll(enrichment.getFixCommits());
         }
 
+        // 对文章进行去重和分类
+        List<CveIntelligence.Article> classifiedArticles =
+            articleClassifier.classifyAndDeduplicate(allArticles, cveId);
+
         return new CveIntelligence(
                 cveId, description,
                 new CveIntelligence.CvssScore(cvssScore, "", cvssSeverity),
@@ -183,7 +190,7 @@ public class IntelligenceStage implements Stage {
                 new CveIntelligence.VersionRange(affectedFrom, affectedTo),
                 fixedVersion, sourceRepo,
                 new ArrayList<>(fixCommits),
-                allArticles,
+                classifiedArticles,
                 enrichment.getReferenceFindings(),
                 Instant.now()
         );

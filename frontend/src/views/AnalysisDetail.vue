@@ -74,6 +74,11 @@ const taskStatusClass = (s: string) => ({
   SKIPPED:   'jv-tag jv-tag-pending',
 }[s] ?? 'jv-tag jv-tag-pending')
 
+const articlesByCategory = (articles: any[], category: string) => {
+  if (!Array.isArray(articles)) return []
+  return articles.filter(a => (a.category || 'other') === category)
+}
+
 const load = async () => {
   try {
     detail.value = await api.getTask(cveId)
@@ -334,6 +339,81 @@ const renderMarkdown = (md: string) => {
               <div class="jv-section-label">{{ t('analysis.fixCommits') }}</div>
               <div v-for="c in stageData[1].fixCommits" :key="c" style="margin-top:4px">
                 <a :href="c" target="_blank" style="font-family:var(--font-mono); font-size:12px">{{ c }}</a>
+              </div>
+            </div>
+
+            <!-- References by Category -->
+            <div v-if="stageData[1].articles?.length" style="margin-top:20px">
+              <div class="jv-section-label">{{ t('analysis.references') }}</div>
+
+              <!-- Advisory -->
+              <div v-if="articlesByCategory(stageData[1].articles, 'advisory').length" class="jv-ref-category">
+                <div class="jv-ref-category-title">
+                  <span class="jv-ref-icon">📋</span>
+                  {{ t('analysis.refCategories.advisory') }}
+                </div>
+                <div v-for="article in articlesByCategory(stageData[1].articles, 'advisory')" :key="article.url" class="jv-ref-item">
+                  <a :href="article.url" target="_blank" class="jv-ref-link">
+                    {{ article.title || article.url }}
+                  </a>
+                  <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
+                </div>
+              </div>
+
+              <!-- Analysis -->
+              <div v-if="articlesByCategory(stageData[1].articles, 'analysis').length" class="jv-ref-category">
+                <div class="jv-ref-category-title">
+                  <span class="jv-ref-icon">🔍</span>
+                  {{ t('analysis.refCategories.analysis') }}
+                </div>
+                <div v-for="article in articlesByCategory(stageData[1].articles, 'analysis')" :key="article.url" class="jv-ref-item">
+                  <a :href="article.url" target="_blank" class="jv-ref-link">
+                    {{ article.title || article.url }}
+                  </a>
+                  <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
+                </div>
+              </div>
+
+              <!-- Patch -->
+              <div v-if="articlesByCategory(stageData[1].articles, 'patch').length" class="jv-ref-category">
+                <div class="jv-ref-category-title">
+                  <span class="jv-ref-icon">🔧</span>
+                  {{ t('analysis.refCategories.patch') }}
+                </div>
+                <div v-for="article in articlesByCategory(stageData[1].articles, 'patch')" :key="article.url" class="jv-ref-item">
+                  <a :href="article.url" target="_blank" class="jv-ref-link">
+                    {{ article.title || article.url }}
+                  </a>
+                  <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
+                </div>
+              </div>
+
+              <!-- PoC -->
+              <div v-if="articlesByCategory(stageData[1].articles, 'poc').length" class="jv-ref-category">
+                <div class="jv-ref-category-title">
+                  <span class="jv-ref-icon">💥</span>
+                  {{ t('analysis.refCategories.poc') }}
+                </div>
+                <div v-for="article in articlesByCategory(stageData[1].articles, 'poc')" :key="article.url" class="jv-ref-item">
+                  <a :href="article.url" target="_blank" class="jv-ref-link">
+                    {{ article.title || article.url }}
+                  </a>
+                  <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
+                </div>
+              </div>
+
+              <!-- Other -->
+              <div v-if="articlesByCategory(stageData[1].articles, 'other').length" class="jv-ref-category">
+                <div class="jv-ref-category-title">
+                  <span class="jv-ref-icon">📄</span>
+                  {{ t('analysis.refCategories.other') }}
+                </div>
+                <div v-for="article in articlesByCategory(stageData[1].articles, 'other')" :key="article.url" class="jv-ref-item">
+                  <a :href="article.url" target="_blank" class="jv-ref-link">
+                    {{ article.title || article.url }}
+                  </a>
+                  <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
+                </div>
               </div>
             </div>
 
@@ -1491,5 +1571,57 @@ const renderMarkdown = (md: string) => {
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* References by Category */
+.jv-ref-category {
+  margin-top: 16px;
+  background: rgba(0,0,0,.2);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.jv-ref-category-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent-light);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.jv-ref-icon {
+  font-size: 16px;
+}
+.jv-ref-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,.03);
+}
+.jv-ref-item:last-child {
+  border-bottom: none;
+}
+.jv-ref-link {
+  flex: 1;
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jv-ref-link:hover {
+  color: var(--accent-bright);
+  text-decoration: underline;
+}
+.jv-ref-source {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-disabled);
+  flex-shrink: 0;
 }
 </style>
