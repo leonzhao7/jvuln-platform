@@ -466,7 +466,21 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
         try {
             String[] parts = version.split("\\.");
             int last = Integer.parseInt(parts[parts.length - 1]);
-            if (last <= 0) return null;
+            if (last <= 0) {
+                // 3.5.3.0 → drop last segment → 3.5.3; but need at least major.minor
+                if (parts.length > 2) {
+                    String[] shorter = new String[parts.length - 1];
+                    System.arraycopy(parts, 0, shorter, 0, shorter.length);
+                    return String.join(".", shorter);
+                }
+                return null;
+            }
+            if (last == 1 && parts.length > 3) {
+                // 3.5.3.1 → 3.5.3 (drop the patch qualifier rather than producing 3.5.3.0)
+                String[] shorter = new String[parts.length - 1];
+                System.arraycopy(parts, 0, shorter, 0, shorter.length);
+                return String.join(".", shorter);
+            }
             parts[parts.length - 1] = String.valueOf(last - 1);
             return String.join(".", parts);
         } catch (Exception e) {

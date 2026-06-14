@@ -28,12 +28,14 @@ public class IntelligenceStage implements Stage {
     private final List<IntelSource> sources;
     private final ReferenceEnricher referenceEnricher;
     private final ArticleClassifier articleClassifier;
+    private final DescriptionCorrector descriptionCorrector;
 
     public IntelligenceStage(List<IntelSource> sources, ReferenceEnricher referenceEnricher,
-                             ArticleClassifier articleClassifier) {
+                             ArticleClassifier articleClassifier, DescriptionCorrector descriptionCorrector) {
         this.sources = sources;
         this.referenceEnricher = referenceEnricher;
         this.articleClassifier = articleClassifier;
+        this.descriptionCorrector = descriptionCorrector;
     }
 
     @Override
@@ -182,8 +184,19 @@ public class IntelligenceStage implements Stage {
         List<CveIntelligence.Article> classifiedArticles =
             articleClassifier.classifyAndDeduplicate(allArticles, cveId);
 
+        // 基于技术分析文章纠正描述
+        log.info("IntelligenceStage: Starting description correction for {}", cveId);
+        String correctedDescription = descriptionCorrector.correctDescription(
+            cveId, description, classifiedArticles);
+        if (!correctedDescription.equals(description)) {
+            log.info("IntelligenceStage: Description changed from '{}' to '{}'",
+                description, correctedDescription);
+        } else {
+            log.info("IntelligenceStage: Description unchanged for {}", cveId);
+        }
+
         return new CveIntelligence(
-                cveId, description,
+                cveId, correctedDescription,
                 new CveIntelligence.CvssScore(cvssScore, "", cvssSeverity),
                 cweId,
                 new CveIntelligence.MavenCoordinate(groupId, artifactId),

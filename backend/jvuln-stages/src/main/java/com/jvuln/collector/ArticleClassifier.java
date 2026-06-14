@@ -40,10 +40,10 @@ public class ArticleClassifier {
             return Collections.emptyList();
         }
 
-        // 1. 去重：基于URL
+        // 1. 去重：基于URL（标准化后比较）
         Map<String, CveIntelligence.Article> uniqueArticles = new LinkedHashMap<>();
         for (CveIntelligence.Article article : articles) {
-            String url = article.getUrl();
+            String url = normalizeUrl(article.getUrl());
             if (url != null && !url.isEmpty() && !uniqueArticles.containsKey(url)) {
                 uniqueArticles.put(url, article);
             }
@@ -73,6 +73,11 @@ public class ArticleClassifier {
             // 分类失败时返回原始列表
             return deduplicated;
         }
+    }
+
+    private String normalizeUrl(String url) {
+        if (url == null || url.isEmpty()) return url;
+        return url.trim().replaceAll("/+$", "");
     }
 
     private List<CveIntelligence.Article> classifyWithLlm(
