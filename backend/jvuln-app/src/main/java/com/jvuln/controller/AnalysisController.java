@@ -236,12 +236,12 @@ public class AnalysisController {
 
     @GetMapping("/{cveId}/reasoning")
     public ResponseEntity<?> getReasoning(@PathVariable String cveId) {
-        return readStageJson(cveId, 4);
+        return readStageJson(cveId, 3);
     }
 
     @GetMapping("/{cveId}/artifacts")
     public ResponseEntity<?> getArtifacts(@PathVariable String cveId) {
-        return readStageJson(cveId, 5);
+        return readStageJson(cveId, 4);
     }
 
     @GetMapping("/{cveId}/stages/{stageNum}/json")
