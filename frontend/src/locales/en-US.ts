@@ -132,7 +132,6 @@ const enUS = {
     finishedAt: 'Finished',
     patchUnavailable: 'Patch locate result not available yet',
     artifactsUnavailable: 'Education lab artifacts not available yet',
-    stage5Failed: 'Stage 5 failed: {error}',
     retryArtifacts: 'Retry Artifact Generation',
     patch: {
       commitHash: 'Commit Hash',

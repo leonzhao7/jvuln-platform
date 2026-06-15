@@ -132,7 +132,6 @@ const zhCN = {
     finishedAt: '完成时间',
     patchUnavailable: '补丁定位结果暂不可用',
     artifactsUnavailable: '教学演示产物暂不可用',
-    stage5Failed: '第 5 阶段失败：{error}',
     retryArtifacts: '重试产物生成',
     patch: {
       commitHash: '提交哈希',

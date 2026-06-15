@@ -96,7 +96,7 @@ const stats = computed(() => ({
       <el-table-column :label="t('common.stage')" width="80">
         <template #default="{ row }">
           <span style="font-family:var(--font-mono); color:var(--text-muted); font-size:13px">
-            {{ row.currentStage }}/5
+            {{ row.currentStage }}/4
           </span>
         </template>
       </el-table-column>

@@ -737,7 +737,7 @@ const renderMarkdown = (md: string) => {
                     <li v-for="action in stageData[4].verification.nextActions" :key="action">{{ action }}</li>
                   </ul>
                 </div>
-                <el-button v-if="stages.find(s => s.stageNum === 5 && s.status === 'FAILED')" style="margin-top:12px" @click="rerun(5)">
+                <el-button v-if="stages.find(s => s.stageNum === 4 && s.status === 'FAILED')" style="margin-top:12px" @click="rerun(4)">
                   {{ t('analysis.retryArtifacts') }}
                 </el-button>
               </div>
@@ -809,11 +809,11 @@ const renderMarkdown = (md: string) => {
 
           </div>
           <div v-else style="text-align:center; padding:40px">
-            <div v-if="stages.find(s => s.stageNum === 5 && s.status === 'FAILED')"
+            <div v-if="stages.find(s => s.stageNum === 4 && s.status === 'FAILED')"
               style="color:var(--critical)">
-              {{ t('analysis.stage4Failed', { error: stages.find(s => s.stageNum === 5)?.errorMsg ?? '' }) }}
+              {{ t('analysis.stage4Failed', { error: stages.find(s => s.stageNum === 4)?.errorMsg ?? '' }) }}
               <br/>
-              <el-button style="margin-top:12px" @click="rerun(5)">{{ t('analysis.retryArtifacts') }}</el-button>
+              <el-button style="margin-top:12px" @click="rerun(4)">{{ t('analysis.retryArtifacts') }}</el-button>
             </div>
             <div v-else style="color:var(--text-disabled)">{{ t('analysis.artifactsUnavailable') }}</div>
           </div>
