@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 3 - AI Reasoning UI Redesign Mockup</title>
+<style>
+:root {
+  --bg-body: #0d1117;
+  --bg-surface: #161b22;
+  --bg-base: #1c2129;
+  --border-subtle: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-disabled: #6e7681;
+  --text-muted: #484f58;
+  --accent: #0f62fe;
+  --accent-light: #78a9ff;
+  --critical: #fa4d56;
+  --high: #ff832b;
+  --medium: #f1c21b;
+  --success: #42be65;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg-body);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 32px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* ============ Summary Bar ============ */
+.rs-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 28px;
+}
+.rs-summary-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.rs-summary-chip .label { color: var(--text-disabled); font-size: 10px; letter-spacing: .5px; }
+.rs-summary-chip .value { color: var(--text-primary); }
+.rs-severity-critical { color: var(--critical) !important; font-weight: 600; }
+.rs-severity-high { color: var(--high) !important; font-weight: 600; }
+.rs-summary-divider {
+  width: 1px; height: 20px;
+  background: var(--border-subtle);
+}
+
+/* ============ Section ============ */
+.rs-section {
+  margin-bottom: 32px;
+}
+.rs-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.rs-section-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-disabled);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.rs-section-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-light);
+  background: rgba(15,98,254,.1);
+  border: 1px solid rgba(15,98,254,.25);
+  padding: 2px 8px;
+}
+
+/* ============ Trigger Chain (Flow) ============ */
+.rs-trigger-summary {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 16px;
+  line-height: 1.7;
+}
+.rs-flow {
+  position: relative;
+  padding-left: 32px;
+}
+.rs-flow-line {
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--critical) 100%);
+}
+.rs-flow-step {
+  position: relative;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: none;
+  transition: border-color .15s;
+}
+.rs-flow-step:hover {
+  border-color: rgba(120,169,255,.4);
+}
+.rs-flow-step:last-child { margin-bottom: 0; }
+.rs-flow-dot {
+  position: absolute;
+  left: -27px;
+  top: 14px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--bg-body);
+  border: 2px solid var(--accent);
+}
+.rs-flow-step:last-child .rs-flow-dot {
+  border-color: var(--critical);
+  background: rgba(250,77,86,.2);
+}
+.rs-flow-seq {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-light);
+  margin-right: 8px;
+}
+.rs-flow-class {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-light);
+}
+.rs-flow-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.rs-flow-endpoints {
+  display: flex;
+  gap: 24px;
+  margin-top: 14px;
+  padding: 10px 16px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+.rs-flow-endpoints .label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+  letter-spacing: .5px;
+}
+.rs-flow-endpoints .value {
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.rs-entry-marker {
+  color: var(--success);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.rs-sink-marker {
+  color: var(--critical);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ============ Root Cause ============ */
+.rs-root-cause-text {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.8;
+  padding: 16px;
+  background: var(--bg-surface);
+  border-left: 3px solid var(--critical);
+}
+
+/* ============ Code Walkthrough ============ */
+.rs-walkthrough-item {
+  margin-bottom: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+.rs-walkthrough-code {
+  padding: 10px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.rs-walkthrough-explain {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ============ Fix Info ============ */
+.rs-fix-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border-subtle);
+  border: 1px solid var(--border-subtle);
+  margin-top: 16px;
+}
+.rs-fix-cell {
+  background: var(--bg-surface);
+  padding: 14px 16px;
+}
+.rs-fix-cell .label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+  letter-spacing: .5px;
+  margin-bottom: 6px;
+}
+.rs-fix-cell .value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ============ Impact + Secure Coding Tabs ============ */
+.rs-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 16px;
+}
+.rs-tab {
+  padding: 8px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-disabled);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  letter-spacing: .5px;
+}
+.rs-tab:hover { color: var(--text-secondary); }
+.rs-tab.active {
+  color: var(--accent-light);
+  border-bottom-color: var(--accent);
+}
+.rs-tab-panel { display: none; }
+.rs-tab-panel.active { display: block; }
+
+.rs-impact-header {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+.rs-impact-kv .label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+  letter-spacing: .5px;
+}
+.rs-impact-kv .value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.rs-list-section {
+  margin-bottom: 14px;
+}
+.rs-list-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+  letter-spacing: .5px;
+  margin-bottom: 8px;
+}
+.rs-list-items {
+  list-style: none;
+  padding: 0;
+}
+.rs-list-items li {
+  position: relative;
+  padding: 6px 0 6px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.rs-list-items li::before {
+  content: '›';
+  position: absolute;
+  left: 0;
+  color: var(--text-disabled);
+  font-family: var(--font-mono);
+}
+
+/* ============ Detection Points ============ */
+.rs-dp-filters {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.rs-dp-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  transition: all .15s;
+}
+.rs-dp-filter:hover { border-color: rgba(120,169,255,.4); }
+.rs-dp-filter.active {
+  background: rgba(15,98,254,.12);
+  border-color: rgba(15,98,254,.4);
+  color: var(--accent-light);
+}
+.rs-dp-filter .count {
+  font-size: 10px;
+  color: var(--text-disabled);
+}
+
+.rs-dp-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 8px;
+  padding: 14px 16px;
+}
+.rs-dp-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rs-dp-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-disabled);
+}
+.rs-dp-type-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  letter-spacing: .3px;
+}
+.rs-dp-type-dependency   { background: rgba(15,98,254,.15); color: var(--accent-light); border: 1px solid rgba(15,98,254,.3); }
+.rs-dp-type-code_pattern { background: rgba(250,77,86,.12);  color: #fa4d56; border: 1px solid rgba(250,77,86,.3); }
+.rs-dp-type-config_risk  { background: rgba(241,194,27,.12); color: #f1c21b; border: 1px solid rgba(241,194,27,.3); }
+.rs-dp-type-api_usage    { background: rgba(190,98,255,.12); color: #be62ff; border: 1px solid rgba(190,98,255,.3); }
+
+.rs-dp-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.rs-dp-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+}
+.rs-dp-meta-item .label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+}
+.rs-dp-meta-item code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-light);
+  background: rgba(15,98,254,.08);
+  padding: 1px 6px;
+}
+.rs-dp-meta-item .risky-code {
+  color: var(--critical);
+  background: rgba(250,77,86,.1);
+}
+.rs-dp-api-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  margin: 2px 4px 2px 0;
+  background: rgba(250,77,86,.08);
+  color: var(--critical);
+  border: 1px solid rgba(250,77,86,.2);
+}
+.rs-dp-safe-tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  margin: 2px 4px 2px 0;
+  background: rgba(66,190,101,.08);
+  color: var(--success);
+  border: 1px solid rgba(66,190,101,.2);
+}
+.rs-dp-config-row {
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.rs-dp-config-row code { color: var(--text-primary); }
+.rs-dp-config-row .risky { color: var(--critical); }
+</style>
+</head>
+<body>
+
+<!-- ===== SUMMARY BAR ===== -->
+<div class="rs-summary-bar">
+  <div class="rs-summary-chip">
+    <span class="label">严重程度</span>
+    <span class="value rs-severity-critical">Critical</span>
+  </div>
+  <div class="rs-summary-divider"></div>
+  <div class="rs-summary-chip">
+    <span class="label">触发步骤</span>
+    <span class="value">5</span>
+  </div>
+  <div class="rs-summary-divider"></div>
+  <div class="rs-summary-chip">
+    <span class="label">代码走查</span>
+    <span class="value">4</span>
+  </div>
+  <div class="rs-summary-divider"></div>
+  <div class="rs-summary-chip">
+    <span class="label">检测要点</span>
+    <span class="value">4</span>
+  </div>
+  <div class="rs-summary-divider"></div>
+  <div class="rs-summary-chip">
+    <span class="label">攻击向量</span>
+    <span class="value">网络可达</span>
+  </div>
+</div>
+
+<!-- ===== TRIGGER CHAIN ===== -->
+<div class="rs-section">
+  <div class="rs-section-header">
+    <span class="rs-section-title">触发链路 / Trigger Chain</span>
+    <span class="rs-section-badge">5 STEPS</span>
+  </div>
+
+  <div class="rs-trigger-summary">
+    攻击者通过 YAML 中的全局 tag（如 !!javax.script.ScriptEngineManager）触发任意类实例化，导致 RCE
+  </div>
+
+  <div class="rs-flow">
+    <div class="rs-flow-line"></div>
+
+    <div class="rs-flow-step">
+      <div class="rs-flow-dot"></div>
+      <div>
+        <span class="rs-flow-seq">01</span>
+        <span class="rs-flow-class">Yaml.load() / loadAll()</span>
+      </div>
+      <div class="rs-flow-desc">应用调用 Yaml.load() 解析外部输入的 YAML 内容</div>
+    </div>
+
+    <div class="rs-flow-step">
+      <div class="rs-flow-dot"></div>
+      <div>
+        <span class="rs-flow-seq">02</span>
+        <span class="rs-flow-class">Composer.composeScalarNode()</span>
+      </div>
+      <div class="rs-flow-desc">Composer 解析 YAML 节点，提取 tag（如 !!javax.script.ScriptEngineManager），未对全局 tag 进行安全检查</div>
+    </div>
+
+    <div class="rs-flow-step">
+      <div class="rs-flow-dot"></div>
+      <div>
+        <span class="rs-flow-seq">03</span>
+        <span class="rs-flow-class">BaseConstructor.getConstructor()</span>
+      </div>
+      <div class="rs-flow-desc">根据 tag 查找对应的 Construct 实现，遇到未知 tag 时使用 yamlMultiConstructors 中的通配规则匹配到 ConstructYamlObject</div>
+    </div>
+
+    <div class="rs-flow-step">
+      <div class="rs-flow-dot"></div>
+      <div>
+        <span class="rs-flow-seq">04</span>
+        <span class="rs-flow-class">Constructor$ConstructYamlObject.construct()</span>
+      </div>
+      <div class="rs-flow-desc">根据 tag 对应的类名调用 Class.forName() 加载类，并通过反射调用构造函数或 setter 方法实例化对象</div>
+    </div>
+
+    <div class="rs-flow-step">
+      <div class="rs-flow-dot"></div>
+      <div>
+        <span class="rs-flow-seq">05</span>
+        <span class="rs-flow-class" style="color:var(--critical)">ScriptEngineManager.&lt;init&gt;()</span>
+      </div>
+      <div class="rs-flow-desc">恶意类的构造函数或 setter 方法执行任意代码（如 ScriptEngineManager 会触发 ServiceLoader 加载恶意 ScriptEngine）</div>
+    </div>
+  </div>
+
+  <div class="rs-flow-endpoints">
+    <div style="flex:1">
+      <div class="label"><span class="rs-entry-marker">▶</span> 入口</div>
+      <div class="value">任何接受外部 YAML 输入并调用 Yaml.load() 的接口（HTTP API、消息队列消费者、配置文件加载等）</div>
+    </div>
+    <div style="flex:1">
+      <div class="label"><span class="rs-sink-marker">◆</span> 危险操作</div>
+      <div class="value">Constructor$ConstructYamlObject.construct() 中通过 Class.forName() 和反射实例化任意类</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ROOT CAUSE + CODE ANALYSIS ===== -->
+<div class="rs-section">
+  <div class="rs-section-header">
+    <span class="rs-section-title">根因分析 / Root Cause</span>
+  </div>
+
+  <div class="rs-root-cause-text">
+    SnakeYAML 1.33 及之前版本默认允许通过全局 tag（如 !!java/javax.script.ScriptEngineManager）在 YAML 中指定任意 Java 类进行实例化。Composer 在解析 tag 时未进行安全检查，BaseConstructor 通过 yamlMultiConstructors 中的 !!java/ 前缀匹配规则无条件信任 tag 内容，直接调用 Class.forName() 加载并通过反射实例化对象。这使得攻击者可以构造恶意 YAML 实例化危险类（如 ScriptEngineManager、C3P0 连接池等），触发类加载、静态代码块执行或 setter 注入，最终实现 RCE。
+  </div>
+</div>
+
+<!-- ===== CODE WALKTHROUGH ===== -->
+<div class="rs-section">
+  <div class="rs-section-header">
+    <span class="rs-section-title">漏洞代码走查 / Code Walkthrough</span>
+    <span class="rs-section-badge">4 ENTRIES</span>
+  </div>
+
+  <div class="rs-walkthrough-item">
+    <div class="rs-walkthrough-code">Composer.composeScalarNode: nodeTag = new Tag(tag);</div>
+    <div class="rs-walkthrough-explain">Composer 从 YAML 解析出 tag 后直接封装为 Tag 对象，未进行任何安全校验，允许任意全局 tag 通过</div>
+  </div>
+  <div class="rs-walkthrough-item">
+    <div class="rs-walkthrough-code">BaseConstructor.getConstructor: for (String prefix : yamlMultiConstructors.keySet()) { if (tag.startsWith(prefix)) { return yamlMultiConstructors.get(prefix); } }</div>
+    <div class="rs-walkthrough-explain">通过前缀匹配查找 Construct。Constructor 类在初始化时注册了 !!java/ 前缀对应 ConstructYamlObject，导致所有 !!java/ 开头的 tag 都会被处理</div>
+  </div>
+  <div class="rs-walkthrough-item">
+    <div class="rs-walkthrough-code">Constructor$ConstructYamlObject.construct: Class&lt;?&gt; cl = getClassForName(name);</div>
+    <div class="rs-walkthrough-explain">从 tag 中提取类名，通过 Class.forName() 加载类，无任何类白名单限制</div>
+  </div>
+  <div class="rs-walkthrough-item">
+    <div class="rs-walkthrough-code">Constructor$ConstructYamlObject.construct: return newInstance(...);</div>
+    <div class="rs-walkthrough-explain">通过反射调用构造函数或 setter 方法实例化对象，触发恶意类的代码执行</div>
+  </div>
+</div>
+
+<!-- ===== FIX INFO ===== -->
+<div class="rs-section">
+  <div class="rs-fix-grid">
+    <div class="rs-fix-cell">
+      <div class="label">修复措施</div>
+      <div class="value">补丁引入了 TagInspector 机制对全局 tag 进行白名单校验。LoaderOptions 中新增 tagInspector 配置（默认为 UnTrustedTagInspector，拒绝所有全局 tag）。Composer 在解析 tag 时通过 isGlobalTagAllowed() 检查，未通过则抛出 ComposerException。</div>
+    </div>
+    <div class="rs-fix-cell">
+      <div class="label">修复完整性</div>
+      <div class="value">修复较为完整。默认 deny-all 策略有效阻止任意类实例化。但需注意：用户若自定义 TagInspector 并配置过于宽松的白名单仍可能引入风险；现有代码升级到 2.0 后可能因默认拒绝全局 tag 而出现兼容性问题。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== IMPACT + SECURE CODING (Tabs) ===== -->
+<div class="rs-section">
+  <div class="rs-tabs">
+    <div class="rs-tab active" onclick="switchTab('impact')">影响评估</div>
+    <div class="rs-tab" onclick="switchTab('secure')">安全编码</div>
+  </div>
+
+  <!-- Impact panel -->
+  <div id="tab-impact" class="rs-tab-panel active">
+    <div class="rs-impact-header">
+      <div class="rs-impact-kv">
+        <div class="label">严重程度</div>
+        <div class="value rs-severity-critical">严重（Critical）</div>
+      </div>
+      <div class="rs-impact-kv">
+        <div class="label">攻击向量</div>
+        <div class="value">网络可达（若应用暴露接受 YAML 输入的接口）</div>
+      </div>
+    </div>
+
+    <div class="rs-list-section">
+      <div class="rs-list-label">前置条件</div>
+      <ul class="rs-list-items">
+        <li>应用依赖 SnakeYAML &lt;= 1.33</li>
+        <li>应用使用默认 Constructor（非 SafeConstructor）解析外部输入的 YAML</li>
+        <li>攻击者可控制 YAML 输入内容（HTTP body、消息队列、配置文件等）</li>
+        <li>Classpath 中存在可利用的 gadget 类（如 javax.script.ScriptEngineManager、C3P0、Spring 等）</li>
+      </ul>
+    </div>
+
+    <div class="rs-list-section">
+      <div class="rs-list-label">后果</div>
+      <ul class="rs-list-items">
+        <li>远程代码执行（RCE）：通过实例化恶意类执行任意代码</li>
+        <li>数据窃取：读取服务器文件、环境变量、数据库凭证等</li>
+        <li>服务器控制：反弹 shell、植入后门</li>
+        <li>拒绝服务（DoS）：实例化消耗大量资源的类</li>
+      </ul>
+    </div>
+
+    <div class="rs-list-section">
+      <div class="rs-list-label">真实利用场景</div>
+      <ul class="rs-list-items">
+        <li>Spring Boot 应用使用 @RequestBody 接受 YAML 格式的 HTTP 请求，攻击者提交包含 !!javax.script.ScriptEngineManager 的 payload 触发 RCE</li>
+        <li>Kafka/RabbitMQ 消费者使用 SnakeYAML 解析消息内容，攻击者向队列投递恶意 YAML 消息实现无交互 RCE</li>
+        <li>Kubernetes Operator 或配置中心使用 SnakeYAML 解析用户提交的配置文件，攻击者通过上传恶意 YAML 获取集群权限</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Secure Coding panel -->
+  <div id="tab-secure" class="rs-tab-panel">
+    <div class="rs-list-section">
+      <div class="rs-list-label">违反的原则</div>
+      <ul class="rs-list-items">
+        <li>最小权限原则：默认允许实例化任意类，而非白名单模式</li>
+        <li>输入验证：未对外部输入的 tag 进行安全校验</li>
+        <li>安全默认值：默认 Constructor 应采用安全模式</li>
+        <li>深度防御：反序列化层面未引入类白名单、对象过滤等多层防护</li>
+        <li>fail-safe 设计：遇到未知 tag 应拒绝而非尝试加载</li>
+      </ul>
+    </div>
+
+    <div class="rs-list-section">
+      <div class="rs-list-label">修复建议</div>
+      <ul class="rs-list-items">
+        <li>立即升级到 SnakeYAML 2.0 或更高版本</li>
+        <li>优先使用 SafeConstructor：new Yaml(new SafeConstructor())，彻底禁止全局 tag</li>
+        <li>若必须支持自定义类，显式配置 TagInspector 白名单</li>
+        <li>避免直接解析不可信来源的 YAML（外部 HTTP 请求、消息队列等）</li>
+        <li>采用 JSON 等更安全的数据格式替代 YAML</li>
+      </ul>
+    </div>
+
+    <div class="rs-list-section">
+      <div class="rs-list-label">类似模式</div>
+      <ul class="rs-list-items">
+        <li>Jackson polymorphic deserialization（CVE-2017-7525）：通过 @class 字段指定任意类反序列化</li>
+        <li>Fastjson AutoType RCE（CVE-2017-18349）：通过 @type 字段实例化任意类</li>
+        <li>XStream 反序列化 RCE（CVE-2013-7285）：XML 中通过类型标签实例化任意类</li>
+        <li>Java 原生反序列化 RCE（Apache Commons Collections gadget chain）</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DETECTION POINTS ===== -->
+<div class="rs-section">
+  <div class="rs-section-header">
+    <span class="rs-section-title">漏洞检测要点 / Detection Points</span>
+    <span class="rs-section-badge">4 POINTS</span>
+  </div>
+
+  <div class="rs-dp-filters">
+    <div class="rs-dp-filter active" onclick="filterDP('all')">全部 <span class="count">4</span></div>
+    <div class="rs-dp-filter" onclick="filterDP('dependency')">依赖检测 <span class="count">1</span></div>
+    <div class="rs-dp-filter" onclick="filterDP('api_usage')">API 调用 <span class="count">1</span></div>
+    <div class="rs-dp-filter" onclick="filterDP('code_pattern')">代码模式 <span class="count">1</span></div>
+    <div class="rs-dp-filter" onclick="filterDP('config_risk')">配置风险 <span class="count">1</span></div>
+  </div>
+
+  <!-- DP-1: dependency -->
+  <div class="rs-dp-card" data-type="dependency">
+    <div class="rs-dp-card-header">
+      <span class="rs-dp-id">DP-1</span>
+      <span class="rs-dp-type-tag rs-dp-type-dependency">依赖检测</span>
+    </div>
+    <div class="rs-dp-desc">项目依赖了受 CVE-2022-1471 影响的 SnakeYAML 版本</div>
+    <div class="rs-dp-meta">
+      <div class="rs-dp-meta-item">
+        <div class="label">组件</div>
+        <code>org.yaml:snakeyaml</code>
+      </div>
+      <div class="rs-dp-meta-item">
+        <div class="label">受影响范围</div>
+        <code>&lt;=1.33</code>
+      </div>
+      <div class="rs-dp-meta-item">
+        <div class="label">修复版本</div>
+        <code>2.0</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- DP-2: api_usage -->
+  <div class="rs-dp-card" data-type="api_usage">
+    <div class="rs-dp-card-header">
+      <span class="rs-dp-id">DP-2</span>
+      <span class="rs-dp-type-tag rs-dp-type-api_usage">API 调用</span>
+    </div>
+    <div class="rs-dp-desc">代码中使用不安全的 SnakeYAML API 解析外部输入</div>
+    <div style="margin-top:8px">
+      <div class="rs-list-label">危险 API</div>
+      <code class="rs-dp-api-tag">Yaml.load(InputStream)</code>
+      <code class="rs-dp-api-tag">Yaml.load(Reader)</code>
+      <code class="rs-dp-api-tag">Yaml.load(String)</code>
+      <code class="rs-dp-api-tag">Yaml.loadAll(...)</code>
+      <code class="rs-dp-api-tag">new Yaml(new Constructor(...))</code>
+    </div>
+    <div style="margin-top:10px">
+      <div class="rs-list-label">安全替代</div>
+      <span class="rs-dp-safe-tag">new Yaml(new SafeConstructor()).load(...)</span>
+      <span class="rs-dp-safe-tag">配置 TagInspector 白名单</span>
+      <span class="rs-dp-safe-tag">使用 JSON 格式替代 YAML</span>
+    </div>
+  </div>
+
+  <!-- DP-3: code_pattern -->
+  <div class="rs-dp-card" data-type="code_pattern">
+    <div class="rs-dp-card-header">
+      <span class="rs-dp-id">DP-3</span>
+      <span class="rs-dp-type-tag rs-dp-type-code_pattern">代码模式</span>
+    </div>
+    <div class="rs-dp-desc">YAML 输入内容中包含全局 tag（!! 前缀），可能被利用实例化任意类</div>
+    <div class="rs-dp-meta">
+      <div class="rs-dp-meta-item">
+        <div class="label">CWE</div>
+        <code>CWE-502</code>
+      </div>
+      <div class="rs-dp-meta-item">
+        <div class="label">匹配模式</div>
+        <code>!!\s*[a-zA-Z0-9_.]+</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- DP-4: config_risk -->
+  <div class="rs-dp-card" data-type="config_risk">
+    <div class="rs-dp-card-header">
+      <span class="rs-dp-id">DP-4</span>
+      <span class="rs-dp-type-tag rs-dp-type-config_risk">配置风险</span>
+    </div>
+    <div class="rs-dp-desc">应用接受外部 YAML 输入且未配置安全的 TagInspector</div>
+    <div style="margin-top:8px">
+      <div class="rs-dp-config-row">
+        <code>spring.http.converters.preferred-json-mapper</code> =
+        <span class="risky">未显式设置为 jackson，可能回退到 SnakeYAML 处理 application/x-yaml</span>
+      </div>
+      <div class="rs-dp-config-row">
+        <code>LoaderOptions.tagInspector</code> =
+        <span class="risky">未配置或配置为过于宽松的白名单</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.rs-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.rs-tab-panel').forEach(p => p.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+}
+function filterDP(type) {
+  document.querySelectorAll('.rs-dp-filter').forEach(f => f.classList.remove('active'));
+  event.target.closest('.rs-dp-filter').classList.add('active');
+  document.querySelectorAll('.rs-dp-card').forEach(c => {
+    c.style.display = (type === 'all' || c.dataset.type === type) ? '' : 'none';
+  });
+}
+</script>
+</body>
+</html>
