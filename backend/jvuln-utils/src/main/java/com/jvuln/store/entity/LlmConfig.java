@@ -53,4 +53,19 @@ public class LlmConfig {
     public void setMaxTokens(Integer maxTokens) { this.maxTokens = maxTokens; }
     public boolean isActive() { return Boolean.TRUE.equals(active); }
     public void setActive(boolean active) { this.active = active; }
+
+    @Override
+    public String toString() {
+        return "LlmConfig{" +
+                "id=" + id +
+                ", name='" + name + '\'' +
+                ", providerType='" + providerType + '\'' +
+                ", baseUrl='" + baseUrl + '\'' +
+                ", apiKey='***'" + // 隐藏敏感信息
+                ", model='" + model + '\'' +
+                ", temperature=" + temperature +
+                ", maxTokens=" + maxTokens +
+                ", active=" + active +
+                '}';
+    }
 }

@@ -54,4 +54,18 @@ public class JavaProfile {
     public void setSyntaxConstraints(String syntaxConstraints) { this.syntaxConstraints = syntaxConstraints; }
     public Boolean getIsDefault() { return Boolean.TRUE.equals(isDefault); }
     public void setIsDefault(Boolean isDefault) { this.isDefault = isDefault; }
+
+    @Override
+    public String toString() {
+        return "JavaProfile{" +
+                "id=" + id +
+                ", name='" + name + '\'' +
+                ", javaVersion='" + javaVersion + '\'' +
+                ", javaHome='" + javaHome + '\'' +
+                ", springBootVersion='" + springBootVersion + '\'' +
+                ", mavenJavaVersion='" + mavenJavaVersion + '\'' +
+                ", syntaxConstraints='" + syntaxConstraints + '\'' +
+                ", isDefault=" + isDefault +
+                '}';
+    }
 }

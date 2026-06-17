@@ -55,4 +55,18 @@ public class StageRecord {
     public void setFinishedAt(LocalDateTime finishedAt) { this.finishedAt = finishedAt; }
     public String getErrorMsg() { return errorMsg; }
     public void setErrorMsg(String errorMsg) { this.errorMsg = errorMsg; }
+
+    @Override
+    public String toString() {
+        return "StageRecord{" +
+                "id=" + id +
+                ", cveId='" + cveId + '\'' +
+                ", stageNum=" + stageNum +
+                ", stageName='" + stageName + '\'' +
+                ", status=" + status +
+                ", startedAt=" + startedAt +
+                ", finishedAt=" + finishedAt +
+                ", errorMsg='" + errorMsg + '\'' +
+                '}';
+    }
 }

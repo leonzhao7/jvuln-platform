@@ -29,22 +29,23 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            // 授权规则
-            .authorizeHttpRequests(auth -> auth
+            // 授权规则（Spring Boot 2.7.x API）
+            .authorizeRequests()
                 // 健康检查端点允许匿名访问
-                .requestMatchers("/actuator/health").permitAll()
+                .antMatchers("/actuator/health").permitAll()
                 // 分析相关 API 需要 USER 角色
-                .requestMatchers("/api/analysis/**").hasRole("USER")
+                .antMatchers("/api/analysis/**").hasRole("USER")
                 // 配置相关 API 需要 ADMIN 角色
-                .requestMatchers("/api/config/**").hasRole("ADMIN")
+                .antMatchers("/api/config/**").hasRole("ADMIN")
                 // 其他请求需要认证
                 .anyRequest().authenticated()
-            )
+            .and()
             // 使用 HTTP Basic 认证（简单但不推荐用于生产环境）
-            .httpBasic(basic -> {})
+            .httpBasic()
+            .and()
             // 暂时禁用 CSRF（开发环境）
             // 生产环境应启用 CSRF 保护
-            .csrf(csrf -> csrf.disable());
+            .csrf().disable();
 
         return http.build();
     }

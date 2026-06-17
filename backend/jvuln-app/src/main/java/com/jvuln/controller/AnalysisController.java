@@ -2,6 +2,7 @@ package com.jvuln.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jvuln.pipeline.PipelineConstants;
 import com.jvuln.pipeline.PipelineEngine;
 import com.jvuln.store.CveTaskRepository;
 import com.jvuln.store.StageRecordRepository;
@@ -300,18 +301,18 @@ public class AnalysisController {
         int maxCompleted = 0;
         int currentStage = 0;
         boolean failed = false;
-        for (int n = 1; n <= 5; n++) {
-            final int stageNum = n;
-            StageFileStatus diskStatus = inspectStageFileStatus(cveId, n);
+        for (int stageNum = PipelineConstants.FIRST_STAGE; stageNum <= PipelineConstants.TOTAL_STAGES; stageNum++) {
+            final int currentStageNum = stageNum;
+            StageFileStatus diskStatus = inspectStageFileStatus(cveId, stageNum);
             if (diskStatus.exists) {
-                currentStage = n;
-                stageRepo.findByCveIdAndStageNum(cveId, n).ifPresent(rec -> {
+                currentStage = stageNum;
+                stageRepo.findByCveIdAndStageNum(cveId, stageNum).ifPresent(rec -> {
                     rec.setStatus(diskStatus.status);
                     rec.setErrorMsg(diskStatus.error);
                     stageRepo.save(rec);
                 });
                 if (diskStatus.status == StageRecord.StageStatus.COMPLETED) {
-                    maxCompleted = n;
+                    maxCompleted = stageNum;
                 } else if (diskStatus.status == StageRecord.StageStatus.FAILED) {
                     failed = true;
                 }
@@ -320,7 +321,7 @@ public class AnalysisController {
         task.setCurrentStage(currentStage > 0 ? currentStage : maxCompleted);
         if (failed) {
             task.setStatus(CveTask.TaskStatus.FAILED);
-        } else if (maxCompleted == 5) {
+        } else if (maxCompleted == PipelineConstants.TOTAL_STAGES) {
             task.setStatus(CveTask.TaskStatus.COMPLETED);
         } else {
             task.setStatus(CveTask.TaskStatus.PENDING);

@@ -73,4 +73,19 @@ public class CveTask {
     public void setWorkspacePath(String workspacePath) { this.workspacePath = workspacePath; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
+
+    @Override
+    public String toString() {
+        return "CveTask{" +
+                "id=" + id +
+                ", cveId='" + cveId + '\'' +
+                ", status=" + status +
+                ", currentStage=" + currentStage +
+                ", artifact='" + artifact + '\'' +
+                ", cvssScore=" + cvssScore +
+                ", cweId='" + cweId + '\'' +
+                ", createdAt=" + createdAt +
+                ", updatedAt=" + updatedAt +
+                '}';
+    }
 }

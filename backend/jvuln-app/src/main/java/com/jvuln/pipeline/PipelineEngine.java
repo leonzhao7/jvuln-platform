@@ -55,7 +55,7 @@ public class PipelineEngine {
     }
 
     public SseEmitter subscribe(String cveId) {
-        SseEmitter emitter = new SseEmitter(600_000L);
+        SseEmitter emitter = new SseEmitter(PipelineConstants.SSE_TIMEOUT_MS);
         emitters.put(cveId, emitter);
         emitter.onCompletion(() -> emitters.remove(cveId));
         emitter.onTimeout(() -> emitters.remove(cveId));
