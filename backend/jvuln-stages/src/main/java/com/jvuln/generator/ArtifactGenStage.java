@@ -77,16 +77,22 @@ public class ArtifactGenStage implements Stage {
     private final JavaProfileRepository javaProfileRepo;
     private final WorkspaceFileRenderer fileRenderer;
     private final AgentToolExecutor toolExecutor;
+    private final AgentPhaseEngine phaseEngine;
+    private final LlmHelper llmHelper;
 
     public ArtifactGenStage(PromptRegistry promptRegistry, ObjectMapper mapper,
                             JavaProfileRepository javaProfileRepo,
                             WorkspaceFileRenderer fileRenderer,
-                            AgentToolExecutor toolExecutor) {
+                            AgentToolExecutor toolExecutor,
+                            AgentPhaseEngine phaseEngine,
+                            LlmHelper llmHelper) {
         this.promptRegistry = promptRegistry;
         this.mapper = mapper;
         this.javaProfileRepo = javaProfileRepo;
         this.fileRenderer = fileRenderer;
         this.toolExecutor = toolExecutor;
+        this.phaseEngine = phaseEngine;
+        this.llmHelper = llmHelper;
     }
 
     @Override
@@ -137,7 +143,7 @@ public class ArtifactGenStage implements Stage {
             vars.put("root_cause", rootCause);
             vars.put("patch_diff", patchDiff);
             vars.put("artifact", artifact);
-            vars.put("verification_plan", renderJson(verificationPlan.toMap()));
+            vars.put("verification_plan", llmHelper.renderJson(verificationPlan.toMap()));
             vars.put("java_version", javaProfile.getJavaVersion());
             vars.put("spring_boot_version", javaProfile.getSpringBootVersion());
             vars.put("syntax_constraints", javaProfile.getSyntaxConstraints() != null
@@ -164,7 +170,7 @@ public class ArtifactGenStage implements Stage {
             }
             agentCtx.turns = 0;
             agentCtx.reviewRevisions = 0;
-            agentCtx.phase = inferPhase(agentCtx);
+            agentCtx.phase = phaseEngine.inferPhase(agentCtx);
 
             // Build user prompt — append prior-attempt memory, but start a fresh turn budget.
             String userPrompt;
@@ -179,7 +185,7 @@ public class ArtifactGenStage implements Stage {
                 for (String f : agentCtx.existingFiles) sb.append("- ").append(f).append("\n");
                 if (agentCtx.executionPlan != null) {
                     sb.append("\n## EXECUTION PLAN\n");
-                    sb.append(renderJson(agentCtx.executionPlan.toMap())).append("\n");
+                    sb.append(llmHelper.renderJson(agentCtx.executionPlan.toMap())).append("\n");
                 }
                 if (memory.hasRecords()) {
                     sb.append("\n## ATTEMPT MEMORY\n");
@@ -227,8 +233,8 @@ public class ArtifactGenStage implements Stage {
                             agentCtx.lastValidation = validateArtifacts(agentCtx, "full");
                         }
                         agentCtx.phase = AgentPhase.REPORT;
-                        agentCtx.lastDirective = buildPhaseDirective(agentCtx, agentCtx.lastValidation, true);
-                        String directive = "BACKEND PHASE SWITCH: REPORT\n" + renderPhaseDirective(agentCtx.lastDirective);
+                        agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation, true);
+                        String directive = "BACKEND PHASE SWITCH: REPORT\n" + phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                         messages.add(LlmRequest.Message.user(directive));
                         appendTranscript(agentCtx, "directive", turn + 1, directive);
                     }
@@ -249,7 +255,7 @@ public class ArtifactGenStage implements Stage {
                     long llmStart = System.currentTimeMillis();
                     log.info("Agent LLM request: turn={} phase={} tools={} messages={}",
                             turn + 1, agentCtx.phase, toolDefNames(tools), messages.size());
-                    response = chatWithRetry(ctx,
+                    response = llmHelper.chatWithRetry(ctx,
                             LlmRequest.agent(systemPrompt, messages, tools), 3);
                     log.info("Agent LLM response: turn={} phase={} durationMs={} finishReason={} text='{}' toolUses={}",
                             turn + 1, agentCtx.phase, System.currentTimeMillis() - llmStart,
@@ -281,9 +287,9 @@ public class ArtifactGenStage implements Stage {
                     if (emptyResponses >= MAX_EMPTY_AGENT_RESPONSES) {
                         ValidationResult forcedValidation = validateArtifacts(agentCtx, "full");
                         agentCtx.lastValidation = forcedValidation;
-                        agentCtx.lastDirective = buildPhaseDirective(agentCtx, forcedValidation, false);
+                        agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, forcedValidation, false);
                         String directive = "The backend validator was triggered because you stopped using tools.\n"
-                                + renderPhaseDirective(agentCtx.lastDirective);
+                                + phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                         messages.add(LlmRequest.Message.user(directive));
                         appendTranscript(agentCtx, "directive", turn + 1, directive);
                         continue;
@@ -293,7 +299,7 @@ public class ArtifactGenStage implements Stage {
                     }
                     String directive = agentCtx.executionPlan == null
                             ? "Your last response did not invoke any tool. Submit an execution plan with submit_plan first."
-                            : renderPhaseDirective(currentDirective(agentCtx));
+                            : phaseEngine.renderPhaseDirective(phaseEngine.currentDirective(agentCtx));
                     messages.add(LlmRequest.Message.user(directive));
                     appendTranscript(agentCtx, "directive", turn + 1, directive);
                     continue;
@@ -312,15 +318,15 @@ public class ArtifactGenStage implements Stage {
                     String toolName = block.getToolName();
                     log.info("Agent tool call: turn={} phase={} tool={} input={}",
                             turn + 1, agentCtx.phase, toolName, summarizeToolInput(toolName, block.getToolInput()));
-                    if (!isToolAllowed(agentCtx.phase, toolName)) {
+                    if (!phaseEngine.isToolAllowed(agentCtx.phase, toolName)) {
                         String error = "Tool '" + toolName + "' is not available in phase " + agentCtx.phase.name()
-                                + ". " + renderPhaseDirective(currentDirective(agentCtx));
+                                + ". " + phaseEngine.renderPhaseDirective(phaseEngine.currentDirective(agentCtx));
                         log.warn("Agent tool rejected: turn={} phase={} tool={} reason={}",
                                 turn + 1, agentCtx.phase, toolName, singleLine(error, 300));
                         toolResults.add(LlmRequest.ContentBlock.toolResultError(block.getToolUseId(), error));
                         continue;
                     }
-                    if (requiresExecutionPlan(toolName) && agentCtx.executionPlan == null) {
+                    if (phaseEngine.requiresExecutionPlan(toolName) && agentCtx.executionPlan == null) {
                         String error = "Execution plan required first. Call submit_plan before any file writes.";
                         log.warn("Agent tool rejected: turn={} phase={} tool={} reason={}",
                                 turn + 1, agentCtx.phase, toolName, error);
@@ -359,7 +365,7 @@ public class ArtifactGenStage implements Stage {
                             singleLine(result, 300));
                     if (!result.startsWith("Error:")) {
                         ranValidation = ranValidation || "validate_artifacts".equals(toolName);
-                        WriteScope scope = inspectWriteScope(toolName, block.getToolInput());
+                        WriteScope scope = phaseEngine.inspectWriteScope(toolName, block.getToolInput());
                         wroteVulnDemo = wroteVulnDemo || scope.vulnDemo;
                         wrotePoc = wrotePoc || scope.poc;
                         wroteReport = wroteReport || scope.report;
@@ -372,36 +378,36 @@ public class ArtifactGenStage implements Stage {
                 agentCtx.turns = turn + 1;
 
                 if (!finished && (wroteVulnDemo || wrotePoc)) {
-                    String focus = determineAutoValidationFocus(phaseBeforeTurn, agentCtx, wroteVulnDemo, wrotePoc);
+                    String focus = phaseEngine.determineAutoValidationFocus(phaseBeforeTurn, agentCtx, wroteVulnDemo, wrotePoc);
                     log.info("Agent auto-validation start: turn={} previousPhase={} focus={} wroteVulnDemo={} wrotePoc={}",
                             turn + 1, phaseBeforeTurn, focus, wroteVulnDemo, wrotePoc);
                     ValidationResult autoValidation = validateArtifacts(agentCtx, focus);
                     agentCtx.lastValidation = autoValidation;
-                    agentCtx.phase = nextPhaseAfterValidation(agentCtx, autoValidation, remaining - 1);
-                    agentCtx.lastDirective = buildPhaseDirective(agentCtx, autoValidation, false);
+                    agentCtx.phase = phaseEngine.nextPhaseAfterValidation(agentCtx, autoValidation, remaining - 1);
+                    agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, autoValidation, false);
                     log.info("Agent auto-validation done: turn={} nextPhase={} result={}",
                             turn + 1, agentCtx.phase, autoValidation.summary());
-                    String directive = renderPhaseDirective(agentCtx.lastDirective);
+                    String directive = phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                     messages.add(LlmRequest.Message.user(directive));
                     appendTranscript(agentCtx, "directive", turn + 1, directive);
                 } else if (!finished && wroteReport && agentCtx.phase == AgentPhase.REPORT) {
-                    agentCtx.lastDirective = buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
-                    String directive = renderPhaseDirective(agentCtx.lastDirective);
+                    agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
+                    String directive = phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                     messages.add(LlmRequest.Message.user(directive));
                     appendTranscript(agentCtx, "directive", turn + 1, directive);
                 } else if (!finished && ranValidation) {
-                    agentCtx.phase = nextPhaseAfterValidation(agentCtx, agentCtx.lastValidation, remaining - 1);
-                    agentCtx.lastDirective = buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
+                    agentCtx.phase = phaseEngine.nextPhaseAfterValidation(agentCtx, agentCtx.lastValidation, remaining - 1);
+                    agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
                     log.info("Agent manual validation directive: turn={} nextPhase={} result={}",
                             turn + 1, agentCtx.phase,
                             agentCtx.lastValidation == null ? "none" : agentCtx.lastValidation.summary());
-                    String directive = renderPhaseDirective(agentCtx.lastDirective);
+                    String directive = phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                     messages.add(LlmRequest.Message.user(directive));
                     appendTranscript(agentCtx, "directive", turn + 1, directive);
                 }
 
                 if (!finished) {
-                    updateProgressGuard(agentCtx, wroteVulnDemo || wrotePoc || wroteReport);
+                    phaseEngine.updateProgressGuard(agentCtx, wroteVulnDemo || wrotePoc || wroteReport);
                     if (agentCtx.abortReason != null) {
                         log.warn("Agent stopped by progress guard at turn {}: {}", turn + 1, agentCtx.abortReason);
                         ctx.reportProgress(agentCtx.abortReason);
@@ -435,7 +441,7 @@ public class ArtifactGenStage implements Stage {
 
             // Build output
             Map<String, Object> output = agentCtx.buildOutput();
-            String failureReason = agentCtx.abortReason != null ? agentCtx.abortReason : determineFailureReason(output);
+            String failureReason = agentCtx.abortReason != null ? agentCtx.abortReason : phaseEngine.determineFailureReason(output);
             if (failureReason != null) {
                 output.put("failureReason", failureReason);
             }
@@ -502,19 +508,19 @@ public class ArtifactGenStage implements Stage {
         sb.append("Phase: ").append(ctx.phase == null ? "" : ctx.phase.name()).append("\n");
         if (ctx.lastDirective != null) {
             sb.append("\n## Current Directive\n");
-            sb.append(renderJson(ctx.lastDirective.toMap())).append("\n");
+            sb.append(llmHelper.renderJson(ctx.lastDirective.toMap())).append("\n");
         }
         if (ctx.executionPlan != null) {
             sb.append("\n## Accepted Execution Plan\n");
-            sb.append(renderJson(ctx.executionPlan.toMap())).append("\n");
+            sb.append(llmHelper.renderJson(ctx.executionPlan.toMap())).append("\n");
         }
         if (ctx.lastValidation != null) {
             sb.append("\n## Latest Backend Validation\n");
-            sb.append(renderJson(ctx.lastValidation.toMap())).append("\n");
+            sb.append(llmHelper.renderJson(ctx.lastValidation.toMap())).append("\n");
         }
         if (ctx.verificationReview != null) {
             sb.append("\n## Latest Reviewer Verdict\n");
-            sb.append(renderJson(ctx.verificationReview.toMap())).append("\n");
+            sb.append(llmHelper.renderJson(ctx.verificationReview.toMap())).append("\n");
         }
         if (ctx.sessionSummary != null && !ctx.sessionSummary.trim().isEmpty()) {
             sb.append("\n## Compacted Session Summary\n");
@@ -573,25 +579,25 @@ public class ArtifactGenStage implements Stage {
         sb.append("Turns completed in this attempt: ").append(ctx.turns).append("\n");
         sb.append("Review revisions: ").append(ctx.reviewRevisions).append("\n");
         if (ctx.executionPlan != null) {
-            sb.append("\nExecution plan:\n").append(renderJson(ctx.executionPlan.toMap())).append("\n");
+            sb.append("\nExecution plan:\n").append(llmHelper.renderJson(ctx.executionPlan.toMap())).append("\n");
         }
         if (ctx.lastDirective != null) {
-            sb.append("\nCurrent directive:\n").append(renderJson(ctx.lastDirective.toMap())).append("\n");
+            sb.append("\nCurrent directive:\n").append(llmHelper.renderJson(ctx.lastDirective.toMap())).append("\n");
         }
         if (ctx.lastValidation != null) {
-            sb.append("\nLatest validation:\n").append(renderJson(ctx.lastValidation.toMap())).append("\n");
+            sb.append("\nLatest validation:\n").append(llmHelper.renderJson(ctx.lastValidation.toMap())).append("\n");
         }
         if (ctx.verificationReview != null) {
-            sb.append("\nLatest review:\n").append(renderJson(ctx.verificationReview.toMap())).append("\n");
+            sb.append("\nLatest review:\n").append(llmHelper.renderJson(ctx.verificationReview.toMap())).append("\n");
         }
         if (!ctx.buildHistory.isEmpty()) {
-            sb.append("\nRecent build history:\n").append(renderJson(recentHistory(ctx.buildHistory))).append("\n");
+            sb.append("\nRecent build history:\n").append(llmHelper.renderJson(llmHelper.recentHistory(ctx.buildHistory))).append("\n");
         }
         if (!ctx.startupHistory.isEmpty()) {
-            sb.append("\nRecent startup history:\n").append(renderJson(recentHistory(ctx.startupHistory))).append("\n");
+            sb.append("\nRecent startup history:\n").append(llmHelper.renderJson(llmHelper.recentHistory(ctx.startupHistory))).append("\n");
         }
         if (!ctx.commandHistory.isEmpty()) {
-            sb.append("\nRecent command history:\n").append(renderJson(recentHistory(ctx.commandHistory))).append("\n");
+            sb.append("\nRecent command history:\n").append(llmHelper.renderJson(llmHelper.recentHistory(ctx.commandHistory))).append("\n");
         }
         Map<String, FileSnapshot> current = captureWorkspaceSnapshot(ctx);
         sb.append("\nCurrent workspace manifest:\n").append(fileRenderer.renderFileManifest(current)).append("\n");
@@ -763,29 +769,6 @@ public class ArtifactGenStage implements Stage {
 
     // ==================== LLM Call with Retry ====================
 
-    private LlmResponse chatWithRetry(PipelineContext ctx, LlmRequest request, int maxAttempts) throws Exception {
-        Exception lastErr = null;
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            try {
-                return ctx.getLlmClient().chat(request);
-            } catch (Exception e) {
-                lastErr = e;
-                String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                boolean retryable = msg.contains("500") || msg.contains("502") || msg.contains("503")
-                        || msg.contains("429") || msg.contains("403") || msg.contains("overloaded")
-                        || msg.contains("Internal Server Error") || msg.contains("returned no content")
-                        || msg.contains("LLM API error 200");
-                if (!retryable || attempt == maxAttempts) {
-                    throw e;
-                }
-                long delay = attempt * 10_000L; // 10s, 20s
-                log.warn("LLM call failed (attempt {}/{}), retrying in {}s: {}",
-                        attempt, maxAttempts, delay / 1000, msg);
-                Thread.sleep(delay);
-            }
-        }
-        throw lastErr;
-    }
 
     // ==================== Tool Definitions ====================
 
@@ -896,7 +879,7 @@ public class ArtifactGenStage implements Stage {
 
         List<LlmRequest.ToolDef> tools = new ArrayList<>();
         for (LlmRequest.ToolDef tool : allTools) {
-            if (isToolAllowed(ctx.phase, tool.getName())) {
+            if (phaseEngine.isToolAllowed(ctx.phase, tool.getName())) {
                 tools.add(tool);
             }
         }
@@ -949,9 +932,9 @@ public class ArtifactGenStage implements Stage {
         }
         ctx.executionPlan = plan;
         ctx.phase = AgentPhase.GENERATE_MINIMAL;
-        ctx.lastDirective = buildPhaseDirective(ctx, ctx.lastValidation, false);
+        ctx.lastDirective = phaseEngine.buildPhaseDirective(ctx, ctx.lastValidation, false);
         return "Plan accepted. Phase switched to " + ctx.phase.name() + ".\n"
-                + renderPhaseDirective(ctx.lastDirective);
+                + phaseEngine.renderPhaseDirective(ctx.lastDirective);
     }
 
 
@@ -963,7 +946,7 @@ public class ArtifactGenStage implements Stage {
         String focus = input.path("focus").asText("full").trim();
         ValidationResult result = validateArtifacts(ctx, focus.isEmpty() ? "full" : focus);
         ctx.lastValidation = result;
-        return renderJson(result.toMap());
+        return llmHelper.renderJson(result.toMap());
     }
 
     private String doInspectRuntime(AgentContext ctx) {
@@ -978,7 +961,7 @@ public class ArtifactGenStage implements Stage {
         if (ctx.lastDirective != null) {
             info.put("directive", ctx.lastDirective.toMap());
         }
-        return renderJson(info);
+        return llmHelper.renderJson(info);
     }
 
     private String doStartApp(AgentContext ctx) throws Exception {
@@ -1479,15 +1462,15 @@ public class ArtifactGenStage implements Stage {
         StringBuilder sb = new StringBuilder();
         if (memory.executionPlan != null) {
             sb.append("Execution plan:\n");
-            sb.append(renderJson(memory.executionPlan.toMap())).append("\n");
+            sb.append(llmHelper.renderJson(memory.executionPlan.toMap())).append("\n");
         }
         if (memory.lastValidation != null) {
             sb.append("Latest validator result:\n");
-            sb.append(renderJson(memory.lastValidation.toMap())).append("\n");
+            sb.append(llmHelper.renderJson(memory.lastValidation.toMap())).append("\n");
         }
         if (memory.lastReview != null) {
             sb.append("Latest review result:\n");
-            sb.append(renderJson(memory.lastReview.toMap())).append("\n");
+            sb.append(llmHelper.renderJson(memory.lastReview.toMap())).append("\n");
         }
         if (memory.sessionSummary != null && !memory.sessionSummary.trim().isEmpty()) {
             sb.append("Compacted session summary:\n");
@@ -1523,7 +1506,7 @@ public class ArtifactGenStage implements Stage {
             vars.put("patch_diff", patchDiff);
             vars.put("artifact", artifact);
             String userPrompt = promptRegistry.render(userTemplate, vars);
-            LlmResponse response = chatWithRetry(ctx, LlmRequest.reasoning(systemPrompt, userPrompt), 2);
+            LlmResponse response = llmHelper.chatWithRetry(ctx, LlmRequest.reasoning(systemPrompt, userPrompt), 2);
             return VerificationPlan.fromJson(parseJsonObject(response.getContent()));
         } catch (Exception e) {
             log.warn("Verification plan generation failed, using fallback: {}", e.getMessage());
@@ -1545,11 +1528,11 @@ public class ArtifactGenStage implements Stage {
             vars.put("root_cause", rootCause);
             vars.put("patch_diff", patchDiff);
             vars.put("artifact", artifact);
-            vars.put("verification_plan", renderJson(agentCtx.verificationPlan.toMap()));
+            vars.put("verification_plan", llmHelper.renderJson(agentCtx.verificationPlan.toMap()));
             vars.put("finish_summary", finishSummary == null ? "{}" : finishSummary.toPrettyString());
-            vars.put("execution_evidence", renderJson(buildVerificationEvidence(agentCtx, finishSummary)));
+            vars.put("execution_evidence", llmHelper.renderJson(buildVerificationEvidence(agentCtx, finishSummary)));
             String userPrompt = promptRegistry.render(userTemplate, vars);
-            LlmResponse response = chatWithRetry(ctx, LlmRequest.reasoning(systemPrompt, userPrompt), 2);
+            LlmResponse response = llmHelper.chatWithRetry(ctx, LlmRequest.reasoning(systemPrompt, userPrompt), 2);
             return reconcileReviewWithBackend(
                     VerificationReview.fromJson(parseJsonObject(response.getContent())), agentCtx, finishSummary);
         } catch (Exception e) {
@@ -1581,9 +1564,9 @@ public class ArtifactGenStage implements Stage {
         evidence.put("writtenFiles", new ArrayList<>(ctx.writtenFiles));
         evidence.put("reviewRevisions", ctx.reviewRevisions);
         evidence.put("finishSummary", finishSummary == null ? mapper.createObjectNode() : finishSummary);
-        evidence.put("buildHistory", recentHistory(ctx.buildHistory));
-        evidence.put("startupHistory", recentHistory(ctx.startupHistory));
-        evidence.put("commandHistory", recentHistory(ctx.commandHistory));
+        evidence.put("buildHistory", llmHelper.recentHistory(ctx.buildHistory));
+        evidence.put("startupHistory", llmHelper.recentHistory(ctx.startupHistory));
+        evidence.put("commandHistory", llmHelper.recentHistory(ctx.commandHistory));
 
         Map<String, String> snippets = collectKeyFileSnippets(ctx);
         if (!snippets.isEmpty()) {
@@ -1592,17 +1575,6 @@ public class ArtifactGenStage implements Stage {
         return evidence;
     }
 
-    private List<Map<String, Object>> recentHistory(List<ToolRun> history) {
-        if (history.isEmpty()) {
-            return Collections.emptyList();
-        }
-        int from = Math.max(0, history.size() - REVIEW_HISTORY_ITEMS);
-        List<Map<String, Object>> items = new ArrayList<>();
-        for (int i = from; i < history.size(); i++) {
-            items.add(history.get(i).toMap());
-        }
-        return items;
-    }
 
     private Map<String, String> collectKeyFileSnippets(AgentContext ctx) {
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
@@ -1695,13 +1667,6 @@ public class ArtifactGenStage implements Stage {
         return merged;
     }
 
-    private String renderJson(Object value) {
-        try {
-            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
-        } catch (Exception e) {
-            return String.valueOf(value);
-        }
-    }
 
     private String toolDefNames(List<LlmRequest.ToolDef> tools) {
         if (tools == null || tools.isEmpty()) {
@@ -1901,452 +1866,27 @@ public class ArtifactGenStage implements Stage {
 
 
 
-    private void updateProgressGuard(AgentContext ctx, boolean wroteFiles) {
-        if (wroteFiles) {
-            ctx.noProgressTurns = 0;
-            ctx.lastProgressSignature = progressSignature(ctx);
-            return;
-        }
 
-        String signature = progressSignature(ctx);
-        if (signature.equals(ctx.lastProgressSignature)) {
-            ctx.noProgressTurns++;
-        } else {
-            ctx.noProgressTurns = 1;
-            ctx.lastProgressSignature = signature;
-        }
-
-        if (ctx.noProgressTurns >= MAX_NO_PROGRESS_TURNS) {
-            String validation = ctx.lastValidation == null ? "none" : ctx.lastValidation.summary();
-            String gap = ctx.lastDirective == null ? "" : ctx.lastDirective.gap;
-            ctx.abortReason = "Stage 4 stopped after " + ctx.noProgressTurns
-                    + " consecutive no-progress turns. Phase=" + ctx.phase
-                    + ", validation=" + validation
-                    + (gap == null || gap.isEmpty() ? "" : ", gap=" + gap)
-                    + ". The agent inspected or revalidated without changing files.";
-        }
-    }
-
-    private String progressSignature(AgentContext ctx) {
-        String validation = ctx.lastValidation == null ? "none" : ctx.lastValidation.summary();
-        String gap = ctx.lastDirective == null ? "" : ctx.lastDirective.gap;
-        return String.valueOf(ctx.phase) + "|" + validation + "|" + gap + "|review=" + ctx.reviewRevisions;
-    }
 
     @SuppressWarnings("unchecked")
-    private String determineFailureReason(Map<String, Object> output) {
-        Object vulnDemoObj = output.get("vulnDemo");
-        if (vulnDemoObj instanceof Map) {
-            Map<String, Object> vulnDemo = (Map<String, Object>) vulnDemoObj;
-            String compileStatus = String.valueOf(vulnDemo.getOrDefault("compileStatus", ""));
-            if ("compile_failed".equals(compileStatus)) {
-                String message = String.valueOf(vulnDemo.getOrDefault("compileMessage", ""));
-                return "Vulnerability demo build failed"
-                        + (message == null || message.trim().isEmpty() ? "." : ": " + message);
-            }
 
-            String startupStatus = String.valueOf(vulnDemo.getOrDefault("startupStatus", ""));
-            if ("startup_failed".equals(startupStatus)) {
-                String message = String.valueOf(vulnDemo.getOrDefault("startupMessage", ""));
-                return "Vulnerability demo startup failed"
-                        + (message == null || message.trim().isEmpty() ? "." : ": " + message);
-            }
-        }
 
-        Object pocObj = output.get("poc");
-        if (!(pocObj instanceof Map)) {
-            return null;
-        }
 
-        Map<String, Object> poc = (Map<String, Object>) pocObj;
-        String pocStatus = String.valueOf(poc.getOrDefault("status", ""));
-        if (!"unverified".equals(pocStatus)) {
-            return null;
-        }
 
-        String reason = String.valueOf(poc.getOrDefault("reason", "")).trim();
-        if (!reason.isEmpty() && !"null".equals(reason)) {
-            return "PoC verification failed: " + reason;
-        }
 
-        return "PoC verification failed: the reviewer could not confirm that the exploit reached the CVE-specific "
-                + "success criteria with the observed evidence.";
-    }
 
-    private AgentPhase inferPhase(AgentContext ctx) {
-        if (ctx == null) {
-            return AgentPhase.PLAN;
-        }
-        if (ctx.executionPlan == null) {
-            return AgentPhase.PLAN;
-        }
-        if (ctx.summary != null) {
-            return AgentPhase.FINISHED;
-        }
-        if (Files.exists(ctx.cvePath.resolve("report/report.md"))) {
-            return AgentPhase.REPORT;
-        }
-        String compileStatus = ctx.deriveCompileStatus();
-        if (!"compile_ok".equals(compileStatus)) {
-            return ctx.writtenFiles.size() <= 3 ? AgentPhase.GENERATE_MINIMAL : AgentPhase.COMPILE_FIX;
-        }
-        String startupStatus = ctx.deriveStartupStatus();
-        if (!"startup_ok".equals(startupStatus)) {
-            return AgentPhase.STARTUP_FIX;
-        }
-        return AgentPhase.POC_FIX;
-    }
 
-    private PhaseDirective currentDirective(AgentContext ctx) {
-        if (ctx.lastDirective != null && ctx.lastDirective.phase == ctx.phase) {
-            return ctx.lastDirective;
-        }
-        return buildPhaseDirective(ctx, ctx.lastValidation, false);
-    }
 
-    private boolean isToolAllowed(AgentPhase phase, String toolName) {
-        if (phase == null) {
-            return "submit_plan".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName)
-                    || "write_file".equals(toolName) || "write_files".equals(toolName);
-        }
-        switch (phase) {
-            case PLAN:
-                return "submit_plan".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName)
-                        || "write_file".equals(toolName) || "write_files".equals(toolName);
-            case GENERATE_MINIMAL:
-                return "write_file".equals(toolName) || "write_files".equals(toolName)
-                        || "read_file".equals(toolName) || "read_log".equals(toolName);
-            case COMPILE_FIX:
-            case STARTUP_FIX:
-            case POC_FIX:
-                return "write_file".equals(toolName) || "write_files".equals(toolName)
-                        || "read_file".equals(toolName) || "read_log".equals(toolName) || "inspect_runtime".equals(toolName)
-                        || "validate_artifacts".equals(toolName) || "finish".equals(toolName);
-            case REPORT:
-                return "write_file".equals(toolName) || "write_files".equals(toolName)
-                        || "read_file".equals(toolName) || "read_log".equals(toolName) || "inspect_runtime".equals(toolName)
-                        || "finish".equals(toolName);
-            case FINISHED:
-                return "finish".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName);
-            default:
-                return false;
-        }
-    }
 
-    private AgentPhase nextPhaseAfterValidation(AgentContext ctx, ValidationResult result, int remainingTurns) {
-        if (remainingTurns <= REPORT_FALLBACK_TURNS) {
-            return AgentPhase.REPORT;
-        }
-        if (result == null) {
-            return inferPhase(ctx);
-        }
-        if (!result.compileOk) {
-            return AgentPhase.COMPILE_FIX;
-        }
-        if (!result.startupOk) {
-            return AgentPhase.STARTUP_FIX;
-        }
-        if (!result.pocVerified) {
-            return AgentPhase.POC_FIX;
-        }
-        return AgentPhase.REPORT;
-    }
 
-    private PhaseDirective buildPhaseDirective(AgentContext ctx, ValidationResult result, boolean forceReport) {
-        AgentPhase phase = forceReport ? AgentPhase.REPORT : (ctx.phase == null ? inferPhase(ctx) : ctx.phase);
-        List<String> allowed = allowedActions(phase);
-        String gap;
-        String expected;
-        String actual;
-        String fixHint;
 
-        switch (phase) {
-            case PLAN:
-                gap = "execution_plan_missing";
-                expected = "A concise execution plan with first batch files, validation sequence, and report strategy.";
-                actual = "No accepted execution plan is stored for this run.";
-                fixHint = "Call submit_plan, then immediately write the minimal runnable candidate.";
-                break;
-            case GENERATE_MINIMAL:
-                gap = "minimal_candidate_missing";
-                expected = "A minimal runnable candidate: core vuln-demo files plus poc/exploit.sh.";
-                actual = "The workspace does not yet contain a compile-ready candidate.";
-                fixHint = "Write pom.xml, key config/class files, and the first PoC batch in one write_files call.";
-                break;
-            case COMPILE_FIX:
-                gap = "compile_failed";
-                expected = "mvn package -DskipTests succeeds for vuln-demo.";
-                actual = result == null ? "No compile result yet." : result.compileMessage;
-                fixHint = deriveCompileFixHint(ctx, result);
-                break;
-            case STARTUP_FIX:
-                gap = "startup_failed";
-                expected = "The generated lab starts successfully on port 18080.";
-                actual = result == null ? "No startup result yet." : result.startupMessage;
-                fixHint = deriveStartupFixHint(ctx, result);
-                break;
-            case POC_FIX:
-                gap = result == null ? "poc_unverified" : derivePocGap(result);
-                expected = derivePocExpected(ctx);
-                actual = result == null ? "No PoC validation evidence yet." : result.pocMessage;
-                fixHint = derivePocFixHint(ctx, result);
-                break;
-            case REPORT:
-                gap = result != null && result.compileOk && result.startupOk && result.pocVerified ? "ready_to_finish" : "report_and_finish";
-                expected = result != null && result.compileOk && result.startupOk && result.pocVerified
-                        ? "Summarize the verified evidence and call finish."
-                        : "Write report/report.md describing the verified evidence or exact remaining gap, then call finish.";
-                actual = result == null ? "Validation state unavailable." : result.summary();
-                fixHint = "Do not continue debugging. Produce the report from current evidence and finish.";
-                break;
-            default:
-                gap = "unknown";
-                expected = "Finish the current stage safely.";
-                actual = "";
-                fixHint = "Use the smallest action consistent with the current validation state.";
-                break;
-        }
 
-        PhaseDirective directive = new PhaseDirective(phase, gap, expected, actual, fixHint, allowed);
-        ctx.lastDirective = directive;
-        return directive;
-    }
 
-    private List<String> allowedActions(AgentPhase phase) {
-        switch (phase) {
-            case PLAN:
-                return Arrays.asList("submit_plan", "write_files", "write_file", "read_file", "read_log");
-            case GENERATE_MINIMAL:
-                return Arrays.asList("write_files", "write_file", "read_file", "read_log");
-            case COMPILE_FIX:
-            case STARTUP_FIX:
-            case POC_FIX:
-                return Arrays.asList("write_files", "write_file", "read_file", "read_log", "inspect_runtime", "validate_artifacts", "finish");
-            case REPORT:
-                return Arrays.asList("write_files", "write_file", "read_file", "read_log", "inspect_runtime", "finish");
-            default:
-                return Collections.singletonList("finish");
-        }
-    }
 
-    private String renderPhaseDirective(PhaseDirective directive) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("BACKEND DIRECTIVE\n");
-        sb.append(renderJson(directive.toMap())).append("\n");
 
-        AgentPhase phase = directive.phase;
-        if (phase == AgentPhase.COMPILE_FIX || phase == AgentPhase.STARTUP_FIX || phase == AgentPhase.POC_FIX) {
-            sb.append("Diagnose the failure first: use read_file, read_log, inspect_runtime to understand the root cause. ");
-            sb.append("Once you understand why it failed, make targeted changes to fix it. ");
-            sb.append("Available actions: ").append(String.join(", ", directive.allowedNextActions)).append(".");
-        } else {
-            sb.append("Available actions: ").append(String.join(", ", directive.allowedNextActions)).append(".");
-        }
-        return sb.toString();
-    }
 
-    private String deriveCompileFixHint(AgentContext ctx, ValidationResult result) {
-        if (result == null || result.compileMessage == null) {
-            return "Analyze the compilation error and fix it.";
-        }
 
-        String diagnosis = diagnoseFailure(ctx, "COMPILE", result.compileMessage,
-            ctx.buildHistory.isEmpty() ? null : ctx.buildHistory.get(ctx.buildHistory.size() - 1).output);
 
-        return diagnosis.isEmpty()
-            ? "Read the compilation error, identify the root cause, then fix it."
-            : diagnosis;
-    }
-
-    private String deriveStartupFixHint(AgentContext ctx, ValidationResult result) {
-        if (result == null || result.startupMessage == null) {
-            return "Analyze why the application failed to start and fix it.";
-        }
-
-        String diagnosis = diagnoseFailure(ctx, "STARTUP", result.startupMessage,
-            ctx.startupHistory.isEmpty() ? null : ctx.startupHistory.get(ctx.startupHistory.size() - 1).output);
-
-        return diagnosis.isEmpty()
-            ? "Read the startup logs, identify the root cause, then fix configuration or code issues."
-            : diagnosis;
-    }
-
-    private String derivePocFixHint(AgentContext ctx, ValidationResult result) {
-        if (ctx != null && ctx.verificationPlan != null) {
-            StringBuilder sb = new StringBuilder();
-
-            String diagnosis = diagnoseFailure(ctx, "POC",
-                result == null ? "PoC not verified" : result.pocMessage,
-                ctx.commandHistory.isEmpty() ? null : ctx.commandHistory.get(ctx.commandHistory.size() - 1).output);
-
-            if (!diagnosis.isEmpty()) {
-                sb.append(diagnosis).append("\n\n");
-            }
-
-            if (!ctx.verificationPlan.successSignals.isEmpty()) {
-                sb.append("Success signals: ")
-                        .append(joinItems(ctx.verificationPlan.successSignals, "; "))
-                        .append(".");
-            }
-            if (!ctx.verificationPlan.requiredEvidence.isEmpty()) {
-                sb.append(" Required evidence: ")
-                        .append(joinItems(ctx.verificationPlan.requiredEvidence, "; "))
-                        .append(".");
-            }
-            if (!ctx.verificationPlan.falsePositiveGuards.isEmpty()) {
-                sb.append(" False-positive guards: ")
-                        .append(joinItems(ctx.verificationPlan.falsePositiveGuards, "; "))
-                        .append(".");
-            }
-            return sb.toString().trim().isEmpty()
-                ? "Analyze why the PoC failed and fix the demo or PoC to satisfy the verification plan."
-                : sb.toString();
-        }
-        return "Analyze why the PoC failed and fix it to satisfy the verification signals.";
-    }
-
-    private String diagnoseFailure(AgentContext ctx, String failureType, String errorMessage, String fullLog) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("You are analyzing a ").append(failureType).append(" failure in CVE reproduction lab generation.\n\n");
-        prompt.append("ERROR MESSAGE:\n").append(errorMessage).append("\n\n");
-
-        if (fullLog != null && !fullLog.trim().isEmpty() && fullLog.length() < 8000) {
-            prompt.append("FULL LOG:\n").append(fullLog).append("\n\n");
-        }
-
-        prompt.append("RECENT BUILD HISTORY:\n").append(renderJson(recentHistory(ctx.buildHistory))).append("\n\n");
-        prompt.append("RECENT STARTUP HISTORY:\n").append(renderJson(recentHistory(ctx.startupHistory))).append("\n\n");
-        prompt.append("RECENT COMMAND HISTORY:\n").append(renderJson(recentHistory(ctx.commandHistory))).append("\n\n");
-
-        prompt.append("Analyze the root cause in 2-3 sentences. What specifically failed and why? ");
-        prompt.append("Suggest concrete next steps to fix it. Be specific about file names and line numbers if applicable.");
-
-        try {
-            LlmRequest req = LlmRequest.reasoning(
-                "You are a Java/Spring Boot/CVE expert analyzing build/runtime failures.",
-                prompt.toString()
-            );
-            LlmResponse response = chatWithRetry(ctx.pipeCtx, req, 1);
-            return response == null ? "" : response.getContent().trim();
-        } catch (Exception e) {
-            log.warn("Failure diagnosis failed: {}", e.getMessage());
-            return "";
-        }
-    }
-
-    private String derivePocGap(ValidationResult result) {
-        if (result == null || result.pocMessage == null || result.pocMessage.trim().isEmpty()) {
-            return "poc_unverified";
-        }
-        String message = result.pocMessage.toLowerCase(Locale.ROOT);
-        if (message.contains("not found")) {
-            return "poc_artifact_missing";
-        }
-        if (message.contains("unavailable")) {
-            return "poc_runtime_unavailable";
-        }
-        if (message.contains("could not be read")) {
-            return "poc_artifact_unreadable";
-        }
-        if (message.contains("failed")) {
-            return "poc_execution_failed";
-        }
-        if (message.contains("unexpected") || message.contains("mismatch")) {
-            return "poc_output_mismatch";
-        }
-        return "poc_unverified";
-    }
-
-    private String derivePocExpected(AgentContext ctx) {
-        if (ctx != null && ctx.verificationPlan != null) {
-            if (!ctx.verificationPlan.successSignals.isEmpty()) {
-                return "The PoC should satisfy these verification signals: "
-                        + joinItems(ctx.verificationPlan.successSignals, "; ");
-            }
-            if (!ctx.verificationPlan.requiredEvidence.isEmpty()) {
-                return "The PoC should produce this evidence: "
-                        + joinItems(ctx.verificationPlan.requiredEvidence, "; ");
-            }
-        }
-        return "The PoC must satisfy the verification plan's success signals.";
-    }
-
-    private boolean requiresExecutionPlan(String toolName) {
-        return !("submit_plan".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName));
-    }
-
-    private WriteScope inspectWriteScope(String toolName, JsonNode input) {
-        WriteScope scope = new WriteScope();
-        if ("write_file".equals(toolName)) {
-            markWriteScope(scope, input.path("path").asText(""));
-            return scope;
-        }
-        if ("write_files".equals(toolName)) {
-            JsonNode files = input.path("files");
-            if (files.isArray()) {
-                for (JsonNode item : files) {
-                    markWriteScope(scope, item.path("path").asText(""));
-                }
-            }
-        }
-        return scope;
-    }
-
-    private void markWriteScope(WriteScope scope, String path) {
-        if (path == null) {
-            return;
-        }
-        if (path.startsWith("vuln-demo/")) {
-            scope.vulnDemo = true;
-        } else if (path.startsWith("poc/")) {
-            scope.poc = true;
-        } else if (path.startsWith("report/")) {
-            scope.report = true;
-        }
-    }
-
-    private String determineAutoValidationFocus(AgentPhase phaseBeforeTurn, AgentContext ctx, boolean wroteVulnDemo, boolean wrotePoc) {
-        if (phaseBeforeTurn == AgentPhase.GENERATE_MINIMAL) {
-            return Files.exists(ctx.cvePath.resolve("poc/exploit.sh")) ? "full" : "startup";
-        }
-        if (wrotePoc) {
-            return "full";
-        }
-        if (wroteVulnDemo) {
-            return Files.exists(ctx.cvePath.resolve("poc/exploit.sh")) ? "full" : "startup";
-        }
-        return "full";
-    }
-
-    private String buildAutoValidationFeedback(AgentContext ctx, ValidationResult result, String focus, boolean wroteReport) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("AUTO VALIDATION after your latest file batch (focus=").append(focus).append("):\n");
-        sb.append(renderJson(result.toMap())).append("\n");
-
-        if (result.compileOk && result.startupOk && result.pocVerified) {
-            if (Files.exists(ctx.cvePath.resolve("report/report.md")) || wroteReport) {
-                sb.append("Validation passed. Call finish() now with the concrete evidence above.");
-            } else {
-                sb.append("Validation passed. Write report/report.md now, then call finish().");
-            }
-            return sb.toString();
-        }
-
-        if ("startup".equals(focus) && result.compileOk && result.startupOk) {
-            sb.append("Compile/startup passed. Next, write or refine poc/exploit.sh, then validate again.");
-            return sb.toString();
-        }
-        if (!result.compileOk) {
-            sb.append("Next move: fix the compile failure only, then let the backend validate again.");
-            return sb.toString();
-        }
-        if (!result.startupOk) {
-            sb.append("Next move: fix the startup failure only, then validate again.");
-            return sb.toString();
-        }
-        sb.append("Next move: keep the demo running, patch the demo or PoC to satisfy the missing verification signal, then validate again.");
-        return sb.toString();
-    }
 
     private ValidationResult validateArtifacts(AgentContext ctx, String focus) throws Exception {
         String normalized = focus == null ? "full" : focus.trim().toLowerCase(Locale.ROOT);
@@ -2416,11 +1956,6 @@ public class ArtifactGenStage implements Stage {
     // ==================== Inner Classes ====================
 
 
-    private static class WriteScope {
-        boolean vulnDemo;
-        boolean poc;
-        boolean report;
-    }
 
 
 
