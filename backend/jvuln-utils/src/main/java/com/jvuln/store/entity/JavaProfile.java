@@ -1,6 +1,9 @@
 package com.jvuln.store.entity;
 
 import javax.persistence.*;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Pattern;
+import javax.validation.constraints.Size;
 
 @Entity
 @Table(name = "java_profile")
@@ -17,6 +20,9 @@ public class JavaProfile {
     @Column(name = "java_version", nullable = false, length = 10)
     private String javaVersion;
 
+    @NotBlank(message = "Java Home 不能为空")
+    @Size(max = 500, message = "Java Home 路径长度不能超过 500 字符")
+    @Pattern(regexp = "^[a-zA-Z0-9/_.-]+$", message = "Java Home 路径只能包含字母、数字、斜杠、下划线、点和横线")
     @Column(name = "java_home", nullable = false, length = 500)
     private String javaHome;
 

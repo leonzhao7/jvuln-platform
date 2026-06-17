@@ -13,6 +13,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import javax.validation.Valid;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -121,7 +125,10 @@ public class ConfigController {
     }
 
     @PostMapping("/java-profiles")
-    public ResponseEntity<JavaProfile> createJavaProfile(@RequestBody JavaProfile incoming) {
+    public ResponseEntity<JavaProfile> createJavaProfile(@Valid @RequestBody JavaProfile incoming) {
+        // 运行时路径白名单校验
+        validateJavaHomePath(incoming.getJavaHome());
+
         JavaProfile profile = new JavaProfile();
         applyJavaProfileFields(profile, incoming);
         profile.setIsDefault(Boolean.FALSE);
@@ -130,9 +137,13 @@ public class ConfigController {
     }
 
     @PutMapping("/java-profiles/{id}")
-    public ResponseEntity<?> updateJavaProfile(@PathVariable Long id, @RequestBody JavaProfile incoming) {
+    public ResponseEntity<?> updateJavaProfile(@PathVariable Long id, @Valid @RequestBody JavaProfile incoming) {
         JavaProfile profile = javaProfileRepo.findById(id).orElse(null);
         if (profile == null) return ResponseEntity.notFound().build();
+
+        // 运行时路径白名单校验
+        validateJavaHomePath(incoming.getJavaHome());
+
         applyJavaProfileFields(profile, incoming);
         javaProfileRepo.save(profile);
         return ResponseEntity.ok(profile);
@@ -189,5 +200,51 @@ public class ConfigController {
         copy.setActive(src.isActive());
         copy.setApiKey(src.getApiKey() != null && !src.getApiKey().isEmpty() ? "••••••••" : "");
         return copy;
+    }
+
+    /**
+     * 校验 Java Home 路径合法性
+     *
+     * 1. 路径必须是绝对路径
+     * 2. 路径必须存在且为目录
+     * 3. 必须包含 bin/java 或 bin/javac 可执行文件
+     * 4. 路径必须在白名单目录内（防止命令注入）
+     */
+    private void validateJavaHomePath(String javaHome) {
+        if (javaHome == null || javaHome.trim().isEmpty()) {
+            throw new IllegalArgumentException("Java Home 路径不能为空");
+        }
+
+        Path path = Paths.get(javaHome);
+
+        // 1. 必须是绝对路径
+        if (!path.isAbsolute()) {
+            throw new IllegalArgumentException("Java Home 必须是绝对路径");
+        }
+
+        // 2. 路径必须存在且为目录
+        if (!Files.exists(path) || !Files.isDirectory(path)) {
+            throw new IllegalArgumentException("Java Home 路径不存在或不是目录");
+        }
+
+        // 3. 必须包含 bin/java 或 bin/javac
+        Path javaBin = path.resolve("bin/java");
+        Path javacBin = path.resolve("bin/javac");
+        if (!Files.exists(javaBin) && !Files.exists(javacBin)) {
+            throw new IllegalArgumentException("Java Home 目录中未找到 bin/java 或 bin/javac");
+        }
+
+        // 4. 白名单校验：只允许常见的 Java 安装目录
+        String pathStr = path.toString();
+        boolean allowed = pathStr.startsWith("/usr/lib/jvm/") ||
+                         pathStr.startsWith("/usr/local/") ||
+                         pathStr.startsWith("/opt/") ||
+                         pathStr.startsWith("/Library/Java/") ||
+                         pathStr.matches("^[A-Z]:\\\\Program Files\\\\.*") ||
+                         pathStr.matches("^[A-Z]:\\\\Java\\\\.*");
+
+        if (!allowed) {
+            throw new SecurityException("Java Home 路径不在允许的目录范围内");
+        }
     }
 }

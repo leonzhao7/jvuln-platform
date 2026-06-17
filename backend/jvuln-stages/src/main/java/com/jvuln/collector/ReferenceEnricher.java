@@ -8,6 +8,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -28,7 +29,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Component
-public class ReferenceEnricher {
+public class ReferenceEnricher implements DisposableBean {
 
     private static final Logger log = LoggerFactory.getLogger(ReferenceEnricher.class);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
@@ -378,6 +379,16 @@ public class ReferenceEnricher {
     private String stripFragment(String url) {
         int idx = url.indexOf('#');
         return idx >= 0 ? url.substring(0, idx) : url;
+    }
+
+    /**
+     * 实现 DisposableBean 接口，确保 Bean 销毁时释放 WebClient 资源
+     */
+    @Override
+    public void destroy() throws Exception {
+        log.info("Disposing ReferenceEnricher resources");
+        // WebClient 底层的 HttpClient 连接池会自动释放
+        // 这里主要是提供一个显式的生命周期钩子，便于监控和调试
     }
 
     public static class EnrichmentResult {

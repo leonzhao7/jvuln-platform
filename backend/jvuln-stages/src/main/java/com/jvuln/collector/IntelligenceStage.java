@@ -72,13 +72,20 @@ public class IntelligenceStage implements Stage {
             }));
         }
 
-        executor.shutdown();
-        boolean finished = executor.awaitTermination(SOURCE_STAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        if (!finished) {
-            log.warn("IntelligenceStage timed out after {}s for {}", SOURCE_STAGE_TIMEOUT_SECONDS, cveId);
-            ctx.reportProgress("Intelligence collection timed out after " + SOURCE_STAGE_TIMEOUT_SECONDS
-                    + "s; cancelling slow sources");
-            executor.shutdownNow();
+        try {
+            executor.shutdown();
+            boolean finished = executor.awaitTermination(SOURCE_STAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!finished) {
+                log.warn("IntelligenceStage timed out after {}s for {}", SOURCE_STAGE_TIMEOUT_SECONDS, cveId);
+                ctx.reportProgress("Intelligence collection timed out after " + SOURCE_STAGE_TIMEOUT_SECONDS
+                        + "s; cancelling slow sources");
+                executor.shutdownNow();
+            }
+        } finally {
+            // 确保在任何情况下都关闭线程池
+            if (!executor.isShutdown()) {
+                executor.shutdownNow();
+            }
         }
 
         List<IntelSource.IntelFragment> fragments = new ArrayList<>();

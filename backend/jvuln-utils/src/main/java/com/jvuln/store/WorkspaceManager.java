@@ -11,12 +11,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.regex.Pattern;
 
 @Component
 public class WorkspaceManager {
 
     private final Path workspaceRoot;
     private final ObjectMapper objectMapper;
+
+    // CVE ID 格式校验正则表达式
+    private static final Pattern CVE_PATTERN = Pattern.compile("^CVE-\\d{4}-\\d{4,}$");
 
     public WorkspaceManager(@Value("${jvuln.workspace.root:workspace}") String root) {
         this.workspaceRoot = Paths.get(root).toAbsolutePath();
@@ -29,8 +33,26 @@ public class WorkspaceManager {
         return workspaceRoot;
     }
 
+    /**
+     * 获取 CVE 工作目录路径，并进行路径遍历防御
+     *
+     * @param cveId CVE 编号
+     * @return CVE 工作目录路径
+     * @throws IllegalArgumentException 如果 cveId 格式不正确或存在路径遍历攻击
+     */
     public Path getCvePath(String cveId) {
-        return workspaceRoot.resolve(cveId);
+        // 1. 格式校验：必须符合 CVE-YYYY-NNNNN 格式
+        if (cveId == null || !CVE_PATTERN.matcher(cveId).matches()) {
+            throw new IllegalArgumentException("Invalid CVE ID format: " + cveId);
+        }
+
+        // 2. 路径遍历防御：确保解析后的路径在 workspaceRoot 内
+        Path resolved = workspaceRoot.resolve(cveId).normalize();
+        if (!resolved.startsWith(workspaceRoot)) {
+            throw new SecurityException("Path traversal attempt detected: " + cveId);
+        }
+
+        return resolved;
     }
 
     public Path initCveWorkspace(String cveId) throws IOException {

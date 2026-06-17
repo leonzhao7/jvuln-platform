@@ -63,7 +63,15 @@ public class PipelineEngine {
     }
 
     public boolean execute(final String cveId, final int fromStage) {
-        AtomicBoolean running = runningTasks.computeIfAbsent(cveId, key -> new AtomicBoolean(false));
+        // 使用 putIfAbsent 替代 computeIfAbsent，避免死锁风险
+        AtomicBoolean newFlag = new AtomicBoolean(false);
+        AtomicBoolean running = runningTasks.putIfAbsent(cveId, newFlag);
+
+        // 如果返回 null，说明之前不存在，使用新创建的 flag
+        if (running == null) {
+            running = newFlag;
+        }
+
         if (!running.compareAndSet(false, true)) {
             String message = "Pipeline already running for " + cveId;
             log.warn(message);
