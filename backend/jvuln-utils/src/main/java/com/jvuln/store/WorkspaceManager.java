@@ -2,7 +2,6 @@ package com.jvuln.store;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -22,11 +21,10 @@ public class WorkspaceManager {
     // CVE ID 格式校验正则表达式
     private static final Pattern CVE_PATTERN = Pattern.compile("^CVE-\\d{4}-\\d{4,}$");
 
-    public WorkspaceManager(@Value("${jvuln.workspace.root:workspace}") String root) {
+    public WorkspaceManager(@Value("${jvuln.workspace.root:workspace}") String root,
+                            ObjectMapper objectMapper) {
         this.workspaceRoot = Paths.get(root).toAbsolutePath();
-        this.objectMapper = new ObjectMapper()
-                .registerModule(new JavaTimeModule())
-                .enable(SerializationFeature.INDENT_OUTPUT);
+        this.objectMapper = objectMapper.copy().enable(SerializationFeature.INDENT_OUTPUT);
     }
 
     public Path getWorkspaceRoot() {
