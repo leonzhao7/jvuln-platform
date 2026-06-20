@@ -12,12 +12,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+/**
+ * Stage 数据提取器
+ *
+ * 职责：从 Stage 1-3 输出中提取和转换 ArtifactGenStage 所需的数据片段
+ */
 @Component
-class DataExtractor {
+class StageDataExtractor {
 
     private final ObjectMapper mapper;
 
-    DataExtractor(ObjectMapper mapper) {
+    StageDataExtractor(ObjectMapper mapper) {
         this.mapper = mapper;
     }
 

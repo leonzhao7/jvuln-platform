@@ -69,7 +69,7 @@ public class ArtifactGenStage implements Stage {
     private final SkeletonWriter skeletonWriter;
     private final ContextBuilder contextBuilder;
     private final ToolDefinitionBuilder toolDefinitionBuilder;
-    private final DataExtractor dataExtractor;
+    private final StageDataExtractor dataExtractor;
     private final JavaProfileResolver javaProfileResolver;
 
     public ArtifactGenStage(PromptRegistry promptRegistry, ObjectMapper mapper,
@@ -84,7 +84,7 @@ public class ArtifactGenStage implements Stage {
                             SkeletonWriter skeletonWriter,
                             ContextBuilder contextBuilder,
                             ToolDefinitionBuilder toolDefinitionBuilder,
-                            DataExtractor dataExtractor,
+                            StageDataExtractor dataExtractor,
                             JavaProfileResolver javaProfileResolver) {
         this.promptRegistry = promptRegistry;
         this.mapper = mapper;
