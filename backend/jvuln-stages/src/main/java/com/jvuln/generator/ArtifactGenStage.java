@@ -23,6 +23,7 @@ import static com.jvuln.generator.ArtifactGenUtils.copyField;
 import static com.jvuln.generator.ArtifactGenUtils.toolDefNames;
 import static com.jvuln.generator.ArtifactGenUtils.toolUseNames;
 import static com.jvuln.generator.ArtifactGenUtils.extractJsonString;
+import static com.jvuln.generator.GeneratorConstants.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -48,27 +49,6 @@ import java.util.concurrent.TimeUnit;
 public class ArtifactGenStage implements Stage {
 
     private static final Logger log = LoggerFactory.getLogger(ArtifactGenStage.class);
-    private static final int MAX_AGENT_TURNS = 80;
-    private static final int MAX_REVIEW_REVISIONS = 4;
-    private static final int MAX_EMPTY_AGENT_RESPONSES = 2;
-    private static final int VULN_DEMO_PORT = 18080;
-    private static final int COMPILE_TIMEOUT = 120;
-    private static final int STARTUP_WAIT = 30;
-    private static final int COMMAND_TIMEOUT = 60;
-    private static final int OUTPUT_TRUNCATE = 4000;
-    private static final int PROCESS_OUTPUT_BUFFER = 64 * 1024;
-    private static final int REVIEW_FILE_SNIPPET = 2000;
-    private static final int REVIEW_HISTORY_ITEMS = 6;
-    private static final int REVIEW_CONTINUE_BUFFER = 4;
-    private static final int MEMORY_RECORD_LIMIT = 8;
-    private static final int MEMORY_OUTPUT_TRUNCATE = 1200;
-    private static final int REPORT_FALLBACK_TURNS = 5;
-    private static final int MAX_NO_PROGRESS_TURNS = 6;
-    private static final int CONTEXT_COMPACT_CHAR_LIMIT = 90000;
-    private static final int CONTEXT_FILE_TOTAL_LIMIT = 36000;
-    private static final int CONTEXT_FILE_LIMIT = 12000;
-    private static final int CONTEXT_DIFF_LIMIT = 16000;
-    private static final int TRANSCRIPT_ENTRY_LIMIT = 60000;
 
     private static final Set<String> COMMAND_WHITELIST = new HashSet<>(Arrays.asList(
             "curl", "wget", "grep", "cat", "ls", "find", "head", "tail",
@@ -90,6 +70,7 @@ public class ArtifactGenStage implements Stage {
     private final ContextBuilder contextBuilder;
     private final ToolDefinitionBuilder toolDefinitionBuilder;
     private final DataExtractor dataExtractor;
+    private final JavaProfileResolver javaProfileResolver;
 
     public ArtifactGenStage(PromptRegistry promptRegistry, ObjectMapper mapper,
                             JavaProfileRepository javaProfileRepo,
@@ -103,7 +84,8 @@ public class ArtifactGenStage implements Stage {
                             SkeletonWriter skeletonWriter,
                             ContextBuilder contextBuilder,
                             ToolDefinitionBuilder toolDefinitionBuilder,
-                            DataExtractor dataExtractor) {
+                            DataExtractor dataExtractor,
+                            JavaProfileResolver javaProfileResolver) {
         this.promptRegistry = promptRegistry;
         this.mapper = mapper;
         this.javaProfileRepo = javaProfileRepo;
@@ -118,6 +100,7 @@ public class ArtifactGenStage implements Stage {
         this.contextBuilder = contextBuilder;
         this.toolDefinitionBuilder = toolDefinitionBuilder;
         this.dataExtractor = dataExtractor;
+        this.javaProfileResolver = javaProfileResolver;
     }
 
     @Override
@@ -139,7 +122,7 @@ public class ArtifactGenStage implements Stage {
         String triggerChain = dataExtractor.extractTriggerChain(ctx.getCompletedStages().get(3).getData());
         String rootCause = dataExtractor.extractRootCause(ctx.getCompletedStages().get(3).getData());
         String artifact = dataExtractor.extractArtifact(rawIntelligence);
-        JavaProfile javaProfile = resolveJavaProfile(ctx, rawIntelligence);
+        JavaProfile javaProfile = javaProfileResolver.resolveJavaProfile(ctx, rawIntelligence);
         log.info("Selected Java profile: {} (Java {} / Spring Boot {})",
                 javaProfile.getName(), javaProfile.getJavaVersion(), javaProfile.getSpringBootVersion());
         ctx.reportProgress("Using Java profile: " + javaProfile.getName());
@@ -566,102 +549,6 @@ public class ArtifactGenStage implements Stage {
             info.put("directive", ctx.lastDirective.toMap());
         }
         return llmHelper.renderJson(info);
-    }
-
-    // ==================== Java Profile Selection ====================
-
-    private JavaProfile resolveJavaProfile(PipelineContext ctx, Object rawIntelligence) {
-        List<JavaProfile> profiles = javaProfileRepo.findAll();
-        if (profiles.isEmpty()) {
-            return getHardcodedFallback();
-        }
-
-        try {
-            JsonNode intel = mapper.valueToTree(rawIntelligence);
-            String groupId = intel.at("/artifact/groupId").asText("");
-            String artifactId = intel.at("/artifact/artifactId").asText("");
-            String affectedTo = intel.at("/affectedVersions/to").asText("");
-            String fixedVersion = intel.at("/fixedVersion").asText("");
-
-            StringBuilder profileList = new StringBuilder();
-            for (JavaProfile p : profiles) {
-                profileList.append(String.format("- %s: Java %s, Spring Boot %s%s\n",
-                    p.getName(), p.getJavaVersion(), p.getSpringBootVersion(),
-                    Boolean.TRUE.equals(p.getIsDefault()) ? " (default)" : ""));
-            }
-
-            String sysPrompt = "You are a Java/Spring Boot/library compatibility expert. " +
-                "Given a CVE's affected component and the available Java profiles, " +
-                "select the best profile AND recommend a Spring Boot version that is compatible " +
-                "with the vulnerable library version.\n\n" +
-                "Return strict JSON: {\"profile\": \"profile-name\", \"springBootVersion\": \"x.y.z\"}\n" +
-                "The springBootVersion must be compatible with the vulnerable library version. " +
-                "For example, Tomcat 9.x needs Spring Boot 2.7.x, Tomcat 10.1.x needs Spring Boot 3.x, " +
-                "Tomcat 11.x needs Spring Boot 3.4.x+. Return ONLY the JSON.";
-            String userPrompt = String.format(
-                "CVE artifact: %s:%s\n" +
-                "Affected versions: %s\n" +
-                "Fixed version: %s\n\n" +
-                "Available profiles:\n%s",
-                groupId, artifactId, affectedTo, fixedVersion, profileList.toString()
-            );
-
-            LlmRequest req = LlmRequest.reasoning(sysPrompt, userPrompt);
-            LlmResponse resp = ctx.getLlmClient().chat(req);
-            String raw = resp.getContent().trim();
-
-            // Strip markdown code fences if present
-            if (raw.startsWith("```")) {
-                raw = raw.replaceAll("(?s)^```[a-z]*\\n?", "").replaceAll("(?s)\\n?```$", "").trim();
-            }
-
-            JsonNode result = mapper.readTree(raw);
-            String selectedName = result.path("profile").asText("").trim();
-            String recommendedSBVersion = result.path("springBootVersion").asText("").trim();
-
-            JavaProfile selected = profiles.stream()
-                .filter(p -> p.getName().equalsIgnoreCase(selectedName))
-                .findFirst()
-                .orElse(null);
-
-            if (selected != null) {
-                if (!recommendedSBVersion.isEmpty() && !recommendedSBVersion.equals(selected.getSpringBootVersion())) {
-                    log.info("LLM recommends Spring Boot {} (profile default: {})", recommendedSBVersion, selected.getSpringBootVersion());
-                    // Clone profile with overridden Spring Boot version
-                    JavaProfile overridden = new JavaProfile();
-                    overridden.setName(selected.getName());
-                    overridden.setJavaVersion(selected.getJavaVersion());
-                    overridden.setJavaHome(selected.getJavaHome());
-                    overridden.setSpringBootVersion(recommendedSBVersion);
-                    overridden.setMavenJavaVersion(selected.getMavenJavaVersion());
-                    overridden.setSyntaxConstraints(selected.getSyntaxConstraints());
-                    return overridden;
-                }
-                log.info("LLM selected Java profile: {}", selectedName);
-                return selected;
-            } else {
-                log.warn("LLM returned unknown profile '{}', using default", selectedName);
-            }
-        } catch (Exception e) {
-            log.warn("Error during LLM-based Java profile resolution: {}", e.getMessage());
-        }
-
-        return profiles.stream()
-                .filter(p -> Boolean.TRUE.equals(p.getIsDefault()))
-                .findFirst()
-                .orElse(profiles.get(0));
-    }
-
-    private JavaProfile getHardcodedFallback() {
-        JavaProfile fallback = new JavaProfile();
-        fallback.setName("Default (Java 8)");
-        fallback.setJavaVersion("8");
-        fallback.setJavaHome(System.getProperty("java.home", "/usr/lib/jvm/java-8-openjdk-amd64"));
-        fallback.setSpringBootVersion("2.7.18");
-        fallback.setMavenJavaVersion("1.8");
-        fallback.setSyntaxConstraints("Java 8 syntax only (no var, no List.of, no records, no text blocks)");
-        fallback.setIsDefault(Boolean.TRUE);
-        return fallback;
     }
 
     // ==================== Utilities ====================
