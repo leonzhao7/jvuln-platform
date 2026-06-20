@@ -19,6 +19,10 @@ import static com.jvuln.generator.ArtifactGenUtils.truncate;
 import static com.jvuln.generator.ArtifactGenUtils.truncateHead;
 import static com.jvuln.generator.ArtifactGenUtils.singleLine;
 import static com.jvuln.generator.ArtifactGenUtils.shellQuote;
+import static com.jvuln.generator.ArtifactGenUtils.copyField;
+import static com.jvuln.generator.ArtifactGenUtils.toolDefNames;
+import static com.jvuln.generator.ArtifactGenUtils.toolUseNames;
+import static com.jvuln.generator.ArtifactGenUtils.extractJsonString;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -79,13 +83,27 @@ public class ArtifactGenStage implements Stage {
     private final AgentToolExecutor toolExecutor;
     private final AgentPhaseEngine phaseEngine;
     private final LlmHelper llmHelper;
+    private final ValidationEngine validationEngine;
+    private final ReviewEngine reviewEngine;
+    private final AttemptMemoryManager memoryManager;
+    private final SkeletonWriter skeletonWriter;
+    private final ContextBuilder contextBuilder;
+    private final ToolDefinitionBuilder toolDefinitionBuilder;
+    private final DataExtractor dataExtractor;
 
     public ArtifactGenStage(PromptRegistry promptRegistry, ObjectMapper mapper,
                             JavaProfileRepository javaProfileRepo,
                             WorkspaceFileRenderer fileRenderer,
                             AgentToolExecutor toolExecutor,
                             AgentPhaseEngine phaseEngine,
-                            LlmHelper llmHelper) {
+                            LlmHelper llmHelper,
+                            ValidationEngine validationEngine,
+                            ReviewEngine reviewEngine,
+                            AttemptMemoryManager memoryManager,
+                            SkeletonWriter skeletonWriter,
+                            ContextBuilder contextBuilder,
+                            ToolDefinitionBuilder toolDefinitionBuilder,
+                            DataExtractor dataExtractor) {
         this.promptRegistry = promptRegistry;
         this.mapper = mapper;
         this.javaProfileRepo = javaProfileRepo;
@@ -93,6 +111,13 @@ public class ArtifactGenStage implements Stage {
         this.toolExecutor = toolExecutor;
         this.phaseEngine = phaseEngine;
         this.llmHelper = llmHelper;
+        this.validationEngine = validationEngine;
+        this.reviewEngine = reviewEngine;
+        this.memoryManager = memoryManager;
+        this.skeletonWriter = skeletonWriter;
+        this.contextBuilder = contextBuilder;
+        this.toolDefinitionBuilder = toolDefinitionBuilder;
+        this.dataExtractor = dataExtractor;
     }
 
     @Override
@@ -106,14 +131,14 @@ public class ArtifactGenStage implements Stage {
         ctx.reportProgress("Starting agent-based artifact generation");
 
         Object rawIntelligence = ctx.getCompletedStages().get(1).getData();
-        String intelligence = trimIntelligence(rawIntelligence);
+        String intelligence = dataExtractor.trimIntelligence(rawIntelligence);
         log.info("Stage 4 intelligence (first 500 chars): {}", intelligence.substring(0, Math.min(500, intelligence.length())));
-        String patchDiff = extractDiff(ctx, ctx.getCompletedStages().get(2).getData(), 4000);
+        String patchDiff = dataExtractor.extractDiff(ctx, ctx.getCompletedStages().get(2).getData(), 4000);
         StageResult stage2 = ctx.getCompletedStages().get(2);
-        String vulnerabilityFacts = extractVulnerabilityFacts(stage2 != null ? stage2.getData() : null);
-        String triggerChain = extractTriggerChain(ctx.getCompletedStages().get(3).getData());
-        String rootCause = extractRootCause(ctx.getCompletedStages().get(3).getData());
-        String artifact = extractArtifact(rawIntelligence);
+        String vulnerabilityFacts = dataExtractor.extractVulnerabilityFacts(stage2 != null ? stage2.getData() : null);
+        String triggerChain = dataExtractor.extractTriggerChain(ctx.getCompletedStages().get(3).getData());
+        String rootCause = dataExtractor.extractRootCause(ctx.getCompletedStages().get(3).getData());
+        String artifact = dataExtractor.extractArtifact(rawIntelligence);
         JavaProfile javaProfile = resolveJavaProfile(ctx, rawIntelligence);
         log.info("Selected Java profile: {} (Java {} / Spring Boot {})",
                 javaProfile.getName(), javaProfile.getJavaVersion(), javaProfile.getSpringBootVersion());
@@ -130,7 +155,7 @@ public class ArtifactGenStage implements Stage {
         Path memoryFile = cvePath.resolve("stages/4_memory.json");
 
         try {
-            writeMinimalSkeleton(cvePath.resolve("vuln-demo"), javaProfile);
+            skeletonWriter.writeMinimalSkeleton(cvePath.resolve("vuln-demo"), javaProfile);
             agentCtx.discoverExistingFiles();
 
             String systemTemplate = promptRegistry.getSystemPrompt("gen_agent");
@@ -152,9 +177,9 @@ public class ArtifactGenStage implements Stage {
             String systemPrompt = promptRegistry.render(systemTemplate, vars);
             String baseUserPrompt = promptRegistry.render(userTemplate, vars);
 
-            AttemptMemory memory = loadAttemptMemory(memoryFile);
+            AttemptMemory memory = memoryManager.loadAttemptMemory(memoryFile);
             agentCtx.attemptMemory = memory;
-            restoreAgentContextFromMemory(agentCtx, memory);
+            memoryManager.restoreAgentContextFromMemory(agentCtx, memory);
 
             int resumedTurns = 0;
             if (Files.exists(checkpointFile)) {
@@ -189,7 +214,7 @@ public class ArtifactGenStage implements Stage {
                 }
                 if (memory.hasRecords()) {
                     sb.append("\n## ATTEMPT MEMORY\n");
-                    sb.append(renderAttemptMemory(memory));
+                    sb.append(memoryManager.renderAttemptMemory(memory));
                 }
                 if (memory.sessionSummary != null && !memory.sessionSummary.trim().isEmpty()) {
                     sb.append("\n\n## COMPACTED SESSION SUMMARY\n");
@@ -205,9 +230,9 @@ public class ArtifactGenStage implements Stage {
             agentCtx.baseUserPrompt = userPrompt;
             agentCtx.transcriptFile = cvePath.resolve("stages/4_transcript.jsonl");
             agentCtx.contextSummaryFile = cvePath.resolve("stages/4_context_summary.md");
-            agentCtx.baselineSnapshot = captureWorkspaceSnapshot(agentCtx);
+            agentCtx.baselineSnapshot = contextBuilder.captureWorkspaceSnapshot(agentCtx);
             agentCtx.previousSnapshot = new LinkedHashMap<>(agentCtx.baselineSnapshot);
-            appendTranscript(agentCtx, "session_start", 0, buildSessionStartEvent(agentCtx, resumedTurns));
+            contextBuilder.appendTranscript(agentCtx, "session_start", 0, contextBuilder.buildSessionStartEvent(agentCtx, resumedTurns));
 
             List<LlmRequest.Message> messages = new ArrayList<>();
             messages.add(LlmRequest.Message.user(userPrompt));
@@ -226,30 +251,30 @@ public class ArtifactGenStage implements Stage {
                     messages.add(LlmRequest.Message.user(
                             "NOTICE: 20 turns remain. Keep the turn count low anyway: prefer one broad file batch, "
                             + "backend validation, then the smallest repair needed to satisfy the verification plan."));
-                    appendTranscript(agentCtx, "directive", turn + 1, "NOTICE: 20 turns remain.");
+                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, "NOTICE: 20 turns remain.");
                 } else if (remaining == REPORT_FALLBACK_TURNS) {
                     if (agentCtx.phase != AgentPhase.REPORT) {
                         if (agentCtx.lastValidation == null) {
-                            agentCtx.lastValidation = validateArtifacts(agentCtx, "full");
+                            agentCtx.lastValidation = validationEngine.validateArtifacts(agentCtx, "full");
                         }
                         agentCtx.phase = AgentPhase.REPORT;
                         agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation, true);
                         String directive = "BACKEND PHASE SWITCH: REPORT\n" + phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                         messages.add(LlmRequest.Message.user(directive));
-                        appendTranscript(agentCtx, "directive", turn + 1, directive);
+                        contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, directive);
                     }
                     String warning = "FINAL WARNING: 5 turns remain. Stop debugging. Write the report with the current evidence "
                             + "and remaining gap, then call finish().";
                     messages.add(LlmRequest.Message.user(warning));
-                    appendTranscript(agentCtx, "directive", turn + 1, warning);
+                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, warning);
                 }
 
-                compactMessagesIfNeeded(messages, agentCtx, "before_turn_" + (turn + 1));
-                String contextPacket = buildContextPacket(agentCtx, turn + 1);
+                contextBuilder.compactMessagesIfNeeded(messages, agentCtx, "before_turn_" + (turn + 1));
+                String contextPacket = contextBuilder.buildContextPacket(agentCtx, turn + 1, MAX_AGENT_TURNS);
                 messages.add(LlmRequest.Message.user(contextPacket));
-                appendTranscript(agentCtx, "context_packet", turn + 1, contextPacket);
+                contextBuilder.appendTranscript(agentCtx, "context_packet", turn + 1, contextPacket);
 
-                List<LlmRequest.ToolDef> tools = buildToolDefinitions(agentCtx);
+                List<LlmRequest.ToolDef> tools = toolDefinitionBuilder.buildToolDefinitions(agentCtx);
                 LlmResponse response;
                 try {
                     long llmStart = System.currentTimeMillis();
@@ -259,14 +284,14 @@ public class ArtifactGenStage implements Stage {
                             LlmRequest.agent(systemPrompt, messages, tools), 3);
                     log.info("Agent LLM response: turn={} phase={} durationMs={} finishReason={} text='{}' toolUses={}",
                             turn + 1, agentCtx.phase, System.currentTimeMillis() - llmStart,
-                            response.getFinishReason(), responsePreview(response), toolUseNames(response.getToolUses()));
+                            response.getFinishReason(), contextBuilder.responsePreview(response), toolUseNames(response.getToolUses()));
                 } catch (Exception e) {
                     // LLM call failed after all retries — save checkpoint and return a failed stage with persisted pause state
                     String errMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     log.warn("Agent paused at turn {} due to LLM error: {}", turn + 1, errMsg);
                     agentCtx.turns = turn + 1;
                     saveCheckpoint(cvePath, agentCtx, errMsg);
-                    persistAttemptMemory(memoryFile, agentCtx, "paused", errMsg);
+                    memoryManager.persistAttemptMemory(memoryFile, agentCtx, "paused", errMsg);
                     Map<String, Object> output = agentCtx.buildOutput();
                     output.put("status", "paused");
                     output.put("pauseReason", errMsg);
@@ -278,20 +303,20 @@ public class ArtifactGenStage implements Stage {
                 }
 
                 messages.add(LlmRequest.Message.assistantWithBlocks(response.getContentBlocks()));
-                appendTranscript(agentCtx, "assistant", turn + 1, buildAssistantEvent(response));
+                contextBuilder.appendTranscript(agentCtx, "assistant", turn + 1, contextBuilder.buildAssistantEvent(response));
 
                 if (!response.hasToolUse()) {
-                    log.info("Agent returned no tool calls: text='{}'", responsePreview(response));
+                    log.info("Agent returned no tool calls: text='{}'", contextBuilder.responsePreview(response));
                     agentCtx.turns = turn + 1;
                     emptyResponses++;
                     if (emptyResponses >= MAX_EMPTY_AGENT_RESPONSES) {
-                        ValidationResult forcedValidation = validateArtifacts(agentCtx, "full");
+                        ValidationResult forcedValidation = validationEngine.validateArtifacts(agentCtx, "full");
                         agentCtx.lastValidation = forcedValidation;
                         agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, forcedValidation, false);
                         String directive = "The backend validator was triggered because you stopped using tools.\n"
                                 + phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                         messages.add(LlmRequest.Message.user(directive));
-                        appendTranscript(agentCtx, "directive", turn + 1, directive);
+                        contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, directive);
                         continue;
                     }
                     if (turn + 1 >= MAX_AGENT_TURNS) {
@@ -301,7 +326,7 @@ public class ArtifactGenStage implements Stage {
                             ? "Your last response did not invoke any tool. Submit an execution plan with submit_plan first."
                             : phaseEngine.renderPhaseDirective(phaseEngine.currentDirective(agentCtx));
                     messages.add(LlmRequest.Message.user(directive));
-                    appendTranscript(agentCtx, "directive", turn + 1, directive);
+                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, directive);
                     continue;
                 }
                 emptyResponses = 0;
@@ -317,7 +342,7 @@ public class ArtifactGenStage implements Stage {
                 for (LlmRequest.ContentBlock block : response.getToolUses()) {
                     String toolName = block.getToolName();
                     log.info("Agent tool call: turn={} phase={} tool={} input={}",
-                            turn + 1, agentCtx.phase, toolName, summarizeToolInput(toolName, block.getToolInput()));
+                            turn + 1, agentCtx.phase, toolName, contextBuilder.summarizeToolInput(toolName, block.getToolInput()));
                     if (!phaseEngine.isToolAllowed(agentCtx.phase, toolName)) {
                         String error = "Tool '" + toolName + "' is not available in phase " + agentCtx.phase.name()
                                 + ". " + phaseEngine.renderPhaseDirective(phaseEngine.currentDirective(agentCtx));
@@ -335,7 +360,7 @@ public class ArtifactGenStage implements Stage {
                     }
 
                     if ("finish".equals(block.getToolName())) {
-                        VerificationReview review = reviewGeneratedArtifacts(ctx, agentCtx, block.getToolInput(),
+                        VerificationReview review = reviewEngine.reviewGeneratedArtifacts(ctx, agentCtx, block.getToolInput(),
                                 intelligence, vulnerabilityFacts, triggerChain, rootCause, patchDiff, artifact);
                         agentCtx.verificationReview = review;
 
@@ -345,14 +370,14 @@ public class ArtifactGenStage implements Stage {
                         if (canRetry) {
                             agentCtx.reviewRevisions++;
                             toolResults.add(LlmRequest.ContentBlock.toolResultError(block.getToolUseId(),
-                                    buildReviewerFeedback(review, agentCtx.reviewRevisions)));
+                                    reviewEngine.buildReviewerFeedback(review, agentCtx.reviewRevisions)));
                             log.info("Agent finish rejected by reviewer: verdict={} revision={}/{}",
                                     review.verdict, agentCtx.reviewRevisions, MAX_REVIEW_REVISIONS);
                         } else {
                             finished = true;
-                            agentCtx.summary = mergeSummaryWithReview(block.getToolInput(), review);
+                            agentCtx.summary = reviewEngine.mergeSummaryWithReview(block.getToolInput(), review);
                             toolResults.add(LlmRequest.ContentBlock.toolResult(block.getToolUseId(),
-                                    buildFinishAcceptedMessage(review)));
+                                    reviewEngine.buildFinishAcceptedMessage(review)));
                             log.info("Agent finish accepted with reviewer verdict {}", review.verdict);
                         }
                         break;
@@ -373,7 +398,7 @@ public class ArtifactGenStage implements Stage {
                 }
 
                 messages.add(LlmRequest.Message.toolResults(toolResults));
-                appendTranscript(agentCtx, "tool_results", turn + 1, buildToolResultEvent(toolResults));
+                contextBuilder.appendTranscript(agentCtx, "tool_results", turn + 1, contextBuilder.buildToolResultEvent(toolResults));
 
                 agentCtx.turns = turn + 1;
 
@@ -381,7 +406,7 @@ public class ArtifactGenStage implements Stage {
                     String focus = phaseEngine.determineAutoValidationFocus(phaseBeforeTurn, agentCtx, wroteVulnDemo, wrotePoc);
                     log.info("Agent auto-validation start: turn={} previousPhase={} focus={} wroteVulnDemo={} wrotePoc={}",
                             turn + 1, phaseBeforeTurn, focus, wroteVulnDemo, wrotePoc);
-                    ValidationResult autoValidation = validateArtifacts(agentCtx, focus);
+                    ValidationResult autoValidation = validationEngine.validateArtifacts(agentCtx, focus);
                     agentCtx.lastValidation = autoValidation;
                     agentCtx.phase = phaseEngine.nextPhaseAfterValidation(agentCtx, autoValidation, remaining - 1);
                     agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, autoValidation, false);
@@ -389,12 +414,12 @@ public class ArtifactGenStage implements Stage {
                             turn + 1, agentCtx.phase, autoValidation.summary());
                     String directive = phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                     messages.add(LlmRequest.Message.user(directive));
-                    appendTranscript(agentCtx, "directive", turn + 1, directive);
+                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, directive);
                 } else if (!finished && wroteReport && agentCtx.phase == AgentPhase.REPORT) {
                     agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
                     String directive = phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                     messages.add(LlmRequest.Message.user(directive));
-                    appendTranscript(agentCtx, "directive", turn + 1, directive);
+                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, directive);
                 } else if (!finished && ranValidation) {
                     agentCtx.phase = phaseEngine.nextPhaseAfterValidation(agentCtx, agentCtx.lastValidation, remaining - 1);
                     agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
@@ -403,7 +428,7 @@ public class ArtifactGenStage implements Stage {
                             agentCtx.lastValidation == null ? "none" : agentCtx.lastValidation.summary());
                     String directive = phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                     messages.add(LlmRequest.Message.user(directive));
-                    appendTranscript(agentCtx, "directive", turn + 1, directive);
+                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, directive);
                 }
 
                 if (!finished) {
@@ -416,12 +441,12 @@ public class ArtifactGenStage implements Stage {
                 }
 
                 if (finished) break;
-                compactMessagesIfNeeded(messages, agentCtx, "after_turn_" + (turn + 1));
+                contextBuilder.compactMessagesIfNeeded(messages, agentCtx, "after_turn_" + (turn + 1));
             }
 
             if (agentCtx.summary == null) {
-                agentCtx.lastValidation = validateArtifacts(agentCtx, "full");
-                agentCtx.verificationReview = reviewGeneratedArtifacts(ctx, agentCtx, null,
+                agentCtx.lastValidation = validationEngine.validateArtifacts(agentCtx, "full");
+                agentCtx.verificationReview = reviewEngine.reviewGeneratedArtifacts(ctx, agentCtx, null,
                         intelligence, vulnerabilityFacts, triggerChain, rootCause, patchDiff, artifact);
                 ObjectNode forcedSummary = mapper.createObjectNode();
                 forcedSummary.put("vuln_demo_status",
@@ -436,7 +461,7 @@ public class ArtifactGenStage implements Stage {
                 forcedSummary.put("notes", agentCtx.abortReason == null
                         ? "Summary synthesized by backend validator because agent did not call finish()."
                         : agentCtx.abortReason);
-                agentCtx.summary = mergeSummaryWithReview(forcedSummary, agentCtx.verificationReview);
+                agentCtx.summary = reviewEngine.mergeSummaryWithReview(forcedSummary, agentCtx.verificationReview);
             }
 
             // Build output
@@ -445,7 +470,7 @@ public class ArtifactGenStage implements Stage {
             if (failureReason != null) {
                 output.put("failureReason", failureReason);
             }
-            persistAttemptMemory(memoryFile, agentCtx, failureReason == null ? "completed" : "failed",
+            memoryManager.persistAttemptMemory(memoryFile, agentCtx, failureReason == null ? "completed" : "failed",
                     failureReason == null ? "" : failureReason);
             ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 4, output);
             ctx.reportProgress("Agent completed in " + agentCtx.turns + " turns");
@@ -477,429 +502,8 @@ public class ArtifactGenStage implements Stage {
         }
     }
 
-    // ==================== Context Management ====================
-
-    private Map<String, Object> buildSessionStartEvent(AgentContext ctx, int resumedTurns) {
-        Map<String, Object> event = new LinkedHashMap<>();
-        event.put("cveId", ctx.pipeCtx.getCveId());
-        event.put("resumedTurns", resumedTurns);
-        event.put("phase", ctx.phase == null ? "" : ctx.phase.name());
-        event.put("existingFiles", new ArrayList<>(ctx.existingFiles));
-        if (ctx.verificationPlan != null) {
-            event.put("verificationPlan", ctx.verificationPlan.toMap());
-        }
-        if (ctx.sessionSummary != null && !ctx.sessionSummary.trim().isEmpty()) {
-            event.put("restoredSessionSummary", ctx.sessionSummary);
-        }
-        return event;
-    }
-
-    private String buildContextPacket(AgentContext ctx, int turn) {
-        Map<String, FileSnapshot> current = captureWorkspaceSnapshot(ctx);
-        String diffFromPrevious = fileRenderer.renderSnapshotDiff(ctx.previousSnapshot, current, CONTEXT_DIFF_LIMIT / 2);
-        String diffFromBaseline = fileRenderer.renderSnapshotDiff(ctx.baselineSnapshot, current, CONTEXT_DIFF_LIMIT / 2);
-        ctx.previousSnapshot = new LinkedHashMap<>(current);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("BACKEND CONTEXT PACKET\n");
-        sb.append("This packet is authoritative for the current workspace state. ");
-        sb.append("Do not rely on memory if it conflicts with this packet.\n");
-        sb.append("Turn: ").append(turn).append("/").append(MAX_AGENT_TURNS).append("\n");
-        sb.append("Phase: ").append(ctx.phase == null ? "" : ctx.phase.name()).append("\n");
-        if (ctx.lastDirective != null) {
-            sb.append("\n## Current Directive\n");
-            sb.append(llmHelper.renderJson(ctx.lastDirective.toMap())).append("\n");
-        }
-        if (ctx.executionPlan != null) {
-            sb.append("\n## Accepted Execution Plan\n");
-            sb.append(llmHelper.renderJson(ctx.executionPlan.toMap())).append("\n");
-        }
-        if (ctx.lastValidation != null) {
-            sb.append("\n## Latest Backend Validation\n");
-            sb.append(llmHelper.renderJson(ctx.lastValidation.toMap())).append("\n");
-        }
-        if (ctx.verificationReview != null) {
-            sb.append("\n## Latest Reviewer Verdict\n");
-            sb.append(llmHelper.renderJson(ctx.verificationReview.toMap())).append("\n");
-        }
-        if (ctx.sessionSummary != null && !ctx.sessionSummary.trim().isEmpty()) {
-            sb.append("\n## Compacted Session Summary\n");
-            sb.append(ctx.sessionSummary.trim()).append("\n");
-        }
-        if (ctx.attemptMemory != null && ctx.attemptMemory.hasRecords()) {
-            sb.append("\n## Prior Attempt Memory\n");
-            sb.append(renderAttemptMemory(ctx.attemptMemory)).append("\n");
-        }
-
-        sb.append("\n## Workspace Manifest\n");
-        sb.append(fileRenderer.renderFileManifest(current)).append("\n");
-
-        sb.append("\n## Current File Contents\n");
-        sb.append(fileRenderer.renderCurrentFileContents(current)).append("\n");
-
-        sb.append("\n## Diff: Previous Turn -> Current Workspace\n");
-        sb.append(diffFromPrevious.isEmpty() ? "(no file changes since previous context packet)" : diffFromPrevious).append("\n");
-
-        sb.append("\n## Diff: Initial Workspace -> Current Workspace\n");
-        sb.append(diffFromBaseline.isEmpty() ? "(no file changes from initial workspace)" : diffFromBaseline).append("\n");
-
-        sb.append("\nUse write_files for the next concrete patch. Use read_file only when a needed file is omitted or marked truncated.");
-        return sb.toString();
-    }
-
-    private void compactMessagesIfNeeded(List<LlmRequest.Message> messages, AgentContext ctx, String reason) {
-        if (messages == null || messages.isEmpty()) {
-            return;
-        }
-        int chars = estimateMessagesChars(messages);
-        if (chars < CONTEXT_COMPACT_CHAR_LIMIT) {
-            return;
-        }
-
-        String summary = buildCompactedSessionSummary(ctx, reason, chars);
-        ctx.sessionSummary = summary;
-        writeContextSummary(ctx, summary);
-
-        messages.clear();
-        messages.add(LlmRequest.Message.user(ctx.baseUserPrompt == null ? "" : ctx.baseUserPrompt));
-        messages.add(LlmRequest.Message.user("COMPACTED SESSION SUMMARY\n" + summary
-                + "\nThe next BACKEND CONTEXT PACKET is authoritative for current files and validation state."));
-        ctx.compactionCount++;
-        appendTranscript(ctx, "compact", ctx.turns, summary);
-        log.info("Compacted Stage 4 agent context: reason={} previousChars={} compactions={}",
-                reason, chars, ctx.compactionCount);
-    }
-
-    private String buildCompactedSessionSummary(AgentContext ctx, String reason, int previousChars) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Reason: ").append(reason).append("\n");
-        sb.append("Previous message chars: ").append(previousChars).append("\n");
-        sb.append("CVE: ").append(ctx.pipeCtx.getCveId()).append("\n");
-        sb.append("Phase: ").append(ctx.phase == null ? "" : ctx.phase.name()).append("\n");
-        sb.append("Turns completed in this attempt: ").append(ctx.turns).append("\n");
-        sb.append("Review revisions: ").append(ctx.reviewRevisions).append("\n");
-        if (ctx.executionPlan != null) {
-            sb.append("\nExecution plan:\n").append(llmHelper.renderJson(ctx.executionPlan.toMap())).append("\n");
-        }
-        if (ctx.lastDirective != null) {
-            sb.append("\nCurrent directive:\n").append(llmHelper.renderJson(ctx.lastDirective.toMap())).append("\n");
-        }
-        if (ctx.lastValidation != null) {
-            sb.append("\nLatest validation:\n").append(llmHelper.renderJson(ctx.lastValidation.toMap())).append("\n");
-        }
-        if (ctx.verificationReview != null) {
-            sb.append("\nLatest review:\n").append(llmHelper.renderJson(ctx.verificationReview.toMap())).append("\n");
-        }
-        if (!ctx.buildHistory.isEmpty()) {
-            sb.append("\nRecent build history:\n").append(llmHelper.renderJson(llmHelper.recentHistory(ctx.buildHistory))).append("\n");
-        }
-        if (!ctx.startupHistory.isEmpty()) {
-            sb.append("\nRecent startup history:\n").append(llmHelper.renderJson(llmHelper.recentHistory(ctx.startupHistory))).append("\n");
-        }
-        if (!ctx.commandHistory.isEmpty()) {
-            sb.append("\nRecent command history:\n").append(llmHelper.renderJson(llmHelper.recentHistory(ctx.commandHistory))).append("\n");
-        }
-        Map<String, FileSnapshot> current = captureWorkspaceSnapshot(ctx);
-        sb.append("\nCurrent workspace manifest:\n").append(fileRenderer.renderFileManifest(current)).append("\n");
-        if (ctx.abortReason != null && !ctx.abortReason.trim().isEmpty()) {
-            sb.append("\nAbort reason:\n").append(ctx.abortReason).append("\n");
-        }
-        return sb.toString().trim();
-    }
-
-    private int estimateMessagesChars(List<LlmRequest.Message> messages) {
-        int total = 0;
-        for (LlmRequest.Message message : messages) {
-            total += message == null ? 0 : estimateContentChars(message.getContent());
-        }
-        return total;
-    }
-
-    private int estimateContentChars(Object content) {
-        if (content == null) {
-            return 0;
-        }
-        if (content instanceof String) {
-            return ((String) content).length();
-        }
-        if (content instanceof List) {
-            int total = 0;
-            for (Object item : (List<?>) content) {
-                if (item instanceof LlmRequest.ContentBlock) {
-                    LlmRequest.ContentBlock block = (LlmRequest.ContentBlock) item;
-                    total += safeLength(block.getText());
-                    total += safeLength(block.getToolName());
-                    total += block.getToolInput() == null ? 0 : block.getToolInput().toString().length();
-                    total += safeLength(block.getToolResultContent());
-                } else if (item != null) {
-                    total += item.toString().length();
-                }
-            }
-            return total;
-        }
-        return content.toString().length();
-    }
-
-    private int safeLength(String s) {
-        return s == null ? 0 : s.length();
-    }
-
-    private Map<String, FileSnapshot> captureWorkspaceSnapshot(AgentContext ctx) {
-        Map<String, FileSnapshot> files = new TreeMap<>();
-        for (String prefix : Arrays.asList("vuln-demo", "poc", "report")) {
-            Path dir = ctx.cvePath.resolve(prefix);
-            if (!Files.exists(dir)) {
-                continue;
-            }
-            try {
-                Files.walk(dir)
-                        .filter(Files::isRegularFile)
-                        .filter(p -> !p.toString().contains(File.separator + "target" + File.separator))
-                        .forEach(p -> {
-                            try {
-                                String rel = ctx.cvePath.relativize(p).toString();
-                                files.put(rel, FileSnapshot.fromPath(ctx.cvePath, p, rel));
-                            } catch (Exception ignored) {
-                                // Snapshot is best-effort; read_file remains available for exact recovery.
-                            }
-                        });
-            } catch (Exception ignored) {
-                // Continue with other workspace roots.
-            }
-        }
-        return new LinkedHashMap<>(files);
-    }
-
-
-
-
-
-
-
-
-
-
-    private void appendTranscript(AgentContext ctx, String type, int turn, Object payload) {
-        if (ctx == null || ctx.transcriptFile == null) {
-            return;
-        }
-        try {
-            Map<String, Object> event = new LinkedHashMap<>();
-            event.put("ts", System.currentTimeMillis());
-            event.put("turn", turn);
-            event.put("type", type);
-            event.put("phase", ctx.phase == null ? "" : ctx.phase.name());
-            event.put("payload", trimTranscriptPayload(payload));
-            Files.createDirectories(ctx.transcriptFile.getParent());
-            String line = mapper.writeValueAsString(event) + "\n";
-            Files.write(ctx.transcriptFile, line.getBytes(StandardCharsets.UTF_8),
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (Exception e) {
-            log.warn("Failed to append Stage 4 transcript: {}", e.getMessage());
-        }
-    }
-
-    private Object trimTranscriptPayload(Object payload) {
-        if (payload == null) {
-            return "";
-        }
-        if (payload instanceof String) {
-            return truncateHead((String) payload, TRANSCRIPT_ENTRY_LIMIT);
-        }
-        try {
-            String json = mapper.writeValueAsString(payload);
-            if (json.length() <= TRANSCRIPT_ENTRY_LIMIT) {
-                return payload;
-            }
-            return truncateHead(json, TRANSCRIPT_ENTRY_LIMIT);
-        } catch (Exception e) {
-            return truncateHead(String.valueOf(payload), TRANSCRIPT_ENTRY_LIMIT);
-        }
-    }
-
-    private void writeContextSummary(AgentContext ctx, String summary) {
-        if (ctx == null || ctx.contextSummaryFile == null || summary == null) {
-            return;
-        }
-        try {
-            Files.createDirectories(ctx.contextSummaryFile.getParent());
-            Files.write(ctx.contextSummaryFile, summary.getBytes(StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            log.warn("Failed to write Stage 4 context summary: {}", e.getMessage());
-        }
-    }
-
-    private Map<String, Object> buildAssistantEvent(LlmResponse response) {
-        Map<String, Object> event = new LinkedHashMap<>();
-        event.put("finishReason", response == null ? "" : response.getFinishReason());
-        event.put("text", response == null ? "" : responsePreview(response));
-        event.put("toolUses", response == null ? Collections.emptyList() : toolUseSummaries(response.getToolUses()));
-        return event;
-    }
-
-    private List<Map<String, Object>> toolUseSummaries(List<LlmRequest.ContentBlock> toolUses) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        if (toolUses == null) {
-            return out;
-        }
-        for (LlmRequest.ContentBlock block : toolUses) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("name", block.getToolName());
-            item.put("input", summarizeToolInput(block.getToolName(), block.getToolInput()));
-            out.add(item);
-        }
-        return out;
-    }
-
-    private List<Map<String, Object>> buildToolResultEvent(List<LlmRequest.ContentBlock> toolResults) {
-        List<Map<String, Object>> out = new ArrayList<>();
-        if (toolResults == null) {
-            return out;
-        }
-        for (LlmRequest.ContentBlock block : toolResults) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("isError", block.isError());
-            item.put("content", truncateHead(block.getToolResultContent(), MEMORY_OUTPUT_TRUNCATE));
-            out.add(item);
-        }
-        return out;
-    }
-
-
-
     // ==================== LLM Call with Retry ====================
 
-
-    // ==================== Tool Definitions ====================
-
-    private List<LlmRequest.ToolDef> buildToolDefinitions(AgentContext ctx) {
-        List<LlmRequest.ToolDef> allTools = new ArrayList<>();
-
-        Map<String, Object> planSchema = new LinkedHashMap<>();
-        planSchema.put("type", "object");
-        Map<String, Object> planProps = new LinkedHashMap<>();
-        planProps.put("goal", prop("string", "Short goal for this Stage 4 attempt. MUST start with the exact CVE ID from the system prompt (e.g., 'Build CVE-YYYY-NNNNN reproduction environment')."));
-        planProps.put("firstBatchFiles", stringArrayProp("Files to generate in the first broad batch"));
-        planProps.put("minimalDeliverables", stringArrayProp("Smallest runnable candidate to prove before polishing"));
-        planProps.put("validationSequence", stringArrayProp("Planned validation order, for example build -> startup -> poc"));
-        planProps.put("deferredUntilVerified", stringArrayProp("Files or tasks intentionally deferred until validation is green"));
-        planProps.put("risks", stringArrayProp("Main failure risks or likely repair targets"));
-        planProps.put("reportStrategy", prop("string", "When you will write report/report.md"));
-        planSchema.put("properties", planProps);
-        planSchema.put("required", Arrays.asList("goal", "firstBatchFiles", "validationSequence", "reportStrategy"));
-        allTools.add(new LlmRequest.ToolDef("submit_plan",
-                "Submit the execution plan before build/start/write/validate actions. You may call submit_plan first and then continue with write_files in the same turn.",
-                planSchema));
-
-        Map<String, Object> writeSchema = new LinkedHashMap<>();
-        writeSchema.put("type", "object");
-        Map<String, Object> writeProps = new LinkedHashMap<>();
-        writeProps.put("path", prop("string", "File path relative to workspace (e.g. vuln-demo/pom.xml, poc/exploit.sh, report/report.md)"));
-        writeProps.put("content", prop("string", "Full file content"));
-        writeSchema.put("properties", writeProps);
-        writeSchema.put("required", Arrays.asList("path", "content"));
-        allTools.add(new LlmRequest.ToolDef("write_file",
-                "Write a file to the workspace. Path must start with vuln-demo/, poc/, or report/.",
-                writeSchema));
-
-        Map<String, Object> batchWriteSchema = new LinkedHashMap<>();
-        batchWriteSchema.put("type", "object");
-        Map<String, Object> batchWriteProps = new LinkedHashMap<>();
-        Map<String, Object> filesSchema = new LinkedHashMap<>();
-        filesSchema.put("type", "array");
-        Map<String, Object> fileItemSchema = new LinkedHashMap<>();
-        fileItemSchema.put("type", "object");
-        Map<String, Object> fileItemProps = new LinkedHashMap<>();
-        fileItemProps.put("path", prop("string", "File path relative to workspace"));
-        fileItemProps.put("content", prop("string", "Full file content"));
-        fileItemSchema.put("properties", fileItemProps);
-        fileItemSchema.put("required", Arrays.asList("path", "content"));
-        filesSchema.put("items", fileItemSchema);
-        batchWriteProps.put("files", filesSchema);
-        batchWriteSchema.put("properties", batchWriteProps);
-        batchWriteSchema.put("required", Collections.singletonList("files"));
-        allTools.add(new LlmRequest.ToolDef("write_files",
-                "Write multiple files in one call. Every path must start with vuln-demo/, poc/, or report/.",
-                batchWriteSchema));
-
-        Map<String, Object> readSchema = new LinkedHashMap<>();
-        readSchema.put("type", "object");
-        Map<String, Object> readProps = new LinkedHashMap<>();
-        readProps.put("path", prop("string", "File path relative to workspace"));
-        readSchema.put("properties", readProps);
-        readSchema.put("required", Collections.singletonList("path"));
-        allTools.add(new LlmRequest.ToolDef("read_file",
-                "Read a full source, config, or report file from the workspace.",
-                readSchema));
-
-        Map<String, Object> readLogSchema = new LinkedHashMap<>();
-        readLogSchema.put("type", "object");
-        Map<String, Object> readLogProps = new LinkedHashMap<>();
-        readLogProps.put("path", prop("string", "File path relative to workspace"));
-        readLogProps.put("tailBytes", prop("integer", "Optional number of bytes to return from the end of the file"));
-        readLogSchema.put("properties", readLogProps);
-        readLogSchema.put("required", Collections.singletonList("path"));
-        allTools.add(new LlmRequest.ToolDef("read_log",
-                "Read the tail of a log, build output, or runtime trace file from the workspace.",
-                readLogSchema));
-
-        Map<String, Object> validateSchema = new LinkedHashMap<>();
-        validateSchema.put("type", "object");
-        Map<String, Object> validateProps = new LinkedHashMap<>();
-        validateProps.put("focus", prop("string", "Optional validation focus such as compile, startup, poc, or full"));
-        validateSchema.put("properties", validateProps);
-        allTools.add(new LlmRequest.ToolDef("validate_artifacts",
-                "Run backend-controlled validation for build, startup, and PoC evidence. Use this instead of ad-hoc curl loops whenever possible.",
-                validateSchema));
-
-        Map<String, Object> inspectRuntimeSchema = new LinkedHashMap<>();
-        inspectRuntimeSchema.put("type", "object");
-        inspectRuntimeSchema.put("properties", Collections.emptyMap());
-        allTools.add(new LlmRequest.ToolDef("inspect_runtime",
-                "Return the current runtime metadata and validator-known evidence for the running lab.",
-                inspectRuntimeSchema));
-
-        Map<String, Object> finishSchema = new LinkedHashMap<>();
-        finishSchema.put("type", "object");
-        Map<String, Object> finishProps = new LinkedHashMap<>();
-        finishProps.put("vuln_demo_status", prop("string", "Status: startup_ok, compile_ok, compile_failed"));
-        finishProps.put("poc_status", prop("string", "Status: verified, unverified, skipped"));
-        finishProps.put("report_status", prop("string", "Status: generated, skipped"));
-        finishProps.put("verification_evidence", prop("string", "Concrete evidence showing why the PoC is verified or still missing a signal"));
-        finishProps.put("remaining_gap", prop("string", "If unverified, the exact missing condition or blocker"));
-        finishProps.put("notes", prop("string", "Any notes about the generation"));
-        finishSchema.put("properties", finishProps);
-        allTools.add(new LlmRequest.ToolDef("finish",
-                "Call when all deliverables are ready. Provide a summary of what was generated.",
-                finishSchema));
-
-        if (ctx == null) {
-            return allTools;
-        }
-
-        List<LlmRequest.ToolDef> tools = new ArrayList<>();
-        for (LlmRequest.ToolDef tool : allTools) {
-            if (phaseEngine.isToolAllowed(ctx.phase, tool.getName())) {
-                tools.add(tool);
-            }
-        }
-        return tools;
-    }
-
-    private Map<String, Object> prop(String type, String description) {
-        Map<String, Object> p = new LinkedHashMap<>();
-        p.put("type", type);
-        p.put("description", description);
-        return p;
-    }
-
-    private Map<String, Object> stringArrayProp(String description) {
-        Map<String, Object> p = new LinkedHashMap<>();
-        p.put("type", "array");
-        p.put("description", description);
-        p.put("items", Collections.singletonMap("type", "string"));
-        return p;
-    }
 
     // ==================== Tool Execution ====================
 
@@ -944,7 +548,7 @@ public class ArtifactGenStage implements Stage {
 
     private String doValidateArtifacts(AgentContext ctx, JsonNode input) throws Exception {
         String focus = input.path("focus").asText("full").trim();
-        ValidationResult result = validateArtifacts(ctx, focus.isEmpty() ? "full" : focus);
+        ValidationResult result = validationEngine.validateArtifacts(ctx, focus.isEmpty() ? "full" : focus);
         ctx.lastValidation = result;
         return llmHelper.renderJson(result.toMap());
     }
@@ -962,334 +566,6 @@ public class ArtifactGenStage implements Stage {
             info.put("directive", ctx.lastDirective.toMap());
         }
         return llmHelper.renderJson(info);
-    }
-
-    private String doStartApp(AgentContext ctx) throws Exception {
-        ctx.pipeCtx.reportProgress("Backend: starting vuln-demo");
-
-        toolExecutor.stopTrackedAppProcess(ctx);
-        String cleanup = stopStaleWorkspaceProcesses(ctx);
-        if (!cleanup.trim().isEmpty()) {
-            log.info("Stale vuln-demo cleanup before startup: {}", singleLine(cleanup, 600));
-        }
-
-        if (isLocalPortOpen(VULN_DEMO_PORT)) {
-            String diagnostics = describePortUsers(ctx);
-            String message = "STARTUP BLOCKED — port " + VULN_DEMO_PORT + " is already in use before launch."
-                    + (diagnostics.trim().isEmpty()
-                    ? "\nPort accepts TCP connections, but the owning process could not be identified."
-                    : "\n\n" + diagnostics);
-            ctx.startupHistory.add(ToolRun.startup(false, 98, message));
-            log.warn("{}", singleLine(message, 1000));
-            return message;
-        }
-
-        Path vulnDemoPath = ctx.cvePath.resolve("vuln-demo");
-        ProcessBuilder pb = new ProcessBuilder("bash", "run.sh");
-        pb.directory(vulnDemoPath.toFile());
-        pb.redirectErrorStream(true);
-        ctx.appProcess = pb.start();
-        ctx.appOutput = new ProcessOutputBuffer(ctx.appProcess.getInputStream(), PROCESS_OUTPUT_BUFFER);
-
-        long deadline = System.currentTimeMillis() + STARTUP_WAIT * 1000L;
-        while (System.currentTimeMillis() < deadline) {
-            if (!ctx.appProcess.isAlive()) {
-                ctx.appOutput.await(1, TimeUnit.SECONDS);
-                String output = ctx.appOutput.content();
-                ctx.startupHistory.add(ToolRun.startup(false, -1, output));
-                return "STARTUP FAILED — process exited\n\n" + truncate(output, OUTPUT_TRUNCATE);
-            }
-            try {
-                HttpURLConnection conn = (HttpURLConnection) new URL(
-                        "http://localhost:" + VULN_DEMO_PORT + "/").openConnection();
-                conn.setConnectTimeout(1000);
-                conn.setReadTimeout(1000);
-                conn.setRequestMethod("GET");
-                int code = conn.getResponseCode();
-                conn.disconnect();
-                if (code > 0) {
-                    log.info("  App started on port {}", VULN_DEMO_PORT);
-                    ctx.startupHistory.add(ToolRun.startup(true, code,
-                            "Application started on port " + VULN_DEMO_PORT + " (HTTP " + code + ")"));
-                    return "Application started on port " + VULN_DEMO_PORT + " (HTTP " + code + ")";
-                }
-            } catch (Exception ignored) {}
-            Thread.sleep(1000);
-        }
-
-        String output = ctx.appOutput != null ? ctx.appOutput.content() : "";
-        if (ctx.appProcess.isAlive()) {
-            ctx.startupHistory.add(ToolRun.startup(false, 124, output));
-            return "STARTUP TIMEOUT after " + STARTUP_WAIT + "s — app process still running but port not responding\n\n"
-                    + truncate(output, 2000);
-        }
-        ctx.startupHistory.add(ToolRun.startup(false, -1, output));
-        return "STARTUP FAILED — process died during startup\n\n" + truncate(output, OUTPUT_TRUNCATE);
-    }
-
-
-    // ==================== Process Management ====================
-
-
-    private String stopStaleWorkspaceProcesses(AgentContext ctx) {
-        String workspace = ctx.cvePath.resolve("vuln-demo").toAbsolutePath().normalize().toString();
-        String script = ""
-                + "workspace=" + shellQuote(workspace) + "\n"
-                + "pids=''\n"
-                + "for d in /proc/[0-9]*; do\n"
-                + "  pid=${d#/proc/}\n"
-                + "  cwd=$(readlink \"$d/cwd\" 2>/dev/null || true)\n"
-                + "  [ \"$cwd\" = \"$workspace\" ] || continue\n"
-                + "  cmd=$(tr '\\0' ' ' < \"$d/cmdline\" 2>/dev/null || true)\n"
-                + "  case \"$cmd\" in\n"
-                + "    *java*target/*|*java*--server.port=" + VULN_DEMO_PORT + "*) pids=\"$pids $pid\" ;;\n"
-                + "  esac\n"
-                + "done\n"
-                + "if [ -z \"$pids\" ]; then exit 0; fi\n"
-                + "echo \"stopping stale vuln-demo pids:$pids\"\n"
-                + "kill $pids 2>/dev/null || true\n"
-                + "sleep 2\n"
-                + "for pid in $pids; do\n"
-                + "  if kill -0 \"$pid\" 2>/dev/null; then\n"
-                + "    kill -KILL \"$pid\" 2>/dev/null || true\n"
-                + "    echo \"force killed $pid\"\n"
-                + "  fi\n"
-                + "done\n";
-        ProcessResult pr = runProcess(ctx.cvePath, 8, "bash", "-c", script);
-        if (pr.exitCode != 0) {
-            return "stale process cleanup exited " + pr.exitCode + ": " + pr.output;
-        }
-        return pr.output;
-    }
-
-    private boolean isLocalPortOpen(int port) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", port), 500);
-            return true;
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private String describePortUsers(AgentContext ctx) {
-        String script = ""
-                + "if command -v lsof >/dev/null 2>&1; then\n"
-                + "  lsof -nP -iTCP:" + VULN_DEMO_PORT + " -sTCP:LISTEN 2>/dev/null || true\n"
-                + "elif command -v ss >/dev/null 2>&1; then\n"
-                + "  ss -ltnp 'sport = :" + VULN_DEMO_PORT + "' 2>/dev/null || true\n"
-                + "elif command -v netstat >/dev/null 2>&1; then\n"
-                + "  netstat -ltnp 2>/dev/null | grep ':" + VULN_DEMO_PORT + " ' || true\n"
-                + "fi\n";
-        ProcessResult pr = runProcess(ctx.cvePath, 5, "bash", "-c", script);
-        return truncate(pr.output, 1200);
-    }
-
-    private ProcessResult runProcess(Path workDir, int timeoutSec, String... cmd) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.directory(workDir.toFile());
-            pb.redirectErrorStream(true);
-            Process proc = pb.start();
-            ProcessOutputBuffer output = new ProcessOutputBuffer(proc.getInputStream(), PROCESS_OUTPUT_BUFFER);
-            boolean finished = proc.waitFor(timeoutSec, TimeUnit.SECONDS);
-            if (!finished) {
-                proc.destroyForcibly();
-                proc.waitFor(5, TimeUnit.SECONDS);
-                output.await(1, TimeUnit.SECONDS);
-                return new ProcessResult(124, "TIMEOUT after " + timeoutSec + "s\n" + output.content());
-            }
-            output.await(1, TimeUnit.SECONDS);
-            return new ProcessResult(proc.exitValue(), output.content());
-        } catch (Exception e) {
-            return new ProcessResult(-1, "Process error: " + e.getMessage());
-        }
-    }
-
-    // ==================== Skeleton ====================
-
-    private void writeMinimalSkeleton(Path vulnDemoPath, JavaProfile profile) throws IOException {
-        Files.createDirectories(vulnDemoPath.resolve("src/main/java/com/jvuln/demo"));
-        Files.createDirectories(vulnDemoPath.resolve("src/main/resources"));
-        Files.createDirectories(vulnDemoPath.getParent().resolve("poc"));
-        Files.createDirectories(vulnDemoPath.getParent().resolve("report"));
-
-        String pom = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                + "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n"
-                + "         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n"
-                + "         xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\">\n"
-                + "    <modelVersion>4.0.0</modelVersion>\n"
-                + "    <parent>\n"
-                + "        <groupId>org.springframework.boot</groupId>\n"
-                + "        <artifactId>spring-boot-starter-parent</artifactId>\n"
-                + "        <version>" + profile.getSpringBootVersion() + "</version>\n"
-                + "        <relativePath/>\n"
-                + "    </parent>\n"
-                + "    <groupId>com.jvuln</groupId>\n"
-                + "    <artifactId>vuln-demo</artifactId>\n"
-                + "    <version>0.0.1-SNAPSHOT</version>\n"
-                + "    <packaging>jar</packaging>\n"
-                + "    <properties>\n"
-                + "        <java.version>" + profile.getMavenJavaVersion() + "</java.version>\n"
-                + "        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n"
-                + "    </properties>\n"
-                + "    <dependencies>\n"
-                + "        <dependency>\n"
-                + "            <groupId>org.springframework.boot</groupId>\n"
-                + "            <artifactId>spring-boot-starter-web</artifactId>\n"
-                + "        </dependency>\n"
-                + "    </dependencies>\n"
-                + "    <build>\n"
-                + "        <plugins>\n"
-                + "            <plugin>\n"
-                + "                <groupId>org.springframework.boot</groupId>\n"
-                + "                <artifactId>spring-boot-maven-plugin</artifactId>\n"
-                + "            </plugin>\n"
-                + "        </plugins>\n"
-                + "    </build>\n"
-                + "</project>\n";
-        writeSkeletonFile(vulnDemoPath.resolve("pom.xml"), pom, false, false);
-
-        String app = "// FOR AUTHORIZED SECURITY EDUCATION ONLY\n"
-                + "package com.jvuln.demo;\n\n"
-                + "import org.springframework.boot.SpringApplication;\n"
-                + "import org.springframework.boot.autoconfigure.SpringBootApplication;\n\n"
-                + "@SpringBootApplication\n"
-                + "public class Application {\n"
-                + "    public static void main(String[] args) {\n"
-                + "        SpringApplication.run(Application.class, args);\n"
-                + "    }\n"
-                + "}\n";
-        writeSkeletonFile(vulnDemoPath.resolve("src/main/java/com/jvuln/demo/Application.java"), app, false, false);
-
-        String labInfo = "// FOR AUTHORIZED SECURITY EDUCATION ONLY\n"
-                + "package com.jvuln.demo;\n\n"
-                + "import java.io.File;\n"
-                + "import java.util.LinkedHashMap;\n"
-                + "import java.util.Map;\n"
-                + "import org.springframework.web.bind.annotation.GetMapping;\n"
-                + "import org.springframework.web.bind.annotation.RestController;\n\n"
-                + "@RestController\n"
-                + "public class LabInfoController {\n"
-                + "    @GetMapping(\"/\")\n"
-                + "    public Map<String, Object> index() {\n"
-                + "        Map<String, Object> out = new LinkedHashMap<String, Object>();\n"
-                + "        out.put(\"status\", \"ok\");\n"
-                + "        out.put(\"service\", \"jvuln-demo\");\n"
-                + "        return out;\n"
-                + "    }\n\n"
-                + "    @GetMapping(\"/api/lab/info\")\n"
-                + "    public Map<String, Object> info() {\n"
-                + "        Map<String, Object> out = new LinkedHashMap<String, Object>();\n"
-                + "        out.put(\"status\", \"ok\");\n"
-                + "        out.put(\"userDir\", new File(\".\").getAbsoluteFile().getParentFile().getAbsolutePath());\n"
-                + "        out.put(\"javaVersion\", System.getProperty(\"java.version\", \"\"));\n"
-                + "        out.put(\"tmpdir\", System.getProperty(\"java.io.tmpdir\", \"\"));\n"
-                + "        out.put(\"port\", System.getProperty(\"server.port\", \"18080\"));\n"
-                + "        return out;\n"
-                + "    }\n"
-                + "}\n";
-        writeSkeletonFile(vulnDemoPath.resolve("src/main/java/com/jvuln/demo/LabInfoController.java"),
-                labInfo, false, false);
-
-        String properties = "server.port=" + VULN_DEMO_PORT + "\n"
-                + "spring.main.banner-mode=off\n"
-                + "logging.level.root=INFO\n";
-        writeSkeletonFile(vulnDemoPath.resolve("src/main/resources/application.properties"),
-                properties, false, false);
-
-        String javaHome = profile.getJavaHome();
-        String build = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\n"
-                + "export JAVA_HOME=\"" + javaHome + "\"\n"
-                + "export PATH=\"$JAVA_HOME/bin:$PATH\"\n"
-                + "mvn package -DskipTests -q\n";
-        writeSkeletonFile(vulnDemoPath.resolve("build.sh"), build, true, false);
-
-        String run = "#!/bin/bash\ncd \"$(dirname \"$0\")\"\n"
-                + "export JAVA_HOME=\"" + javaHome + "\"\n"
-                + "export PATH=\"$JAVA_HOME/bin:$PATH\"\n"
-                + "exec java -jar target/*.jar --server.port=" + VULN_DEMO_PORT + "\n";
-        writeSkeletonFile(vulnDemoPath.resolve("run.sh"), run, true, false);
-
-        log.info("Ensured baseline skeleton: pom.xml, Application.java, LabInfoController.java, application.properties, build.sh, run.sh");
-    }
-
-    private void writeSkeletonFile(Path path, String content, boolean executable, boolean overwrite) throws IOException {
-        if (Files.exists(path) && !overwrite) {
-            if (executable) {
-                path.toFile().setExecutable(true);
-            }
-            return;
-        }
-        Files.createDirectories(path.getParent());
-        Files.write(path, content.getBytes(StandardCharsets.UTF_8));
-        if (executable) {
-            path.toFile().setExecutable(true);
-        }
-    }
-
-    // ==================== Data Extraction ====================
-
-    private String trimIntelligence(Object data) throws Exception {
-        JsonNode root = mapper.valueToTree(data);
-        ObjectNode out = mapper.createObjectNode();
-        copyField(root, out, "cveId");
-        copyField(root, out, "cweId");
-        copyField(root, out, "description");
-        copyField(root, out, "cvss");
-        copyField(root, out, "fixedVersion");
-        copyField(root, out, "artifact");
-        copyField(root, out, "affectedVersions");
-        return mapper.writeValueAsString(out);
-    }
-
-    private String extractDiff(PipelineContext ctx, Object data, int cap) throws Exception {
-        JsonNode root = mapper.valueToTree(data);
-        JsonNode rawDiff = root.path("rawDiff");
-        if (!rawDiff.isMissingNode() && rawDiff.isTextual()) {
-            String d = rawDiff.asText();
-            return d.length() > cap ? d.substring(0, cap) + "\n...[truncated]" : d;
-        }
-        Path diffFile = ctx.getWorkspacePath().resolve("patches/fix.diff");
-        if (Files.exists(diffFile)) {
-            String d = new String(Files.readAllBytes(diffFile), StandardCharsets.UTF_8);
-            return d.length() > cap ? d.substring(0, cap) + "\n...[truncated]" : d;
-        }
-        String full = mapper.writeValueAsString(data);
-        return full.length() > cap ? full.substring(0, cap) + "\n...[truncated]" : full;
-    }
-
-    private String extractVulnerabilityFacts(Object data) throws Exception {
-        if (data == null) return "{}";
-        JsonNode root = mapper.valueToTree(data);
-        JsonNode facts = root.path("vulnerabilityFacts");
-        return facts.isMissingNode() ? "{}" : mapper.writeValueAsString(facts);
-    }
-
-    private String extractTriggerChain(Object data) throws Exception {
-        JsonNode root = mapper.valueToTree(data);
-        JsonNode chain = root.path("trigger_chain");
-        return !chain.isMissingNode() ? mapper.writeValueAsString(chain) : "{}";
-    }
-
-    private String extractRootCause(Object data) throws Exception {
-        JsonNode root = mapper.valueToTree(data);
-        JsonNode analysis = root.path("code_analysis");
-        if (!analysis.isMissingNode()) {
-            ObjectNode out = mapper.createObjectNode();
-            copyField(analysis, out, "vuln_root_cause");
-            copyField(analysis, out, "fix_description");
-            return mapper.writeValueAsString(out);
-        }
-        return "{}";
-    }
-
-    private String extractArtifact(Object data) throws Exception {
-        JsonNode root = mapper.valueToTree(data);
-        JsonNode artifact = root.path("artifact");
-        if (!artifact.isMissingNode()) {
-            return artifact.isTextual() ? artifact.asText() : mapper.writeValueAsString(artifact);
-        }
-        return "";
     }
 
     // ==================== Java Profile Selection ====================
@@ -1395,102 +671,10 @@ public class ArtifactGenStage implements Stage {
         if (!v.isMissingNode()) dst.set(field, v);
     }
 
-    private AttemptMemory loadAttemptMemory(Path file) {
-        if (!Files.exists(file)) {
-            return new AttemptMemory();
-        }
-        try {
-            return AttemptMemory.fromJson(mapper.readTree(file.toFile()));
-        } catch (Exception e) {
-            log.warn("Could not load Stage 4 memory: {}", e.getMessage());
-            return new AttemptMemory();
-        }
-    }
 
-    private void persistAttemptMemory(Path file, AgentContext ctx, String event, String reason) {
-        try {
-            AttemptMemory memory = ctx.attemptMemory != null ? ctx.attemptMemory : new AttemptMemory();
-            memory.turns = ctx.turns;
-            memory.reviewRevisions = ctx.reviewRevisions;
-            memory.verificationPlan = ctx.verificationPlan;
-            memory.executionPlan = ctx.executionPlan;
-            memory.lastValidation = ctx.lastValidation;
-            memory.lastReview = ctx.verificationReview;
-            memory.sessionSummary = ctx.sessionSummary;
-            memory.buildHistory.clear();
-            memory.buildHistory.addAll(ctx.buildHistory);
-            memory.startupHistory.clear();
-            memory.startupHistory.addAll(ctx.startupHistory);
-            memory.commandHistory.clear();
-            memory.commandHistory.addAll(ctx.commandHistory);
-            memory.addRecord(AttemptRecord.fromContext(event, reason,
-                    ctx.deriveCompileStatus(), ctx.deriveStartupStatus(),
-                    ctx.verificationReview != null ? ctx.verificationReview.pocStatus
-                            : (ctx.summary != null ? ctx.summary.path("poc_status").asText("") : ""),
-                    ctx.turns, ctx.reviewRevisions, ctx.lastValidation));
-            Files.createDirectories(file.getParent());
-            mapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), memory.toMap());
-            ctx.attemptMemory = memory;
-        } catch (Exception e) {
-            log.warn("Failed to persist Stage 4 memory: {}", e.getMessage());
-        }
-    }
 
-    private void restoreAgentContextFromMemory(AgentContext ctx, AttemptMemory memory) {
-        if (memory == null) {
-            return;
-        }
-        // Do NOT restore executionPlan — Agent must always create a fresh plan
-        // based on the current CVE context. Prior plans may be stale or wrong.
-        ctx.lastValidation = memory.lastValidation;
-        ctx.verificationReview = memory.lastReview;
-        ctx.sessionSummary = memory.sessionSummary == null ? "" : memory.sessionSummary;
-        restoreToolRuns(ctx.buildHistory, memory.buildHistory);
-        restoreToolRuns(ctx.startupHistory, memory.startupHistory);
-        restoreToolRuns(ctx.commandHistory, memory.commandHistory);
-    }
 
-    private void restoreToolRuns(List<ToolRun> target, List<ToolRun> source) {
-        if (source == null || source.isEmpty()) {
-            return;
-        }
-        target.clear();
-        target.addAll(source);
-    }
 
-    private String renderAttemptMemory(AttemptMemory memory) {
-        StringBuilder sb = new StringBuilder();
-        if (memory.executionPlan != null) {
-            sb.append("Execution plan:\n");
-            sb.append(llmHelper.renderJson(memory.executionPlan.toMap())).append("\n");
-        }
-        if (memory.lastValidation != null) {
-            sb.append("Latest validator result:\n");
-            sb.append(llmHelper.renderJson(memory.lastValidation.toMap())).append("\n");
-        }
-        if (memory.lastReview != null) {
-            sb.append("Latest review result:\n");
-            sb.append(llmHelper.renderJson(memory.lastReview.toMap())).append("\n");
-        }
-        if (memory.sessionSummary != null && !memory.sessionSummary.trim().isEmpty()) {
-            sb.append("Compacted session summary:\n");
-            sb.append(memory.sessionSummary.trim()).append("\n");
-        }
-        if (!memory.records.isEmpty()) {
-            sb.append("Recent failures and decisions:\n");
-            for (AttemptRecord record : memory.records) {
-                sb.append("- [").append(record.event).append("] ");
-                if (!record.reason.isEmpty()) {
-                    sb.append(record.reason).append(" | ");
-                }
-                sb.append("compile=").append(record.compileStatus)
-                        .append(", startup=").append(record.startupStatus)
-                        .append(", poc=").append(record.pocStatus)
-                        .append("\n");
-            }
-        }
-        return sb.toString().trim();
-    }
 
     private VerificationPlan buildVerificationPlan(PipelineContext ctx, String intelligence,
                                                    String vulnerabilityFacts, String triggerChain,
@@ -1507,476 +691,11 @@ public class ArtifactGenStage implements Stage {
             vars.put("artifact", artifact);
             String userPrompt = promptRegistry.render(userTemplate, vars);
             LlmResponse response = llmHelper.chatWithRetry(ctx, LlmRequest.reasoning(systemPrompt, userPrompt), 2);
-            return VerificationPlan.fromJson(parseJsonObject(response.getContent()));
+            return VerificationPlan.fromJson(llmHelper.parseJsonObject(response.getContent()));
         } catch (Exception e) {
             log.warn("Verification plan generation failed, using fallback: {}", e.getMessage());
             return VerificationPlan.fallback(artifact, triggerChain, rootCause);
         }
     }
-
-    private VerificationReview reviewGeneratedArtifacts(PipelineContext ctx, AgentContext agentCtx, JsonNode finishSummary,
-                                                        String intelligence, String vulnerabilityFacts,
-                                                        String triggerChain, String rootCause, String patchDiff,
-                                                        String artifact) {
-        try {
-            String systemPrompt = promptRegistry.getSystemPrompt("gen_verifier");
-            String userTemplate = promptRegistry.getUserPrompt("gen_verifier");
-            Map<String, String> vars = new HashMap<>();
-            vars.put("intelligence", intelligence);
-            vars.put("vulnerability_facts", vulnerabilityFacts);
-            vars.put("trigger_chain", triggerChain);
-            vars.put("root_cause", rootCause);
-            vars.put("patch_diff", patchDiff);
-            vars.put("artifact", artifact);
-            vars.put("verification_plan", llmHelper.renderJson(agentCtx.verificationPlan.toMap()));
-            vars.put("finish_summary", finishSummary == null ? "{}" : finishSummary.toPrettyString());
-            vars.put("execution_evidence", llmHelper.renderJson(buildVerificationEvidence(agentCtx, finishSummary)));
-            String userPrompt = promptRegistry.render(userTemplate, vars);
-            LlmResponse response = llmHelper.chatWithRetry(ctx, LlmRequest.reasoning(systemPrompt, userPrompt), 2);
-            return reconcileReviewWithBackend(
-                    VerificationReview.fromJson(parseJsonObject(response.getContent())), agentCtx, finishSummary);
-        } catch (Exception e) {
-            log.warn("Verification review failed, using fallback: {}", e.getMessage());
-            return VerificationReview.fallback(finishSummary, agentCtx.deriveCompileStatus(),
-                    agentCtx.deriveStartupStatus(), agentCtx.lastValidation);
-        }
-    }
-
-    private VerificationReview reconcileReviewWithBackend(VerificationReview review, AgentContext agentCtx,
-                                                          JsonNode finishSummary) {
-        ValidationResult validation = agentCtx.lastValidation;
-        boolean backendVerified = validation != null
-                && validation.compileOk && validation.startupOk && validation.pocVerified;
-        if (!backendVerified || review == null || "verified".equals(review.pocStatus)) {
-            return review;
-        }
-
-        log.warn("Reviewer returned {} despite backend validation success; using backend verified verdict. reason={}",
-                review.pocStatus, singleLine(review.reason, 300));
-        return VerificationReview.fallback(finishSummary, agentCtx.deriveCompileStatus(),
-                agentCtx.deriveStartupStatus(), validation);
-    }
-
-    private Map<String, Object> buildVerificationEvidence(AgentContext ctx, JsonNode finishSummary) {
-        Map<String, Object> evidence = new LinkedHashMap<>();
-        evidence.put("compileStatus", ctx.deriveCompileStatus());
-        evidence.put("startupStatus", ctx.deriveStartupStatus());
-        evidence.put("writtenFiles", new ArrayList<>(ctx.writtenFiles));
-        evidence.put("reviewRevisions", ctx.reviewRevisions);
-        evidence.put("finishSummary", finishSummary == null ? mapper.createObjectNode() : finishSummary);
-        evidence.put("buildHistory", llmHelper.recentHistory(ctx.buildHistory));
-        evidence.put("startupHistory", llmHelper.recentHistory(ctx.startupHistory));
-        evidence.put("commandHistory", llmHelper.recentHistory(ctx.commandHistory));
-
-        Map<String, String> snippets = collectKeyFileSnippets(ctx);
-        if (!snippets.isEmpty()) {
-            evidence.put("keyFileSnippets", snippets);
-        }
-        return evidence;
-    }
-
-
-    private Map<String, String> collectKeyFileSnippets(AgentContext ctx) {
-        LinkedHashSet<String> candidates = new LinkedHashSet<>();
-        candidates.add("vuln-demo/pom.xml");
-        candidates.add("vuln-demo/src/main/resources/application.properties");
-        candidates.add("poc/exploit.sh");
-        candidates.add("report/report.md");
-        for (String path : ctx.writtenFiles) {
-            if (path.startsWith("vuln-demo/src/main/resources/")) {
-                candidates.add(path);
-            }
-        }
-        for (String path : ctx.writtenFiles) {
-            if (path.startsWith("vuln-demo/src/main/java/")) {
-                candidates.add(path);
-            }
-        }
-
-        Map<String, String> snippets = new LinkedHashMap<>();
-        for (String path : candidates) {
-            if (snippets.size() >= 6) break;
-            Path file = ctx.cvePath.resolve(path);
-            if (!Files.exists(file) || Files.isDirectory(file)) {
-                continue;
-            }
-            try {
-                String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
-                snippets.put(path, truncate(content, REVIEW_FILE_SNIPPET));
-            } catch (IOException ignored) {
-                // Ignore unreadable evidence files and continue with the rest.
-            }
-        }
-        return snippets;
-    }
-
-
-    private String buildReviewerFeedback(VerificationReview review, int revision) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("finish() rejected by reviewer.\n");
-        sb.append("Verdict: ").append(review.verdict).append("\n");
-        if (!review.reason.isEmpty()) {
-            sb.append("Reason: ").append(review.reason).append("\n");
-        }
-        appendBulletSection(sb, "Matched evidence", review.matchedSignals);
-        appendBulletSection(sb, "Missing evidence", review.missingEvidence);
-        appendBulletSection(sb, "False-positive risks", review.falsePositiveRisks);
-        appendBulletSection(sb, "Required next actions", review.nextActions);
-        sb.append("Revision budget used: ").append(revision).append("/").append(MAX_REVIEW_REVISIONS).append(".\n");
-        sb.append("Modify vuln-demo and/or poc files, rerun build/start/command, then call finish() again.");
-        return sb.toString();
-    }
-
-    private String buildFinishAcceptedMessage(VerificationReview review) {
-        if (review == null) {
-            return "finish() accepted";
-        }
-        return "finish() accepted. Reviewer verdict: " + review.verdict
-                + (review.reason.isEmpty() ? "" : ". " + review.reason);
-    }
-
-    private void appendBulletSection(StringBuilder sb, String title, List<String> items) {
-        if (items == null || items.isEmpty()) {
-            return;
-        }
-        sb.append(title).append(":\n");
-        for (String item : items) {
-            sb.append("- ").append(item).append("\n");
-        }
-    }
-
-    private JsonNode mergeSummaryWithReview(JsonNode summary, VerificationReview review) {
-        ObjectNode merged = summary != null && summary.isObject()
-                ? ((ObjectNode) summary.deepCopy())
-                : mapper.createObjectNode();
-        if (review != null && !review.pocStatus.isEmpty()) {
-            merged.put("poc_status", review.pocStatus);
-        }
-
-        String reviewerReason = review != null ? review.reason : "";
-        String existingNotes = merged.path("notes").asText("").trim();
-        if (!existingNotes.isEmpty() && !reviewerReason.isEmpty() && !existingNotes.contains(reviewerReason)) {
-            merged.put("notes", existingNotes + " | Reviewer: " + reviewerReason);
-        } else if (existingNotes.isEmpty() && !reviewerReason.isEmpty()) {
-            merged.put("notes", reviewerReason);
-        }
-
-        if (review != null && !review.missingEvidence.isEmpty()) {
-            merged.put("remaining_gap", joinItems(review.missingEvidence, "; "));
-        }
-        return merged;
-    }
-
-
-    private String toolDefNames(List<LlmRequest.ToolDef> tools) {
-        if (tools == null || tools.isEmpty()) {
-            return "[]";
-        }
-        List<String> names = new ArrayList<>();
-        for (LlmRequest.ToolDef tool : tools) {
-            names.add(tool.getName());
-        }
-        return names.toString();
-    }
-
-    private String toolUseNames(List<LlmRequest.ContentBlock> toolUses) {
-        if (toolUses == null || toolUses.isEmpty()) {
-            return "[]";
-        }
-        List<String> names = new ArrayList<>();
-        for (LlmRequest.ContentBlock block : toolUses) {
-            names.add(block.getToolName());
-        }
-        return names.toString();
-    }
-
-    private String responsePreview(LlmResponse response) {
-        if (response == null) {
-            return "";
-        }
-        String content = response.getContent();
-        if (content != null && !content.trim().isEmpty()) {
-            return singleLine(content, 260);
-        }
-        StringBuilder sb = new StringBuilder();
-        for (LlmRequest.ContentBlock block : response.getContentBlocks()) {
-            if ("text".equals(block.getType()) && block.getText() != null && !block.getText().trim().isEmpty()) {
-                if (sb.length() > 0) {
-                    sb.append(" ");
-                }
-                sb.append(block.getText().trim());
-            }
-        }
-        return singleLine(sb.toString(), 260);
-    }
-
-    private String summarizeToolInput(String toolName, JsonNode input) {
-        if (input == null || input.isMissingNode() || input.isNull()) {
-            return "{}";
-        }
-        if ("write_file".equals(toolName)) {
-            return "{path=" + input.path("path").asText("") + ", contentLength="
-                    + input.path("content").asText("").length() + "}";
-        }
-        if ("write_files".equals(toolName)) {
-            List<String> paths = new ArrayList<>();
-            JsonNode files = input.path("files");
-            if (files.isArray()) {
-                for (JsonNode file : files) {
-                    paths.add(file.path("path").asText(""));
-                }
-            }
-            return "{count=" + paths.size() + ", paths=" + paths + "}";
-        }
-        if ("read_file".equals(toolName)) {
-            return "{path=" + input.path("path").asText("") + "}";
-        }
-        if ("read_log".equals(toolName)) {
-            return "{path=" + input.path("path").asText("")
-                    + ", tailBytes=" + input.path("tailBytes").asInt(OUTPUT_TRUNCATE) + "}";
-        }
-        if ("validate_artifacts".equals(toolName)) {
-            return "{focus=" + input.path("focus").asText("full") + "}";
-        }
-        if ("submit_plan".equals(toolName)) {
-            return "{goal=" + singleLine(input.path("goal").asText(""), 120)
-                    + ", firstBatchFiles=" + input.path("firstBatchFiles").size()
-                    + ", validationSequence=" + input.path("validationSequence").size() + "}";
-        }
-        return singleLine(input.toString(), 260);
-    }
-
-
-    private String extractJsonString(String raw, String field) {
-        if (raw == null || raw.trim().isEmpty()) {
-            return "";
-        }
-        try {
-            JsonNode node = mapper.readTree(raw);
-            return node.path(field).asText("");
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-
-
-    private String toHex(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b & 0xff));
-        }
-        return sb.toString();
-    }
-
-    private String stripMarkdownFence(String raw) {
-        if (raw == null) return "";
-        String s = raw.trim();
-        if (!s.startsWith("```")) {
-            return s;
-        }
-        int firstNewline = s.indexOf('\n');
-        if (firstNewline < 0) {
-            return s;
-        }
-        s = s.substring(firstNewline + 1);
-        if (s.endsWith("```")) {
-            s = s.substring(0, s.length() - 3);
-        }
-        return s.trim();
-    }
-
-    private JsonNode parseJsonObject(String raw) throws IOException {
-        String s = stripMarkdownFence(raw);
-        if (s.isEmpty()) {
-            throw new IOException("Empty JSON response");
-        }
-        try {
-            JsonNode node = mapper.readTree(s);
-            if (node != null && node.isObject()) {
-                return node;
-            }
-        } catch (Exception ignored) {
-            // Fall through and try to extract the first balanced JSON object.
-        }
-
-        int start = s.indexOf('{');
-        if (start < 0) {
-            throw new IOException("No JSON object found in response: " + singleLine(s, 200));
-        }
-        int end = findJsonObjectEnd(s, start);
-        if (end < 0) {
-            throw new IOException("Unbalanced JSON object in response: " + singleLine(s, 200));
-        }
-        return mapper.readTree(s.substring(start, end + 1));
-    }
-
-    private int findJsonObjectEnd(String s, int start) {
-        boolean inString = false;
-        boolean escaped = false;
-        int depth = 0;
-        for (int i = start; i < s.length(); i++) {
-            char ch = s.charAt(i);
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-            if (ch == '\\' && inString) {
-                escaped = true;
-                continue;
-            }
-            if (ch == '"') {
-                inString = !inString;
-                continue;
-            }
-            if (inString) {
-                continue;
-            }
-            if (ch == '{') {
-                depth++;
-            } else if (ch == '}') {
-                depth--;
-                if (depth == 0) {
-                    return i;
-                }
-            }
-        }
-        return -1;
-    }
-
-    private String joinItems(List<String> items, String delimiter) {
-        if (items == null || items.isEmpty()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (String item : items) {
-            if (item == null || item.trim().isEmpty()) {
-                continue;
-            }
-            if (sb.length() > 0) {
-                sb.append(delimiter);
-            }
-            sb.append(item.trim());
-        }
-        return sb.toString();
-    }
-
-
-
-
-
-    @SuppressWarnings("unchecked")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    private ValidationResult validateArtifacts(AgentContext ctx, String focus) throws Exception {
-        String normalized = focus == null ? "full" : focus.trim().toLowerCase(Locale.ROOT);
-        ValidationResult result = new ValidationResult(normalized);
-
-        if (shouldValidateCompile(normalized)) {
-            ProcessResult build = runProcess(ctx.cvePath.resolve("vuln-demo"), COMPILE_TIMEOUT, "bash", "build.sh");
-            ToolRun buildRun = ToolRun.build(build.exitCode, build.output);
-            ctx.buildHistory.add(buildRun);
-            result.compileOk = build.exitCode == 0;
-            result.compileMessage = truncate(build.output, OUTPUT_TRUNCATE);
-            if (!result.compileOk || "compile".equals(normalized)) {
-                return result;
-            }
-        } else {
-            result.compileOk = "compile_ok".equals(ctx.deriveCompileStatus());
-        }
-
-        if (shouldValidateStartup(normalized)) {
-            String startupMessage = doStartApp(ctx);
-            ToolRun startupRun = ctx.startupHistory.isEmpty() ? null : ctx.startupHistory.get(ctx.startupHistory.size() - 1);
-            result.startupOk = startupRun != null && startupRun.success;
-            result.startupMessage = truncate(startupMessage, OUTPUT_TRUNCATE);
-            if (!result.startupOk || "startup".equals(normalized)) {
-                return result;
-            }
-        } else {
-            result.startupOk = "startup_ok".equals(ctx.deriveStartupStatus());
-        }
-
-        if (shouldValidatePoc(normalized)) {
-            ValidationResult pocResult = validatePoc(ctx);
-            result.mergeFrom(pocResult);
-        }
-        return result;
-    }
-
-    private boolean shouldValidateCompile(String focus) {
-        return "full".equals(focus) || "compile".equals(focus) || "startup".equals(focus) || "poc".equals(focus);
-    }
-
-    private boolean shouldValidateStartup(String focus) {
-        return "full".equals(focus) || "startup".equals(focus) || "poc".equals(focus);
-    }
-
-    private boolean shouldValidatePoc(String focus) {
-        return "full".equals(focus) || "poc".equals(focus);
-    }
-
-    private ValidationResult validatePoc(AgentContext ctx) {
-        ValidationResult result = new ValidationResult("poc");
-
-        Path pocScript = ctx.cvePath.resolve("poc/exploit.sh");
-        if (!Files.exists(pocScript)) {
-            result.pocVerified = false;
-            result.pocMessage = "PoC script not found: poc/exploit.sh";
-            return result;
-        }
-
-        ProcessResult pr = runProcess(ctx.cvePath, COMMAND_TIMEOUT, "bash", "poc/exploit.sh");
-        ctx.commandHistory.add(ToolRun.command("bash poc/exploit.sh", pr.exitCode, pr.output));
-        result.pocVerified = pr.exitCode == 0;
-        result.pocMessage = truncate(pr.output, OUTPUT_TRUNCATE);
-        return result;
-    }
-
-    // ==================== Inner Classes ====================
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    private static class ProcessResult {
-        final int exitCode;
-        final String output;
-        ProcessResult(int exitCode, String output) {
-            this.exitCode = exitCode;
-            this.output = output;
-        }
-    }
-
 
 }

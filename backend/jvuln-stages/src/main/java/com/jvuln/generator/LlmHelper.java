@@ -60,4 +60,79 @@ class LlmHelper {
         }
         return items;
     }
+
+    com.fasterxml.jackson.databind.JsonNode parseJsonObject(String raw) throws java.io.IOException {
+        String s = stripMarkdownFence(raw);
+        if (s.isEmpty()) {
+            throw new java.io.IOException("Empty JSON response");
+        }
+        try {
+            com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(s);
+            if (node != null && node.isObject()) {
+                return node;
+            }
+        } catch (Exception ignored) {
+            // Fall through and try to extract the first balanced JSON object.
+        }
+
+        int start = s.indexOf('{');
+        if (start < 0) {
+            throw new java.io.IOException("No JSON object found in response: " + s.substring(0, Math.min(200, s.length())));
+        }
+        int end = findJsonObjectEnd(s, start);
+        if (end < 0) {
+            throw new java.io.IOException("Unbalanced JSON object in response: " + s.substring(0, Math.min(200, s.length())));
+        }
+        return mapper.readTree(s.substring(start, end + 1));
+    }
+
+    private String stripMarkdownFence(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim();
+        if (!s.startsWith("```")) {
+            return s;
+        }
+        int firstNewline = s.indexOf('\n');
+        if (firstNewline < 0) {
+            return s;
+        }
+        s = s.substring(firstNewline + 1);
+        if (s.endsWith("```")) {
+            s = s.substring(0, s.length() - 3);
+        }
+        return s.trim();
+    }
+
+    private int findJsonObjectEnd(String s, int start) {
+        boolean inString = false;
+        boolean escaped = false;
+        int depth = 0;
+        for (int i = start; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (ch == '\\' && inString) {
+                escaped = true;
+                continue;
+            }
+            if (ch == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (inString) {
+                continue;
+            }
+            if (ch == '{') {
+                depth++;
+            } else if (ch == '}') {
+                depth--;
+                if (depth == 0) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
 }

@@ -1,6 +1,9 @@
 package com.jvuln.generator;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jvuln.llm.LlmRequest;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -152,5 +155,58 @@ public final class ArtifactGenUtils {
             out.add(text);
         }
         return out;
+    }
+
+    /**
+     * Copy field from source JsonNode to destination ObjectNode if it exists
+     */
+    public static void copyField(JsonNode src, ObjectNode dst, String field) {
+        JsonNode v = src.path(field);
+        if (!v.isMissingNode()) {
+            dst.set(field, v);
+        }
+    }
+
+    /**
+     * Extract tool definition names from tool list
+     */
+    public static String toolDefNames(List<LlmRequest.ToolDef> tools) {
+        if (tools == null || tools.isEmpty()) {
+            return "[]";
+        }
+        List<String> names = new ArrayList<>();
+        for (LlmRequest.ToolDef tool : tools) {
+            names.add(tool.getName());
+        }
+        return names.toString();
+    }
+
+    /**
+     * Extract tool use names from content blocks
+     */
+    public static String toolUseNames(List<LlmRequest.ContentBlock> toolUses) {
+        if (toolUses == null || toolUses.isEmpty()) {
+            return "[]";
+        }
+        List<String> names = new ArrayList<>();
+        for (LlmRequest.ContentBlock block : toolUses) {
+            names.add(block.getToolName());
+        }
+        return names.toString();
+    }
+
+    /**
+     * Extract a string field from JSON string
+     */
+    public static String extractJsonString(ObjectMapper mapper, String raw, String field) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return "";
+        }
+        try {
+            JsonNode node = mapper.readTree(raw);
+            return node.path(field).asText("");
+        } catch (Exception e) {
+            return "";
+        }
     }
 }
