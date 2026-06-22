@@ -39,9 +39,10 @@ public class LlmAdapterFactory {
         String model = config.getModel();
 
         // Anthropic 提供商：通过 providerType 或模型名称检测
+        // TODO: Task 4 - Uncomment when AnthropicAdapter is implemented
         if ("anthropic".equals(providerType) || isAnthropicModel(model)) {
-            log.info("Creating AnthropicAdapter for model: {}", model);
-            return new AnthropicAdapter(config, mapper);
+            log.warn("AnthropicAdapter not yet implemented, falling back to OpenAICompatibleAdapter for model: {}", model);
+            // return new AnthropicAdapter(config, mapper);
         }
 
         // 默认 OpenAI 兼容（OpenAI、DeepSeek、本地模型等）
