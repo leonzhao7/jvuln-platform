@@ -2,6 +2,10 @@
 # JVuln Platform 启动脚本
 # 用法: ./start.sh [--build] [--stop]
 
+export http_proxy=
+export https_proxy=
+export ALL_PROXY=
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$SCRIPT_DIR/backend"
 FRONTEND_DIR="$SCRIPT_DIR/frontend"
