@@ -61,6 +61,10 @@ const enUS = {
     continueStage: '▶ Continue',
     viewStageResult: 'View Stage {stage} result',
     selectedStageResult: 'Stage Result',
+    log: {
+      stagePrefix: 'Stage {num}',
+      start: 'started',
+    },
     stageNames: ['Intelligence', 'Patch Analysis', 'AI Reasoning', 'Artifacts'],
     loadFailed: 'Failed to load task',
     rerunStarted: 'Rerun started',

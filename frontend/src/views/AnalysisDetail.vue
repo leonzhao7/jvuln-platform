@@ -130,6 +130,37 @@ const loadStageData = async () => {
   }
 }
 
+const stageLabel = (num: number) => {
+  const name = stageNames.value[num - 1]
+  const prefix = t('analysis.log.stagePrefix', { num })
+  return name ? `${prefix} ${name}` : prefix
+}
+
+// 只提取 message 部分展示，避免输出完整 JSON；stage_start 额外打印一条阶段说明
+const formatSseEvent = (type: string, raw: string): string => {
+  let message = raw
+  let stageNum = 0
+  try {
+    const data = JSON.parse(raw)
+    message = data.message ?? ''
+    stageNum = data.stageNum ?? 0
+  } catch {
+    // 非 JSON 数据，原样展示
+  }
+  switch (type) {
+    case 'stage_start':
+      return `▶ ${stageLabel(stageNum)} ${t('analysis.log.start')}`
+    case 'stage_done':
+      return `✔ ${stageLabel(stageNum)} · ${message}`
+    case 'error':
+      return `✖ ${stageNum ? stageLabel(stageNum) + ' · ' : ''}${message}`
+    case 'pipeline_done':
+      return `✔ ${message}`
+    default:
+      return stageNum ? `${stageLabel(stageNum)} · ${message}` : message
+  }
+}
+
 const startStream = () => {
   if (evtSource) evtSource.close()
   sseMessages.value = []
@@ -137,7 +168,7 @@ const startStream = () => {
   evtSource = new EventSource(`/api/analysis/${cveId}/stream`)
 
   const handleEvent = (type: string) => (e: MessageEvent) => {
-    sseMessages.value.push(`${e.data ?? ''}`)
+    sseMessages.value.push(formatSseEvent(type, `${e.data ?? ''}`))
     if (type === 'pipeline_done' || type === 'error') {
       sseActive.value = false
       load()

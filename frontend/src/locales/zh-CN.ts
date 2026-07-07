@@ -61,6 +61,10 @@ const zhCN = {
     continueStage: '▶ 继续',
     viewStageResult: '查看阶段 {stage} 结果',
     selectedStageResult: '阶段结果',
+    log: {
+      stagePrefix: '阶段 {num}',
+      start: '开始',
+    },
     stageNames: ['情报采集', '补丁分析', 'AI 推理', '产物生成'],
     loadFailed: '加载任务失败',
     rerunStarted: '重跑任务已启动',
