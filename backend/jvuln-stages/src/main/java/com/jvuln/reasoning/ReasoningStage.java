@@ -1,4 +1,4 @@
-package com.jvuln.pipeline.stage;
+package com.jvuln.reasoning;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,6 +8,7 @@ import com.jvuln.llm.LlmResponse;
 import com.jvuln.llm.PromptRegistry;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageResult;
+import com.jvuln.pipeline.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
