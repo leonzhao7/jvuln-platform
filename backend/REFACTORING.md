@@ -23,7 +23,7 @@ backend/
 ```
 backend/
 ├── jvuln-utils        # 通用工具（存储、LLM、HTTP、Pipeline接口）
-├── jvuln-stages       # Stage实现（Collector、Patcher、Analyzer、Generator）
+├── jvuln-stages       # Stage实现（Collector、Patcher、Reasoning、Generator）
 └── jvuln-app          # 应用管理（Pipeline、REST API、调度）
 ```
 
@@ -59,13 +59,12 @@ backend/
 - `com.jvuln.collector` - Stage 1: 情报收集
   - IntelligenceStage
   - IntelSource接口及实现（GHSA、NVD、OSV等）
-- `com.jvuln.patcher` - Stage 2: 补丁定位
-  - PatchLocateStage
-  - PatchStrategy接口及实现
-- `com.jvuln.analyzer` - Stage 3: 代码分析
-  - CodeAnalysisStage
-  - JavaParser集成
-- `com.jvuln.generator` - Stage 5: 制品生成
+- `com.jvuln.patcher` - Stage 2: 补丁分析
+  - PatchAnalysisStage
+  - analyzer/strategy内部实现
+- `com.jvuln.reasoning` - Stage 3: AI推理
+  - ReasoningStage
+- `com.jvuln.generator` - Stage 4: 制品生成
   - ArtifactGenStage
   - Docker文件生成
 
@@ -179,7 +178,7 @@ jvuln-utils (无依赖其他内部模块)
 
 1. **继续完善重试机制**
    - 修改NvdSource、OsvSource使用HttpUtil
-   - 修改Patcher模块中的HTTP请求
+   - 修改Patch Analysis内部实现中的HTTP请求
 
 2. **添加单元测试**
    - 为HttpUtil和LlmUtil添加测试

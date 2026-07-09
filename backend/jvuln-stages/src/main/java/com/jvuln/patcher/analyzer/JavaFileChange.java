@@ -1,4 +1,4 @@
-package com.jvuln.analyzer;
+package com.jvuln.patcher.analyzer;
 
 import java.util.Set;
 

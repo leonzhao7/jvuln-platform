@@ -11,7 +11,7 @@
 
     <artifactId>jvuln-stages</artifactId>
     <name>JVuln Stages</name>
-    <description>Stage implementations: Collector, Patcher, Analyzer, Generator</description>
+    <description>Stage implementations: Intelligence, Patch Analysis, AI Reasoning, Artifact Generation</description>
 
     <dependencies>
         <!-- Depend on utils -->

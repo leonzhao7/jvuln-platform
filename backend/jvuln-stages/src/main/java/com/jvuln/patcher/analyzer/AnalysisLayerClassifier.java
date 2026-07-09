@@ -1,4 +1,4 @@
-package com.jvuln.analyzer;
+package com.jvuln.patcher.analyzer;
 
 import com.jvuln.store.model.CodeAnalysisResult;
 import org.springframework.stereotype.Component;

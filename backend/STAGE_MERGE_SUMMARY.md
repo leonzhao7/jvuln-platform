@@ -7,7 +7,7 @@
 ## 主要变更
 
 ### 1. 新建合并阶段
-**文件**: `jvuln-stages/src/main/java/com/jvuln/combined/PatchAnalysisStage.java`
+**文件**: `jvuln-stages/src/main/java/com/jvuln/patcher/PatchAnalysisStage.java`
 
 - **Stage 编号**: 2
 - **Stage 名称**: "Patch Analysis"

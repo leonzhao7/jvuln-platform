@@ -1,4 +1,4 @@
-package com.jvuln.analyzer;
+package com.jvuln.patcher.analyzer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

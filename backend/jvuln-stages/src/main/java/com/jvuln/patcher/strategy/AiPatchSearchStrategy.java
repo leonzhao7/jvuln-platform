@@ -85,7 +85,7 @@ public class AiPatchSearchStrategy {
     }
 
     /**
-     * Main entry point called by PatchLocateStage when all other strategies have failed.
+     * Main entry point called by PatchAnalysisStage when all other strategies have failed.
      */
     public Optional<AiPatchOutcome> locateWithAiHints(String cveId, String sourceRepo,
                                                       String groupId, String artifactId,

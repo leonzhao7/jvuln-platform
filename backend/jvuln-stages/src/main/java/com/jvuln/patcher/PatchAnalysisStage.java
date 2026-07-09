@@ -1,4 +1,4 @@
-package com.jvuln.combined;
+package com.jvuln.patcher;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -7,9 +7,7 @@ import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.jvuln.analyzer.*;
-import com.jvuln.patcher.DiffParser;
-import com.jvuln.patcher.PatchInfo;
+import com.jvuln.patcher.analyzer.*;
 import com.jvuln.patcher.strategy.AiPatchSearchStrategy;
 import com.jvuln.patcher.strategy.AiPatchSearchStrategy.AiEnrichment;
 import com.jvuln.patcher.strategy.AiPatchSearchStrategy.AiPatchOutcome;
@@ -32,8 +30,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Combined Stage 2 & 3: Patch Locating + Code Analysis
- * Merges patch location and code analysis into a single stage to reduce overhead
+ * Stage 2: Patch Locating + Code Analysis
+ * Merges patch location and code analysis into a single patch-analysis stage to reduce overhead
  * and improve pipeline efficiency.
  */
 @Component
@@ -93,7 +91,7 @@ public class PatchAnalysisStage implements Stage {
     @Override
     public StageResult execute(PipelineContext ctx) throws Exception {
         String cveId = ctx.getCveId();
-        ctx.reportProgress("Starting combined patch locating and analysis for " + cveId);
+        ctx.reportProgress("Starting patch locating and analysis for " + cveId);
 
         // ========== PART 1: PATCH LOCATING ==========
         StageResult stage1 = ctx.getCompletedStages().get(1);
@@ -118,7 +116,7 @@ public class PatchAnalysisStage implements Stage {
         String effectiveAffectedTo = affectedTo;
         String effectiveFixed = (fixedVersion != null && !fixedVersion.isEmpty()) ? fixedVersion : null;
 
-        log.info("Combined Stage: sourceRepo={} artifact={}:{} fixed={} commits={}",
+        log.info("Patch Analysis Stage: sourceRepo={} artifact={}:{} fixed={} commits={}",
                 sourceRepo, groupId, artifactId, fixedVersion, knownCommits.size());
 
         // Try to locate patch
@@ -183,7 +181,7 @@ public class PatchAnalysisStage implements Stage {
                 && affectedTo != null && !affectedTo.isEmpty()) {
             effectiveFixed = mavenStrategy.inferFixedVersion(groupId, artifactId, affectedTo);
             if (effectiveFixed != null) {
-                log.info("Combined Stage: inferred fixedVersion={} from affectedTo='{}'",
+                log.info("Patch Analysis Stage: inferred fixedVersion={} from affectedTo='{}'",
                         effectiveFixed, affectedTo);
             }
         }
@@ -630,4 +628,3 @@ public class PatchAnalysisStage implements Stage {
         }
     }
 }
-

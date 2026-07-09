@@ -82,13 +82,13 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
         // We rely on the caller also passing any mvn coordinate in sourceRepo or we try to infer
         // This strategy is triggered when the Stage 1 data is available via ctx; here we only
         // have sourceRepo and knownCommits. We encode the Maven coordinate in sourceRepo as a fallback.
-        // Real coordination: PatchLocateStage passes intel data through dedicated fields added below.
+        // Real coordination: PatchAnalysisStage passes intel data through dedicated fields added below.
 
         return Optional.empty(); // Placeholder; actual logic is in overloaded method below
     }
 
     /**
-     * Called by PatchLocateStage when sourceRepo and artifact coordinates are available.
+     * Called by PatchAnalysisStage when sourceRepo and artifact coordinates are available.
      */
     public Optional<PatchResult> locateByArtifact(String cveId, String groupId, String artifactId,
                                                     String fixedVersion) throws Exception {

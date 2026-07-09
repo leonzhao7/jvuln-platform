@@ -17,9 +17,9 @@
 - ✅ 实现各个Stage的功能
 - ✅ 包含内容：
   - Collector（Stage 1: 情报收集）
-  - Patcher（Stage 2: 补丁定位）
-  - Analyzer（Stage 3: 代码分析）
-  - Generator（Stage 5: 制品生成）
+  - Patcher（Stage 2: 补丁分析）
+  - Reasoning（Stage 3: AI推理）
+  - Generator（Stage 4: 制品生成）
 
 ### 3. jvuln-app（应用管理模块）
 - ✅ 实现系统管理、调度、对外接口
@@ -94,8 +94,8 @@ app → stages → utils
 │   └── src/main/java/com/jvuln/
 │       ├── collector/    # Stage 1
 │       ├── patcher/      # Stage 2
-│       ├── analyzer/     # Stage 3
-│       └── generator/    # Stage 5
+│       ├── reasoning/    # Stage 3
+│       └── generator/    # Stage 4
 ├── jvuln-app/            # 应用管理模块
 │   ├── pom.xml
 │   └── src/main/java/com/jvuln/
@@ -123,7 +123,7 @@ app → stages → utils
 
 2. **继续完善重试机制**
    - 修改NvdSource、OsvSource使用HttpUtil
-   - 修改Patcher模块中的GitHub API调用
+   - 修改Patch Analysis内部实现中的GitHub API调用
 
 3. **文档完善**
    - 为每个模块添加README
