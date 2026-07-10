@@ -1,9 +1,12 @@
 package com.jvuln.llm;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.core.io.DefaultResourceLoader;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,5 +39,17 @@ class PromptManagerTest {
                 () -> missing.resolve(LlmPromptStage.REASONING));
 
         assertTrue(exception.getMessage().contains("missing/prompts/global.md"));
+    }
+
+    @Test
+    void springCreatesPromptManagerFromComponentConstructor() {
+        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+        try {
+            context.register(PromptManager.class);
+            assertDoesNotThrow(context::refresh);
+            assertNotNull(context.getBean(PromptManager.class));
+        } finally {
+            context.close();
+        }
     }
 }

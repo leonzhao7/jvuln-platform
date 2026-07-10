@@ -1,5 +1,6 @@
 package com.jvuln.llm;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,7 @@ public class PromptManager {
     private final String resourcePrefix;
     private final Map<String, String> cache = new ConcurrentHashMap<>();
 
+    @Autowired
     public PromptManager(ResourceLoader resourceLoader) {
         this(resourceLoader, "");
     }
