@@ -1,11 +1,11 @@
 package com.jvuln.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jvuln.llm.LlmCaller;
+import com.jvuln.llm.LlmEndpoint;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
 import com.jvuln.llm.PromptRegistry;
-import com.jvuln.llm.impl.AnthropicCaller;
+import com.jvuln.llm.impl.LlmConfigProvider;
+import com.jvuln.llm.impl.OpenAiCompatClient;
 import com.jvuln.store.JavaProfileRepository;
 import com.jvuln.store.LlmConfigRepository;
 import com.jvuln.store.entity.JavaProfile;
@@ -30,15 +30,15 @@ public class ConfigController {
 
     private final LlmConfigRepository repo;
     private final JavaProfileRepository javaProfileRepo;
-    private final ObjectMapper mapper;
     private final PromptRegistry promptRegistry;
+    private final OpenAiCompatClient llmClient;
 
     public ConfigController(LlmConfigRepository repo, JavaProfileRepository javaProfileRepo,
-                            ObjectMapper mapper, PromptRegistry promptRegistry) {
+                            PromptRegistry promptRegistry, OpenAiCompatClient llmClient) {
         this.repo = repo;
         this.javaProfileRepo = javaProfileRepo;
-        this.mapper = mapper;
         this.promptRegistry = promptRegistry;
+        this.llmClient = llmClient;
     }
 
     @GetMapping("/llm")
@@ -79,6 +79,7 @@ public class ConfigController {
     public ResponseEntity<?> activate(@PathVariable Long id) {
         LlmConfig cfg = repo.findById(id).orElse(null);
         if (cfg == null) return ResponseEntity.notFound().build();
+        validateEndpoint(cfg.getEndpoint());
         repo.deactivateAll();
         cfg.setActive(true);
         repo.save(cfg);
@@ -97,17 +98,15 @@ public class ConfigController {
             if (cfg.getModel() == null || cfg.getModel().trim().isEmpty()) {
                 throw new IllegalStateException("Model is not configured");
             }
+            String endpoint = validateEndpoint(cfg.getEndpoint());
 
             LlmRequest req = LlmRequest.diagnostic(
                     promptRegistry.getPrompt("current/config-connection-test"),
                     "Reply with just the word: PONG");
 
-            LlmResponse resp;
-            if ("anthropic".equals(cfg.getProviderType())) {
-                resp = new AnthropicCaller(cfg.getBaseUrl(), cfg.getApiKey(), cfg.getModel(), mapper).chat(req);
-            } else {
-                resp = new LlmCaller(cfg.getBaseUrl(), cfg.getApiKey(), cfg.getModel(), mapper).chat(req);
-            }
+            LlmConfigProvider.ActiveConfig activeConfig = new LlmConfigProvider.ActiveConfig(
+                    cfg.getProviderType(), cfg.getBaseUrl(), cfg.getApiKey(), cfg.getModel(), endpoint);
+            LlmResponse resp = llmClient.chat(activeConfig, req);
 
             result.put("ok", true);
             result.put("model", resp.getModel());
@@ -180,10 +179,12 @@ public class ConfigController {
     }
 
     private void applyFields(LlmConfig cfg, LlmConfig incoming) {
+        String endpoint = validateEndpoint(incoming.getEndpoint());
         cfg.setName(incoming.getName());
         cfg.setProviderType(incoming.getProviderType());
         cfg.setBaseUrl(incoming.getBaseUrl());
         cfg.setModel(incoming.getModel());
+        cfg.setEndpoint(endpoint);
         cfg.setTemperature(incoming.getTemperature() != null ? incoming.getTemperature() : 0.1);
         cfg.setMaxTokens(incoming.getMaxTokens() != null ? incoming.getMaxTokens() : 8192);
         if (incoming.getApiKey() != null && !incoming.getApiKey().equals("••••••••")) {
@@ -198,11 +199,16 @@ public class ConfigController {
         copy.setProviderType(src.getProviderType());
         copy.setBaseUrl(src.getBaseUrl());
         copy.setModel(src.getModel());
+        copy.setEndpoint(src.getEndpoint());
         copy.setTemperature(src.getTemperature());
         copy.setMaxTokens(src.getMaxTokens());
         copy.setActive(src.isActive());
         copy.setApiKey(src.getApiKey() != null && !src.getApiKey().isEmpty() ? "••••••••" : "");
         return copy;
+    }
+
+    private String validateEndpoint(String endpoint) {
+        return LlmEndpoint.fromPath(endpoint).getPath();
     }
 
     /**

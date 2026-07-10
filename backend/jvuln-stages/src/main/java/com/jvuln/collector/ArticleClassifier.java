@@ -87,13 +87,13 @@ public class ArticleClassifier {
     private List<CveIntelligence.Article> classifyWithLlm(
             List<CveIntelligence.Article> articles, String cveId) throws Exception {
 
-        String systemPrompt = promptRegistry.getPrompt("current/intelligence-article-classifier");
+        String taskPrompt = promptRegistry.getPrompt("current/intelligence-article-classifier");
         String userPrompt = buildUserPrompt(articles, cveId);
 
         // 使用reasoning方法创建请求（jsonMode=true，temperature=0.0）
         LlmRequest request = new LlmRequest(
             LlmPromptStage.INTELLIGENCE,
-            systemPrompt,
+            taskPrompt,
             Collections.singletonList(LlmRequest.Message.user(userPrompt)),
             0.0,
             8192,

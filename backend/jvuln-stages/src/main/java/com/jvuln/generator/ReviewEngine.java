@@ -43,7 +43,7 @@ class ReviewEngine {
                                                 String triggerChain, String rootCause, String patchDiff,
                                                 String artifact) {
         try {
-            String systemPrompt = promptRegistry.getPrompt("current/artifact-verifier-system");
+            String taskPrompt = promptRegistry.getPrompt("current/artifact-verifier-system");
             String userTemplate = promptRegistry.getPrompt("current/artifact-verifier-user");
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
@@ -57,7 +57,7 @@ class ReviewEngine {
             vars.put("execution_evidence", llmHelper.renderJson(buildVerificationEvidence(agentCtx, finishSummary)));
             String userPrompt = promptRegistry.render(userTemplate, vars);
             LlmResponse response = llmHelper.chatWithRetry(ctx,
-                    LlmRequest.reasoning(LlmPromptStage.ARTIFACT_GENERATION, systemPrompt, userPrompt), 2);
+                    LlmRequest.reasoning(LlmPromptStage.ARTIFACT_GENERATION, taskPrompt, userPrompt), 2);
             return reconcileReviewWithBackend(
                     VerificationReview.fromJson(llmHelper.parseJsonObject(response.getContent())), agentCtx, finishSummary);
         } catch (Exception e) {

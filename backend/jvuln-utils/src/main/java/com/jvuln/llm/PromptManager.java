@@ -8,13 +8,11 @@ import org.springframework.util.StreamUtils;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Resolves the global, stage, and current prompt layers for a single LLM request.
+ * Loads global and stage prompt resources for a single LLM request.
  */
 @Component
 public class PromptManager {
@@ -37,18 +35,10 @@ public class PromptManager {
         this.resourcePrefix = resourcePrefix == null ? "" : resourcePrefix;
     }
 
-    public String resolve(LlmPromptStage stage, String currentPrompt) {
-        if (stage == null) {
-            throw new IllegalStateException("LLM prompt stage is required");
-        }
-
-        List<String> layers = new ArrayList<>();
-        layers.add(readRequired(GLOBAL_RESOURCE));
-        layers.add(readRequired(stage.getResourcePath()));
-        if (currentPrompt != null && !currentPrompt.trim().isEmpty()) {
-            layers.add(currentPrompt.trim());
-        }
-        return String.join("\n\n", layers);
+    public PromptContext resolve(LlmPromptStage stage) {
+        String globalPrompt = readRequired(GLOBAL_RESOURCE);
+        String stagePrompt = stage == null ? null : readRequired(stage.getResourcePath());
+        return new PromptContext(globalPrompt, stagePrompt);
     }
 
     private String readRequired(String path) {

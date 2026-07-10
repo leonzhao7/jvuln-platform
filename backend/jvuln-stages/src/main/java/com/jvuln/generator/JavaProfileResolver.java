@@ -57,11 +57,11 @@ class JavaProfileResolver {
             String fixedVersion = intel.at("/fixedVersion").asText("");
 
             String profileListText = buildProfileList(profiles);
-            String systemPrompt = promptRegistry.getPrompt("current/artifact-java-profile-resolver");
+            String taskPrompt = promptRegistry.getPrompt("current/artifact-java-profile-resolver");
             String userPrompt = buildUserPrompt(groupId, artifactId, affectedTo, fixedVersion, profileListText);
 
             LlmRequest req = LlmRequest.reasoning(
-                    LlmPromptStage.ARTIFACT_GENERATION, systemPrompt, userPrompt);
+                    LlmPromptStage.ARTIFACT_GENERATION, taskPrompt, userPrompt);
             LlmResponse resp = ctx.getLlmClient().chat(req);
             String raw = stripMarkdownFence(resp.getContent().trim());
 

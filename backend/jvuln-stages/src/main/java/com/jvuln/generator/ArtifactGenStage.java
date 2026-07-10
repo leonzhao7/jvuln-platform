@@ -158,7 +158,7 @@ public class ArtifactGenStage implements Stage {
             vars.put("syntax_constraints", javaProfile.getSyntaxConstraints() != null
                     ? javaProfile.getSyntaxConstraints()
                     : "Java " + javaProfile.getJavaVersion() + " syntax");
-            String systemPrompt = promptRegistry.render(systemTemplate, vars);
+            String taskPrompt = promptRegistry.render(systemTemplate, vars);
             String baseUserPrompt = promptRegistry.render(userTemplate, vars);
 
             AttemptMemory memory = memoryManager.loadAttemptMemory(memoryFile);
@@ -265,7 +265,7 @@ public class ArtifactGenStage implements Stage {
                     log.info("Agent LLM request: turn={} phase={} tools={} messages={}",
                             turn + 1, agentCtx.phase, toolDefNames(tools), messages.size());
                     response = llmHelper.chatWithRetry(ctx,
-                            LlmRequest.agent(LlmPromptStage.ARTIFACT_GENERATION, systemPrompt, messages, tools), 3);
+                            LlmRequest.agent(LlmPromptStage.ARTIFACT_GENERATION, taskPrompt, messages, tools), 3);
                     log.info("Agent LLM response: turn={} phase={} durationMs={} finishReason={} text='{}' toolUses={}",
                             turn + 1, agentCtx.phase, System.currentTimeMillis() - llmStart,
                             response.getFinishReason(), contextBuilder.responsePreview(response), toolUseNames(response.getToolUses()));
@@ -568,7 +568,7 @@ public class ArtifactGenStage implements Stage {
                                                    String vulnerabilityFacts, String triggerChain,
                                                    String rootCause, String patchDiff, String artifact) {
         try {
-            String systemPrompt = promptRegistry.getPrompt("current/artifact-verification-plan-system");
+            String taskPrompt = promptRegistry.getPrompt("current/artifact-verification-plan-system");
             String userTemplate = promptRegistry.getPrompt("current/artifact-verification-plan-user");
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
@@ -579,7 +579,7 @@ public class ArtifactGenStage implements Stage {
             vars.put("artifact", artifact);
             String userPrompt = promptRegistry.render(userTemplate, vars);
             LlmResponse response = llmHelper.chatWithRetry(ctx,
-                    LlmRequest.reasoning(LlmPromptStage.ARTIFACT_GENERATION, systemPrompt, userPrompt), 2);
+                    LlmRequest.reasoning(LlmPromptStage.ARTIFACT_GENERATION, taskPrompt, userPrompt), 2);
             return VerificationPlan.fromJson(llmHelper.parseJsonObject(response.getContent()));
         } catch (Exception e) {
             log.warn("Verification plan generation failed, using fallback: {}", e.getMessage());

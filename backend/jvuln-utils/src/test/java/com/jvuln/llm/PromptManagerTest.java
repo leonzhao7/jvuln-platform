@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -12,15 +13,19 @@ class PromptManagerTest {
     private final PromptManager promptManager = new PromptManager(new DefaultResourceLoader());
 
     @Test
-    void combinesGlobalStageAndCurrentInThatOrder() {
-        assertEquals("global\n\nreasoning\n\ncurrent",
-                promptManager.resolve(LlmPromptStage.REASONING, "current"));
+    void resolvesGlobalAndStageAsSeparateValues() {
+        PromptContext context = promptManager.resolve(LlmPromptStage.REASONING);
+
+        assertEquals("global", context.getGlobalPrompt());
+        assertEquals("reasoning", context.getStagePrompt());
     }
 
     @Test
-    void omitsBlankCurrentPromptWithoutTrailingSeparator() {
-        assertEquals("global\n\nreasoning",
-                promptManager.resolve(LlmPromptStage.REASONING, "  "));
+    void diagnosticContextContainsGlobalWithoutStage() {
+        PromptContext context = promptManager.resolve(null);
+
+        assertEquals("global", context.getGlobalPrompt());
+        assertNull(context.getStagePrompt());
     }
 
     @Test
@@ -28,7 +33,7 @@ class PromptManagerTest {
         PromptManager missing = new PromptManager(new DefaultResourceLoader(), "missing/");
 
         IllegalStateException exception = assertThrows(IllegalStateException.class,
-                () -> missing.resolve(LlmPromptStage.REASONING, "current"));
+                () -> missing.resolve(LlmPromptStage.REASONING));
 
         assertTrue(exception.getMessage().contains("missing/prompts/global.md"));
     }

@@ -22,6 +22,7 @@ const emptyForm = (): Omit<LlmConfig, 'id' | 'active'> => ({
   baseUrl: '',
   apiKey: '',
   model: '',
+  endpoint: '/v1/chat/completions',
   temperature: 0.1,
   maxTokens: 8192,
 })
@@ -30,18 +31,23 @@ const form = ref(emptyForm())
 const saving = ref(false)
 const modelHint = ref('')
 
-const providerPresets: Record<string, { baseUrl: string; modelHint: string }> = {
-  'openai-compat': { baseUrl: '', modelHint: 'e.g. gpt-4o / claude-sonnet-4-6 (via proxy) / deepseek-chat' },
-  'anthropic':     { baseUrl: 'https://api.anthropic.com', modelHint: 'e.g. claude-opus-4-7 / claude-sonnet-4-6 / claude-haiku-4-5-20251001' },
-  'ollama':        { baseUrl: 'http://localhost:11434/v1', modelHint: 'e.g. deepseek-coder:6.7b / llama3.2' },
-  'openai':        { baseUrl: 'https://api.openai.com/v1', modelHint: 'e.g. gpt-4o / gpt-4o-mini' },
-  'deepseek':      { baseUrl: 'https://api.deepseek.com/v1', modelHint: 'e.g. deepseek-chat / deepseek-reasoner' },
+const providerPresets: Record<string, {
+  baseUrl: string
+  endpoint: LlmConfig['endpoint']
+  modelHint: string
+}> = {
+  'openai-compat': { baseUrl: '', endpoint: '/v1/chat/completions', modelHint: 'e.g. gpt-4o / claude-sonnet-4-6 (via proxy) / deepseek-chat' },
+  'anthropic':     { baseUrl: 'https://api.anthropic.com', endpoint: '/v1/messages', modelHint: 'e.g. claude-opus-4-7 / claude-sonnet-4-6 / claude-haiku-4-5-20251001' },
+  'ollama':        { baseUrl: 'http://localhost:11434/v1', endpoint: '/v1/chat/completions', modelHint: 'e.g. deepseek-coder:6.7b / llama3.2' },
+  'openai':        { baseUrl: 'https://api.openai.com/v1', endpoint: '/v1/responses', modelHint: 'e.g. gpt-4o / gpt-4o-mini' },
+  'deepseek':      { baseUrl: 'https://api.deepseek.com/v1', endpoint: '/v1/chat/completions', modelHint: 'e.g. deepseek-chat / deepseek-reasoner' },
 }
 
 const onProviderChange = (type: string) => {
   const preset = providerPresets[type]
   if (preset) {
     if (preset.baseUrl && !form.value.baseUrl) form.value.baseUrl = preset.baseUrl
+    form.value.endpoint = preset.endpoint
     modelHint.value = preset.modelHint
   }
 }
@@ -74,6 +80,7 @@ const openEdit = (cfg: LlmConfig) => {
     baseUrl: cfg.baseUrl ?? '',
     apiKey: cfg.apiKey ?? '',
     model: cfg.model ?? '',
+    endpoint: cfg.endpoint ?? providerPresets[cfg.providerType]?.endpoint ?? '/v1/chat/completions',
     temperature: cfg.temperature ?? 0.1,
     maxTokens: cfg.maxTokens ?? 8192,
   }
@@ -82,8 +89,8 @@ const openEdit = (cfg: LlmConfig) => {
 }
 
 const saveForm = async () => {
-  if (!form.value.baseUrl || !form.value.model) {
-    ElMessage.error(t('settings.baseUrlAndModelRequired'))
+  if (!form.value.baseUrl || !form.value.model || !form.value.endpoint) {
+    ElMessage.error(t('settings.baseUrlModelEndpointRequired'))
     return
   }
   saving.value = true
@@ -309,6 +316,14 @@ onMounted(() => {
           </template>
         </el-table-column>
 
+        <el-table-column :label="t('settings.endpoint')" min-width="190">
+          <template #default="{ row }">
+            <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted)">
+              {{ row.endpoint || '—' }}
+            </span>
+          </template>
+        </el-table-column>
+
         <el-table-column :label="t('settings.model')" min-width="180">
           <template #default="{ row }">
             <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-muted)">
@@ -377,6 +392,14 @@ onMounted(() => {
             <el-option :label="t('settings.providerOptions.ollama')" value="ollama" />
             <el-option :label="t('settings.providerOptions.openai')" value="openai" />
             <el-option :label="t('settings.providerOptions.deepseek')" value="deepseek" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item :label="t('settings.endpoint')">
+          <el-select v-model="form.endpoint" style="width:100%">
+            <el-option label="/v1/chat/completions" value="/v1/chat/completions" />
+            <el-option label="/v1/responses" value="/v1/responses" />
+            <el-option label="/v1/messages" value="/v1/messages" />
           </el-select>
         </el-form-item>
 

@@ -26,6 +26,9 @@ public class LlmConfig {
     @Column(name = "model", length = 100)
     private String model;
 
+    @Column(name = "endpoint", length = 100)
+    private String endpoint;
+
     @Column(name = "temperature")
     private Double temperature = 0.1;
 
@@ -47,6 +50,8 @@ public class LlmConfig {
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
+    public String getEndpoint() { return endpoint; }
+    public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
     public Double getTemperature() { return temperature; }
     public void setTemperature(Double temperature) { this.temperature = temperature; }
     public Integer getMaxTokens() { return maxTokens; }
@@ -63,6 +68,7 @@ public class LlmConfig {
                 ", baseUrl='" + baseUrl + '\'' +
                 ", apiKey='***'" + // 隐藏敏感信息
                 ", model='" + model + '\'' +
+                ", endpoint='" + endpoint + '\'' +
                 ", temperature=" + temperature +
                 ", maxTokens=" + maxTokens +
                 ", active=" + active +

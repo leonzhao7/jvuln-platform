@@ -46,7 +46,7 @@ public class ReasoningStage implements Stage {
     public StageResult execute(PipelineContext ctx) throws Exception {
         ctx.reportProgress("Starting AI vulnerability reasoning");
 
-        String systemPrompt = promptRegistry.getPrompt("current/reasoning-system");
+        String taskPrompt = promptRegistry.getPrompt("current/reasoning-system");
         String userTemplate = promptRegistry.getPrompt("current/reasoning-user");
 
         String intelligence = trimIntelligence(ctx.getCompletedStages().get(1).getData());
@@ -74,7 +74,7 @@ public class ReasoningStage implements Stage {
             vars.put("patch_diff", patchDiff);
             vars.put("code_analysis", codeAnalysis);
             String userPrompt = promptRegistry.render(userTemplate, vars);
-            LlmRequest request = LlmRequest.reasoning(LlmPromptStage.REASONING, systemPrompt, userPrompt);
+            LlmRequest request = LlmRequest.reasoning(LlmPromptStage.REASONING, taskPrompt, userPrompt);
 
             try {
                 ctx.reportProgress("AI reasoning attempt " + (attempt + 1));

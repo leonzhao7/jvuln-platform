@@ -169,12 +169,12 @@ public class DescriptionCorrector {
     private String correctWithLlm(String cveId, String officialDescription,
                                    List<ArticleContent> contents) throws Exception {
 
-        String systemPrompt = promptRegistry.getPrompt("current/intelligence-description-corrector");
+        String taskPrompt = promptRegistry.getPrompt("current/intelligence-description-corrector");
         String userPrompt = buildUserPrompt(cveId, officialDescription, contents);
 
         LlmRequest request = new LlmRequest(
             LlmPromptStage.INTELLIGENCE,
-            systemPrompt,
+            taskPrompt,
             Collections.singletonList(LlmRequest.Message.user(userPrompt)),
             0.1,  // 低temperature，确保准确性
             2048,
