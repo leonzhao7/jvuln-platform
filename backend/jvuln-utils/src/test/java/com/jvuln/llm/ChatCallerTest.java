@@ -77,8 +77,8 @@ class ChatCallerTest {
     }
 
     private LlmConfigProvider.ActiveConfig config() {
-        return new LlmConfigProvider.ActiveConfig("anthropic", server.getBaseUrl(),
-                "secret", "claude-named-model", LlmEndpoint.CHAT_COMPLETIONS.getPath());
+        return new LlmConfigProvider.ActiveConfig(server.getBaseUrl(), "secret",
+                "claude-named-model", LlmEndpoint.CHAT_COMPLETIONS.getPath());
     }
 
     private LlmCall agentCall() {

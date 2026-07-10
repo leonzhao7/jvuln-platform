@@ -18,7 +18,6 @@ const testResults = ref<Record<number, { ok: boolean; model?: string; response?:
 
 const emptyForm = (): Omit<LlmConfig, 'id' | 'active'> => ({
   name: '',
-  providerType: 'openai-compat',
   baseUrl: '',
   apiKey: '',
   model: '',
@@ -29,28 +28,6 @@ const emptyForm = (): Omit<LlmConfig, 'id' | 'active'> => ({
 
 const form = ref(emptyForm())
 const saving = ref(false)
-const modelHint = ref('')
-
-const providerPresets: Record<string, {
-  baseUrl: string
-  endpoint: LlmConfig['endpoint']
-  modelHint: string
-}> = {
-  'openai-compat': { baseUrl: '', endpoint: '/v1/chat/completions', modelHint: 'e.g. gpt-4o / claude-sonnet-4-6 (via proxy) / deepseek-chat' },
-  'anthropic':     { baseUrl: 'https://api.anthropic.com', endpoint: '/v1/messages', modelHint: 'e.g. claude-opus-4-7 / claude-sonnet-4-6 / claude-haiku-4-5-20251001' },
-  'ollama':        { baseUrl: 'http://localhost:11434/v1', endpoint: '/v1/chat/completions', modelHint: 'e.g. deepseek-coder:6.7b / llama3.2' },
-  'openai':        { baseUrl: 'https://api.openai.com/v1', endpoint: '/v1/responses', modelHint: 'e.g. gpt-4o / gpt-4o-mini' },
-  'deepseek':      { baseUrl: 'https://api.deepseek.com/v1', endpoint: '/v1/chat/completions', modelHint: 'e.g. deepseek-chat / deepseek-reasoner' },
-}
-
-const onProviderChange = (type: string) => {
-  const preset = providerPresets[type]
-  if (preset) {
-    if (preset.baseUrl && !form.value.baseUrl) form.value.baseUrl = preset.baseUrl
-    form.value.endpoint = preset.endpoint
-    modelHint.value = preset.modelHint
-  }
-}
 
 const loadConfigs = async () => {
   loading.value = true
@@ -67,7 +44,6 @@ const openAdd = () => {
   dialogMode.value = 'add'
   editingId.value = null
   form.value = emptyForm()
-  modelHint.value = providerPresets['openai-compat']?.modelHint ?? ''
   dialogVisible.value = true
 }
 
@@ -76,15 +52,13 @@ const openEdit = (cfg: LlmConfig) => {
   editingId.value = cfg.id!
   form.value = {
     name: cfg.name ?? '',
-    providerType: cfg.providerType,
     baseUrl: cfg.baseUrl ?? '',
     apiKey: cfg.apiKey ?? '',
     model: cfg.model ?? '',
-    endpoint: cfg.endpoint ?? providerPresets[cfg.providerType]?.endpoint ?? '/v1/chat/completions',
+    endpoint: cfg.endpoint ?? '/v1/chat/completions',
     temperature: cfg.temperature ?? 0.1,
     maxTokens: cfg.maxTokens ?? 8192,
   }
-  modelHint.value = providerPresets[cfg.providerType]?.modelHint ?? ''
   dialogVisible.value = true
 }
 
@@ -150,17 +124,6 @@ const deleteConfig = async (cfg: LlmConfig) => {
   } catch (e: any) {
     if (e !== 'cancel') ElMessage.error(t('settings.deleteFailed'))
   }
-}
-
-const providerLabel = (type: string) => {
-  const labels: Record<string, string> = {
-    'openai-compat': 'OpenAI-Compat',
-    'anthropic': 'Anthropic',
-    'ollama': 'Ollama',
-    'openai': 'OpenAI',
-    'deepseek': 'DeepSeek',
-  }
-  return labels[type] ?? type
 }
 
 /* ── Java Profiles ── */
@@ -310,12 +273,6 @@ onMounted(() => {
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('settings.provider')" width="140">
-          <template #default="{ row }">
-            <span class="jv-tag jv-tag-pending">{{ providerLabel(row.providerType) }}</span>
-          </template>
-        </el-table-column>
-
         <el-table-column :label="t('settings.endpoint')" min-width="190">
           <template #default="{ row }">
             <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted)">
@@ -385,16 +342,6 @@ onMounted(() => {
           <el-input v-model="form.name" :placeholder="t('settings.configNamePlaceholder')" />
         </el-form-item>
 
-        <el-form-item :label="t('settings.providerType')">
-          <el-select v-model="form.providerType" @change="onProviderChange" style="width:100%">
-            <el-option :label="t('settings.providerOptions.openaiCompat')" value="openai-compat" />
-            <el-option :label="t('settings.providerOptions.anthropic')" value="anthropic" />
-            <el-option :label="t('settings.providerOptions.ollama')" value="ollama" />
-            <el-option :label="t('settings.providerOptions.openai')" value="openai" />
-            <el-option :label="t('settings.providerOptions.deepseek')" value="deepseek" />
-          </el-select>
-        </el-form-item>
-
         <el-form-item :label="t('settings.endpoint')">
           <el-select v-model="form.endpoint" style="width:100%">
             <el-option label="/v1/chat/completions" value="/v1/chat/completions" />
@@ -412,7 +359,7 @@ onMounted(() => {
             :placeholder="t('settings.apiKeyPlaceholder')" />
         </el-form-item>
 
-        <el-form-item :label="t('settings.model') + (modelHint ? ' — ' + modelHint : '')">
+        <el-form-item :label="t('settings.model')">
           <el-input v-model="form.model" :placeholder="t('settings.modelPlaceholder')" />
         </el-form-item>
 
@@ -435,37 +382,6 @@ onMounted(() => {
         </div>
       </template>
     </el-dialog>
-
-    <!-- Quick Reference -->
-    <el-card style="margin-top:20px">
-      <template #header>
-        <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled); letter-spacing:1px">
-          {{ t('settings.quickReference') }}
-        </span>
-      </template>
-      <div class="jv-ref-table">
-        <div class="jv-ref-row">
-          <span class="jv-ref-label">{{ t('settings.refs.anthropicLabel') }}</span>
-          <span class="jv-ref-val">{{ t('settings.refs.anthropicText', { baseUrl: 'https://api.anthropic.com', model: 'claude-sonnet-4-6' }) }}</span>
-        </div>
-        <div class="jv-ref-row">
-          <span class="jv-ref-label">{{ t('settings.refs.ollamaLabel') }}</span>
-          <span class="jv-ref-val">{{ t('settings.refs.ollamaText', { command: 'ollama serve', baseUrl: 'http://localhost:11434/v1' }) }}</span>
-        </div>
-        <div class="jv-ref-row">
-          <span class="jv-ref-label">{{ t('settings.refs.proxyLabel') }}</span>
-          <span class="jv-ref-val">{{ t('settings.refs.proxyText') }}</span>
-        </div>
-        <div class="jv-ref-row">
-          <span class="jv-ref-label">{{ t('settings.refs.deepseekLabel') }}</span>
-          <span class="jv-ref-val">{{ t('settings.refs.deepseekText', { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }) }}</span>
-        </div>
-        <div class="jv-ref-row" style="border-bottom:none">
-          <span class="jv-ref-label">{{ t('settings.refs.activeLabel') }}</span>
-          <span class="jv-ref-val">{{ t('settings.refs.activeText') }}</span>
-        </div>
-      </div>
-    </el-card>
 
     <!-- Java Profiles -->
     <el-card style="margin-top:20px">
@@ -615,28 +531,4 @@ onMounted(() => {
 .jv-test-ok   .jv-test-label { color: var(--success); }
 .jv-test-fail .jv-test-label { color: var(--critical); }
 
-.jv-ref-table { font-size: 12px; }
-.jv-ref-row {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 16px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-subtle);
-  align-items: start;
-}
-.jv-ref-label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 500;
-  padding-top: 1px;
-}
-.jv-ref-val { color: var(--text-disabled); line-height: 1.8; }
-.jv-ref-val code {
-  color: var(--accent-light);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  background: rgba(15,98,254,.1);
-  padding: 1px 5px;
-}
 </style>

@@ -44,7 +44,6 @@ class DbLlmConfigProviderTest {
 
     private LlmConfig activeConfig(String endpoint) {
         LlmConfig config = new LlmConfig();
-        config.setProviderType("openai");
         config.setBaseUrl("https://example.test/v1");
         config.setApiKey("secret");
         config.setModel("model");

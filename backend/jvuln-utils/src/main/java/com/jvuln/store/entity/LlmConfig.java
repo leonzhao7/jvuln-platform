@@ -14,9 +14,6 @@ public class LlmConfig {
     @Column(name = "name", length = 100)
     private String name;
 
-    @Column(name = "provider_type", length = 30)
-    private String providerType = "openai-compat";
-
     @Column(name = "base_url", length = 500)
     private String baseUrl;
 
@@ -42,8 +39,6 @@ public class LlmConfig {
     public void setId(Long id) { this.id = id; }
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
-    public String getProviderType() { return providerType; }
-    public void setProviderType(String providerType) { this.providerType = providerType; }
     public String getBaseUrl() { return baseUrl; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
     public String getApiKey() { return apiKey; }
@@ -64,7 +59,6 @@ public class LlmConfig {
         return "LlmConfig{" +
                 "id=" + id +
                 ", name='" + name + '\'' +
-                ", providerType='" + providerType + '\'' +
                 ", baseUrl='" + baseUrl + '\'' +
                 ", apiKey='***'" + // 隐藏敏感信息
                 ", model='" + model + '\'' +

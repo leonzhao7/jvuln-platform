@@ -91,7 +91,6 @@ export const api = {
 export interface LlmConfig {
   id?: number
   name: string
-  providerType: string
   baseUrl: string
   apiKey: string
   model: string

@@ -31,7 +31,6 @@ public class DbLlmConfigProvider implements LlmConfigProvider {
         }
         if (cfg.getBaseUrl() == null || cfg.getBaseUrl().trim().isEmpty()) return null;
         if (cfg.getModel()   == null || cfg.getModel().trim().isEmpty())   return null;
-        return new ActiveConfig(cfg.getProviderType(), cfg.getBaseUrl(), cfg.getApiKey(),
-                cfg.getModel(), endpoint);
+        return new ActiveConfig(cfg.getBaseUrl(), cfg.getApiKey(), cfg.getModel(), endpoint);
     }
 }

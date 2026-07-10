@@ -51,8 +51,7 @@ class OpenAiCompatClientTest {
         CapturingFactory factory = new CapturingFactory(caller);
         OpenAiCompatClient client = newClient(factory);
         LlmConfigProvider.ActiveConfig explicit = new LlmConfigProvider.ActiveConfig(
-                "anthropic", "http://explicit", "key", "model",
-                LlmEndpoint.MESSAGES.getPath());
+                "http://explicit", "key", "model", LlmEndpoint.MESSAGES.getPath());
 
         client.chat(explicit, LlmRequest.diagnostic("diagnostic", "PONG"));
 
@@ -63,8 +62,7 @@ class OpenAiCompatClientTest {
 
     private OpenAiCompatClient newClient(CapturingFactory factory) {
         LlmConfigProvider configProvider = () -> new LlmConfigProvider.ActiveConfig(
-                "openai", "http://active", "", "test-model",
-                LlmEndpoint.RESPONSES.getPath());
+                "http://active", "", "test-model", LlmEndpoint.RESPONSES.getPath());
         return new OpenAiCompatClient(configProvider, factory, new ObjectMapper(),
                 new PromptManager(new DefaultResourceLoader()),
                 "http://fallback", "", "fallback-model",

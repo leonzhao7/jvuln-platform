@@ -112,8 +112,8 @@ class ResponsesCallerTest {
     }
 
     private LlmConfigProvider.ActiveConfig config() {
-        return new LlmConfigProvider.ActiveConfig("anthropic", server.getBaseUrl(),
-                "secret", "claude-named-model", LlmEndpoint.RESPONSES.getPath());
+        return new LlmConfigProvider.ActiveConfig(server.getBaseUrl(), "secret",
+                "claude-named-model", LlmEndpoint.RESPONSES.getPath());
     }
 
     private LlmCall callWithToolHistory() {

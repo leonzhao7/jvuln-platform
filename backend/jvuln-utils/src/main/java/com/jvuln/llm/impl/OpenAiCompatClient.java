@@ -79,6 +79,6 @@ public class OpenAiCompatClient implements LlmClient {
             return config;
         }
         return new LlmConfigProvider.ActiveConfig(
-                "openai", fallbackBaseUrl, fallbackApiKey, fallbackModel, fallbackEndpoint);
+                fallbackBaseUrl, fallbackApiKey, fallbackModel, fallbackEndpoint);
     }
 }

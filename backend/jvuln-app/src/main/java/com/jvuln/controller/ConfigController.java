@@ -105,7 +105,7 @@ public class ConfigController {
                     "Reply with just the word: PONG");
 
             LlmConfigProvider.ActiveConfig activeConfig = new LlmConfigProvider.ActiveConfig(
-                    cfg.getProviderType(), cfg.getBaseUrl(), cfg.getApiKey(), cfg.getModel(), endpoint);
+                    cfg.getBaseUrl(), cfg.getApiKey(), cfg.getModel(), endpoint);
             LlmResponse resp = llmClient.chat(activeConfig, req);
 
             result.put("ok", true);
@@ -181,7 +181,6 @@ public class ConfigController {
     private void applyFields(LlmConfig cfg, LlmConfig incoming) {
         String endpoint = validateEndpoint(incoming.getEndpoint());
         cfg.setName(incoming.getName());
-        cfg.setProviderType(incoming.getProviderType());
         cfg.setBaseUrl(incoming.getBaseUrl());
         cfg.setModel(incoming.getModel());
         cfg.setEndpoint(endpoint);
@@ -196,7 +195,6 @@ public class ConfigController {
         LlmConfig copy = new LlmConfig();
         copy.setId(src.getId());
         copy.setName(src.getName());
-        copy.setProviderType(src.getProviderType());
         copy.setBaseUrl(src.getBaseUrl());
         copy.setModel(src.getModel());
         copy.setEndpoint(src.getEndpoint());

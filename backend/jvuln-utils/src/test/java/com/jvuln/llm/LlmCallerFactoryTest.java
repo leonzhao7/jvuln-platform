@@ -14,7 +14,7 @@ class LlmCallerFactoryTest {
     @Test
     void selectsChatCallerOnlyFromEndpoint() {
         LlmProtocolCaller caller = factory.createCaller(config(
-                "anthropic", "claude-opus", LlmEndpoint.CHAT_COMPLETIONS.getPath()), mapper);
+                "claude-opus", LlmEndpoint.CHAT_COMPLETIONS.getPath()), mapper);
 
         assertTrue(caller instanceof ChatCaller);
     }
@@ -22,7 +22,7 @@ class LlmCallerFactoryTest {
     @Test
     void selectsResponsesCallerOnlyFromEndpoint() {
         LlmProtocolCaller caller = factory.createCaller(config(
-                "anthropic", "claude-opus", LlmEndpoint.RESPONSES.getPath()), mapper);
+                "claude-opus", LlmEndpoint.RESPONSES.getPath()), mapper);
 
         assertTrue(caller instanceof ResponsesCaller);
     }
@@ -30,7 +30,7 @@ class LlmCallerFactoryTest {
     @Test
     void selectsMessagesCallerOnlyFromEndpoint() {
         LlmProtocolCaller caller = factory.createCaller(config(
-                "openai", "gpt-5.4", LlmEndpoint.MESSAGES.getPath()), mapper);
+                "gpt-5.4", LlmEndpoint.MESSAGES.getPath()), mapper);
 
         assertTrue(caller instanceof MessagesCaller);
     }
@@ -38,20 +38,20 @@ class LlmCallerFactoryTest {
     @Test
     void rejectsMissingAndUnknownEndpoints() {
         assertThrows(IllegalArgumentException.class,
-                () -> factory.createCaller(config("openai", "gpt", null), mapper));
+                () -> factory.createCaller(config("gpt", null), mapper));
         assertThrows(IllegalArgumentException.class,
-                () -> factory.createCaller(config("openai", "gpt", "/v1/unknown"), mapper));
+                () -> factory.createCaller(config("gpt", "/v1/unknown"), mapper));
     }
 
     @Test
     void validatesRequiredArguments() {
         assertThrows(IllegalArgumentException.class, () -> factory.createCaller(null, mapper));
         assertThrows(IllegalArgumentException.class,
-                () -> factory.createCaller(config("openai", "gpt",
+                () -> factory.createCaller(config("gpt",
                         LlmEndpoint.RESPONSES.getPath()), null));
     }
 
-    private LlmConfigProvider.ActiveConfig config(String provider, String model, String endpoint) {
-        return new LlmConfigProvider.ActiveConfig(provider, "http://localhost", "key", model, endpoint);
+    private LlmConfigProvider.ActiveConfig config(String model, String endpoint) {
+        return new LlmConfigProvider.ActiveConfig("http://localhost", "key", model, endpoint);
     }
 }

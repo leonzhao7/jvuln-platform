@@ -100,8 +100,8 @@ class MessagesCallerTest {
     }
 
     private LlmConfigProvider.ActiveConfig config() {
-        return new LlmConfigProvider.ActiveConfig("openai", server.getBaseUrl(),
-                "secret", "gpt-named-model", LlmEndpoint.MESSAGES.getPath());
+        return new LlmConfigProvider.ActiveConfig(server.getBaseUrl(), "secret",
+                "gpt-named-model", LlmEndpoint.MESSAGES.getPath());
     }
 
     private LlmCall callWithHistory() {
