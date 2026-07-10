@@ -19,3 +19,4 @@ Build CVE-specific verification criteria for Stage 5.
 {{artifact}}
 
 Return only the JSON object.
+

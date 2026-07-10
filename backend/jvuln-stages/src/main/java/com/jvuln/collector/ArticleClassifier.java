@@ -3,8 +3,10 @@ package com.jvuln.collector;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.llm.LlmClient;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.PromptRegistry;
 import com.jvuln.store.model.CveIntelligence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,10 +23,12 @@ public class ArticleClassifier {
 
     private static final Logger log = LoggerFactory.getLogger(ArticleClassifier.class);
     private final LlmClient llmClient;
+    private final PromptRegistry promptRegistry;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public ArticleClassifier(LlmClient llmClient) {
+    public ArticleClassifier(LlmClient llmClient, PromptRegistry promptRegistry) {
         this.llmClient = llmClient;
+        this.promptRegistry = promptRegistry;
     }
 
     /**
@@ -83,11 +87,12 @@ public class ArticleClassifier {
     private List<CveIntelligence.Article> classifyWithLlm(
             List<CveIntelligence.Article> articles, String cveId) throws Exception {
 
-        String systemPrompt = buildSystemPrompt();
+        String systemPrompt = promptRegistry.getPrompt("current/intelligence-article-classifier");
         String userPrompt = buildUserPrompt(articles, cveId);
 
         // 使用reasoning方法创建请求（jsonMode=true，temperature=0.0）
         LlmRequest request = new LlmRequest(
+            LlmPromptStage.INTELLIGENCE,
             systemPrompt,
             Collections.singletonList(LlmRequest.Message.user(userPrompt)),
             0.0,
@@ -106,40 +111,6 @@ public class ArticleClassifier {
         return parseClassificationResult(content, articles);
     }
 
-    private String buildSystemPrompt() {
-        return "You are a security researcher classifying CVE-related URLs.\n" +
-               "\n" +
-               "Your task: classify each URL into ONE of these categories:\n" +
-               "- advisory: Official security advisories, CVE announcements, vendor bulletins\n" +
-               "- analysis: Technical analysis, vulnerability details, research articles, blog posts, issue discussions\n" +
-               "- patch: Code patches, commits, pull requests, fix implementations\n" +
-               "- poc: Proof-of-concept code, exploits, vulnerability demonstrations\n" +
-               "- other: Documentation, general discussions, or unclear sources\n" +
-               "\n" +
-               "Classification criteria by URL pattern:\n" +
-               "- advisory: nvd.nist.gov, */advisories/*, security bulletins, CVE/GHSA pages\n" +
-               "- patch: */commit/*, */pull/*, */merge_requests/*, */diff/*, code change URLs\n" +
-               "- analysis: */issues/* (security-related), blog posts, vulnerability write-ups, technical articles\n" +
-               "- poc: Repos named *-poc, *-exploit, exploit-db.com, PoC repositories\n" +
-               "- other: Documentation, wikis, general forums\n" +
-               "\n" +
-               "Special rules:\n" +
-               "1. Code hosting platforms (GitHub, GitLab, Gitee, Bitbucket, etc.):\n" +
-               "   - /commit/* → patch\n" +
-               "   - /pull/* or /merge_requests/* → patch\n" +
-               "   - /issues/* discussing vulnerability → analysis\n" +
-               "   - Repos with 'poc' or 'exploit' in name → poc\n" +
-               "\n" +
-               "2. Default to 'analysis' for security-related issues, NOT 'other'\n" +
-               "\n" +
-               "3. When unsure between analysis and other, choose 'analysis' if URL mentions:\n" +
-               "   CVE, vulnerability, exploit, security, patch, bug\n" +
-               "\n" +
-               "Output ONLY valid JSON array (no markdown, no explanation):\n" +
-               "[{\"url\": \"https://...\", \"category\": \"analysis\", \"reason\": \"brief reason\"}]\n" +
-               "\n" +
-               "Keep reasons under 50 characters.";
-    }
 
     private String buildUserPrompt(List<CveIntelligence.Article> articles, String cveId) {
         StringBuilder sb = new StringBuilder();

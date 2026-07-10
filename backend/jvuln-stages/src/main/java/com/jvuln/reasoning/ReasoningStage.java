@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.PromptRegistry;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageResult;
@@ -45,8 +46,8 @@ public class ReasoningStage implements Stage {
     public StageResult execute(PipelineContext ctx) throws Exception {
         ctx.reportProgress("Starting AI vulnerability reasoning");
 
-        String systemPrompt = promptRegistry.getSystemPrompt("reasoning");
-        String userTemplate = promptRegistry.getUserPrompt("reasoning");
+        String systemPrompt = promptRegistry.getPrompt("current/reasoning-system");
+        String userTemplate = promptRegistry.getPrompt("current/reasoning-user");
 
         String intelligence = trimIntelligence(ctx.getCompletedStages().get(1).getData());
         Object rawDiffData  = ctx.getCompletedStages().get(2).getData();
@@ -73,7 +74,7 @@ public class ReasoningStage implements Stage {
             vars.put("patch_diff", patchDiff);
             vars.put("code_analysis", codeAnalysis);
             String userPrompt = promptRegistry.render(userTemplate, vars);
-            LlmRequest request = LlmRequest.reasoning(systemPrompt, userPrompt);
+            LlmRequest request = LlmRequest.reasoning(LlmPromptStage.REASONING, systemPrompt, userPrompt);
 
             try {
                 ctx.reportProgress("AI reasoning attempt " + (attempt + 1));

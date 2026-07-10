@@ -2,8 +2,10 @@ package com.jvuln.generator;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.PromptRegistry;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.store.JavaProfileRepository;
 import com.jvuln.store.entity.JavaProfile;
@@ -25,10 +27,13 @@ class JavaProfileResolver {
 
     private final ObjectMapper mapper;
     private final JavaProfileRepository javaProfileRepo;
+    private final PromptRegistry promptRegistry;
 
-    JavaProfileResolver(ObjectMapper mapper, JavaProfileRepository javaProfileRepo) {
+    JavaProfileResolver(ObjectMapper mapper, JavaProfileRepository javaProfileRepo,
+                        PromptRegistry promptRegistry) {
         this.mapper = mapper;
         this.javaProfileRepo = javaProfileRepo;
+        this.promptRegistry = promptRegistry;
     }
 
     /**
@@ -52,10 +57,11 @@ class JavaProfileResolver {
             String fixedVersion = intel.at("/fixedVersion").asText("");
 
             String profileListText = buildProfileList(profiles);
-            String systemPrompt = buildSystemPrompt();
+            String systemPrompt = promptRegistry.getPrompt("current/artifact-java-profile-resolver");
             String userPrompt = buildUserPrompt(groupId, artifactId, affectedTo, fixedVersion, profileListText);
 
-            LlmRequest req = LlmRequest.reasoning(systemPrompt, userPrompt);
+            LlmRequest req = LlmRequest.reasoning(
+                    LlmPromptStage.ARTIFACT_GENERATION, systemPrompt, userPrompt);
             LlmResponse resp = ctx.getLlmClient().chat(req);
             String raw = stripMarkdownFence(resp.getContent().trim());
 
@@ -86,16 +92,6 @@ class JavaProfileResolver {
         return sb.toString();
     }
 
-    private String buildSystemPrompt() {
-        return "You are a Java/Spring Boot/library compatibility expert. " +
-                "Given a CVE's affected component and the available Java profiles, " +
-                "select the best profile AND recommend a Spring Boot version that is compatible " +
-                "with the vulnerable library version.\n\n" +
-                "Return strict JSON: {\"profile\": \"profile-name\", \"springBootVersion\": \"x.y.z\"}\n" +
-                "The springBootVersion must be compatible with the vulnerable library version. " +
-                "For example, Tomcat 9.x needs Spring Boot 2.7.x, Tomcat 10.1.x needs Spring Boot 3.x, " +
-                "Tomcat 11.x needs Spring Boot 3.4.x+. Return ONLY the JSON.";
-    }
 
     private String buildUserPrompt(String groupId, String artifactId, String affectedTo,
                                    String fixedVersion, String profileList) {

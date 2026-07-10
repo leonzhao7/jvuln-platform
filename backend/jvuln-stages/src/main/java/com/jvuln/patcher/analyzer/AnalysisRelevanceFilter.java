@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jvuln.llm.LlmClient;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.PromptRegistry;
 import com.jvuln.store.model.CodeAnalysisResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,45 +27,19 @@ public class AnalysisRelevanceFilter {
 
     private static final Logger log = LoggerFactory.getLogger(AnalysisRelevanceFilter.class);
 
-    private static final String SYSTEM_PROMPT =
-            "You review Java patch-analysis results and remove modifications unrelated to the CVE.\n" +
-            "Return ONLY strict JSON in this shape:\n" +
-            "{\n" +
-            "  \"files\": [\n" +
-            "    {\n" +
-            "      \"fileName\": \"path/File.java\",\n" +
-            "      \"relevant\": true,\n" +
-            "      \"layer\": \"root_cause | enforcement_guard | policy_config | propagation_or_api_wiring | optional_support | noise\",\n" +
-            "      \"reason\": \"one sentence\",\n" +
-            "      \"keepMethods\": [\"methodA\", \"methodB\"]\n" +
-            "    }\n" +
-            "  ]\n" +
-            "}\n" +
-            "Rules:\n" +
-            "- patchScope is the full Stage 2 patch-file set. files is the Stage 3 per-file diff/AST summary.\n" +
-            "- layer meanings:\n" +
-            "  * root_cause: vulnerable sink / parser / constructor / evaluator / direct exploit path.\n" +
-            "  * enforcement_guard: validation, deny/allow-list, guard, inspector, sanitizer, security check.\n" +
-            "  * policy_config: option, config, policy carrier, settings object.\n" +
-            "  * propagation_or_api_wiring: boundary objects, tag/node metadata, API wiring, propagation glue.\n" +
-            "  * optional_support: alternate mode, trusted-mode helper, variant constructor, convenience support.\n" +
-            "  * noise: unrelated refactor or release-noise.\n" +
-            "- Keep files that are on the exploit path, implement the security guard, or define the security boundary.\n" +
-            "- Exclude refactors, deprecations, compatibility cleanups, logging-only edits, null checks, and release-noise changes.\n" +
-            "- Added/deleted security-support files can be relevant even if they have no vulnerable method body.\n" +
-            "- If a relevant file has no specific method focus, return an empty keepMethods array.\n" +
-            "- If unsure, prefer relevant=true only when the diff summary clearly aligns with the CVE mechanism.\n" +
-            "- Prefer the code-change mechanism over advisory wording when they conflict.";
 
     private final LlmClient llmClient;
     private final ObjectMapper mapper;
     private final AnalysisLayerClassifier analysisLayerClassifier;
+    private final PromptRegistry promptRegistry;
 
     public AnalysisRelevanceFilter(LlmClient llmClient, ObjectMapper mapper,
-                                   AnalysisLayerClassifier analysisLayerClassifier) {
+                                   AnalysisLayerClassifier analysisLayerClassifier,
+                                   PromptRegistry promptRegistry) {
         this.llmClient = llmClient;
         this.mapper = mapper;
         this.analysisLayerClassifier = analysisLayerClassifier;
+        this.promptRegistry = promptRegistry;
     }
 
     public List<CodeAnalysisResult> filter(String cveId, String cveDescription, String affectedComponent,
@@ -74,7 +50,8 @@ public class AnalysisRelevanceFilter {
         try {
             String userPrompt = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(
                     buildPrompt(cveId, cveDescription, affectedComponent, stage2Data, results));
-            LlmResponse response = llmClient.chat(LlmRequest.reasoning(SYSTEM_PROMPT, userPrompt));
+            LlmResponse response = llmClient.chat(LlmRequest.reasoning(LlmPromptStage.PATCH_ANALYSIS,
+                    promptRegistry.getPrompt("current/patch-analysis-relevance-filter"), userPrompt));
             if (response == null || response.getContent() == null || response.getContent().trim().isEmpty()) {
                 return results;
             }

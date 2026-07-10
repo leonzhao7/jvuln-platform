@@ -2,6 +2,7 @@ package com.jvuln.llm;
 
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StreamUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,12 +15,11 @@ public class PromptRegistry {
 
     private final Map<String, String> cache = new ConcurrentHashMap<>();
 
-    public String getSystemPrompt(String stageName) {
-        return loadPrompt("system_" + stageName);
-    }
-
-    public String getUserPrompt(String stageName) {
-        return loadPrompt("user_" + stageName);
+    public String getPrompt(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            throw new IllegalArgumentException("Prompt name is required");
+        }
+        return loadPrompt(name);
     }
 
     public String render(String template, Map<String, String> vars) {
@@ -31,18 +31,18 @@ public class PromptRegistry {
     }
 
     private String loadPrompt(String name) {
-        if (cache.containsKey(name)) {
-            return cache.get(name);
+        String cached = cache.get(name);
+        if (cached != null) {
+            return cached;
         }
-        try {
-            ClassPathResource resource = new ClassPathResource("prompts/" + name + ".txt");
-            InputStream is = resource.getInputStream();
-            byte[] bytes = new byte[is.available()];
-            is.read(bytes);
-            is.close();
-            String content = new String(bytes, StandardCharsets.UTF_8);
-            cache.put(name, content);
-            return content;
+        String content = readPrompt(name);
+        String existing = cache.putIfAbsent(name, content);
+        return existing == null ? content : existing;
+    }
+
+    private String readPrompt(String name) {
+        try (InputStream input = new ClassPathResource("prompts/" + name + ".md").getInputStream()) {
+            return new String(StreamUtils.copyToByteArray(input), StandardCharsets.UTF_8).trim();
         } catch (IOException e) {
             throw new RuntimeException("Prompt not found: " + name, e);
         }

@@ -7,8 +7,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import com.jvuln.llm.LlmClient;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.PromptRegistry;
 import com.jvuln.store.model.CveIntelligence;
 
 import java.util.ArrayList;
@@ -25,6 +27,7 @@ public class DescriptionCorrector {
     private static final Logger log = LoggerFactory.getLogger(DescriptionCorrector.class);
 
     private final LlmClient llmClient;
+    private final PromptRegistry promptRegistry;
 
     // 每篇文章最多提取的字符数
     private static final int MAX_CHARS_PER_ARTICLE = 3000;
@@ -35,8 +38,9 @@ public class DescriptionCorrector {
     // 总tokens预算（约8000字符）
     private static final int TOTAL_CONTEXT_BUDGET = 8000;
 
-    public DescriptionCorrector(LlmClient llmClient) {
+    public DescriptionCorrector(LlmClient llmClient, PromptRegistry promptRegistry) {
         this.llmClient = llmClient;
+        this.promptRegistry = promptRegistry;
     }
 
     /**
@@ -165,10 +169,11 @@ public class DescriptionCorrector {
     private String correctWithLlm(String cveId, String officialDescription,
                                    List<ArticleContent> contents) throws Exception {
 
-        String systemPrompt = buildSystemPrompt();
+        String systemPrompt = promptRegistry.getPrompt("current/intelligence-description-corrector");
         String userPrompt = buildUserPrompt(cveId, officialDescription, contents);
 
         LlmRequest request = new LlmRequest(
+            LlmPromptStage.INTELLIGENCE,
             systemPrompt,
             Collections.singletonList(LlmRequest.Message.user(userPrompt)),
             0.1,  // 低temperature，确保准确性
@@ -180,27 +185,6 @@ public class DescriptionCorrector {
         return response.getContent().trim();
     }
 
-    private String buildSystemPrompt() {
-        return "You are a security researcher correcting CVE descriptions based on technical analysis.\n" +
-               "\n" +
-               "Your task: Compare the official CVE description with technical articles to determine if the description is accurate.\n" +
-               "\n" +
-               "Rules:\n" +
-               "1. Official CVE descriptions from NVD/GHSA are OFTEN WRONG\n" +
-               "2. Trust the technical analysis articles over the official description\n" +
-               "3. Common mistakes:\n" +
-               "   - Wrong vulnerability type (e.g., \"SQL Injection\" when it's actually \"Deserialization\")\n" +
-               "   - Wrong affected component\n" +
-               "   - Vague or misleading description\n" +
-               "\n" +
-               "Output format:\n" +
-               "- If the official description is ACCURATE: output the exact official description (no changes)\n" +
-               "- If the official description is WRONG: output a corrected description in the same style\n" +
-               "\n" +
-               "Keep the corrected description concise (under 200 characters).\n" +
-               "Focus on: vulnerability type, affected component, attack vector.\n" +
-               "Do NOT add markdown, explanations, or preambles - just the description.";
-    }
 
     private String buildUserPrompt(String cveId, String officialDescription,
                                     List<ArticleContent> contents) {

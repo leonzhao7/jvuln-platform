@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.PromptRegistry;
 import com.jvuln.pipeline.model.PipelineContext;
 import org.slf4j.Logger;
@@ -420,7 +421,8 @@ class AgentPhaseEngine {
 
         try {
             LlmRequest req = LlmRequest.reasoning(
-                "You are a Java/Spring Boot/CVE expert analyzing build/runtime failures.",
+                LlmPromptStage.ARTIFACT_GENERATION,
+                promptRegistry.getPrompt("current/artifact-failure-analysis"),
                 prompt.toString()
             );
             LlmResponse response = llmHelper.chatWithRetry(ctx.pipeCtx, req, 1);

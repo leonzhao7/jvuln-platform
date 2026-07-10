@@ -34,3 +34,4 @@ Build a vulnerability reproduction environment for the following CVE.
 ## Instructions
 First call `submit_plan` with a concise execution plan. Then generate the smallest runnable candidate that can prove the vulnerable path. Batch related edits with `write_files`. Prefer creating `vuln-demo + poc` before spending time on `report/report.md`. After each broad file batch, expect backend auto-validation and respond with the smallest repair that closes the reported gap. Use `validate_artifacts` for targeted rechecks when needed. Only call `finish` when you have either satisfied the plan or can clearly explain the remaining gap with concrete evidence.
 When inspecting existing source or config files, use `read_file`. When inspecting logs, build output, or runtime traces, use `read_log`.
+

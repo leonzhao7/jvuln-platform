@@ -23,3 +23,4 @@ Rules:
 - Use verdict "skipped" only when the agent explicitly skipped PoC verification or no PoC was attempted.
 - `reason` must explain whether the exploit succeeded or failed in concrete terms tied to the verification plan and observed evidence.
 - `nextActions` should be empty only when the result is verified or skipped.
+

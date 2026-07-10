@@ -97,3 +97,4 @@ detection_points 说明：
 - 为反序列化 CVE 生成检测用户代码中 ObjectInputStream.readObject() 调用的 api_usage → 正确，用户可能在自己的代码中调用
 
 请根据实际漏洞特征生成 2-6 个检测要点，覆盖依赖、代码、配置和 API 各维度（不必每种类型都有，根据漏洞特性选择最相关的），宁可少而准，不要多而泛。
+

@@ -6,6 +6,7 @@ import com.jvuln.llm.LlmAdapterFactory;
 import com.jvuln.llm.LlmClient;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.PromptManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +21,7 @@ public class OpenAiCompatClient implements LlmClient {
     private final LlmConfigProvider configProvider;
     private final LlmAdapterFactory adapterFactory;
     private final ObjectMapper mapper;
+    private final PromptManager promptManager;
 
     private final String fallbackBaseUrl;
     private final String fallbackApiKey;
@@ -29,12 +31,14 @@ public class OpenAiCompatClient implements LlmClient {
             LlmConfigProvider configProvider,
             LlmAdapterFactory adapterFactory,
             ObjectMapper mapper,
+            PromptManager promptManager,
             @Value("${jvuln.llm.base-url:http://localhost:11434/v1}") String fallbackBaseUrl,
             @Value("${jvuln.llm.api-key:}") String fallbackApiKey,
             @Value("${jvuln.llm.model:deepseek-coder}") String fallbackModel) {
         this.configProvider = configProvider;
         this.adapterFactory = adapterFactory;
         this.mapper = mapper;
+        this.promptManager = promptManager;
         this.fallbackBaseUrl = fallbackBaseUrl;
         this.fallbackApiKey = fallbackApiKey;
         this.fallbackModel = fallbackModel;
@@ -43,13 +47,19 @@ public class OpenAiCompatClient implements LlmClient {
     @Override
     public LlmResponse chat(LlmRequest request) {
         LlmAdapter adapter = getAdapter();
-        return adapter.chat(request);
+        return adapter.chat(resolveRequest(request));
     }
 
     @Override
     public Flux<String> chatStream(LlmRequest request) {
         LlmAdapter adapter = getAdapter();
-        return adapter.chatStream(request);
+        return adapter.chatStream(resolveRequest(request));
+    }
+
+    private LlmRequest resolveRequest(LlmRequest request) {
+        String resolvedPrompt = promptManager.resolve(
+                request.getStage(), request.getCurrentSystemPrompt());
+        return request.withResolvedSystemPrompt(resolvedPrompt);
     }
 
     private LlmAdapter getAdapter() {

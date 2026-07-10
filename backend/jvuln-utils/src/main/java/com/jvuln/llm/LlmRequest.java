@@ -6,6 +6,8 @@ import java.util.*;
 
 public class LlmRequest {
 
+    private final LlmPromptStage stage;
+    private final String currentSystemPrompt;
     private final String systemPrompt;
     private final List<Message> messages;
     private final double temperature;
@@ -14,13 +16,24 @@ public class LlmRequest {
     private final List<ToolDef> tools;
     private final String toolChoice;
 
-    public LlmRequest(String systemPrompt, List<Message> messages, double temperature,
-                      int maxTokens, boolean jsonMode) {
-        this(systemPrompt, messages, temperature, maxTokens, jsonMode, null, null);
+    public LlmRequest(LlmPromptStage stage, String currentSystemPrompt, List<Message> messages,
+                      double temperature, int maxTokens, boolean jsonMode) {
+        this(requireStage(stage), currentSystemPrompt, currentSystemPrompt, messages,
+                temperature, maxTokens, jsonMode, null, null);
     }
 
-    public LlmRequest(String systemPrompt, List<Message> messages, double temperature,
-                      int maxTokens, boolean jsonMode, List<ToolDef> tools, String toolChoice) {
+    public LlmRequest(LlmPromptStage stage, String currentSystemPrompt, List<Message> messages,
+                      double temperature, int maxTokens, boolean jsonMode,
+                      List<ToolDef> tools, String toolChoice) {
+        this(requireStage(stage), currentSystemPrompt, currentSystemPrompt, messages,
+                temperature, maxTokens, jsonMode, tools, toolChoice);
+    }
+
+    private LlmRequest(LlmPromptStage stage, String currentSystemPrompt, String systemPrompt,
+                       List<Message> messages, double temperature, int maxTokens, boolean jsonMode,
+                       List<ToolDef> tools, String toolChoice) {
+        this.stage = stage;
+        this.currentSystemPrompt = currentSystemPrompt;
         this.systemPrompt = systemPrompt;
         this.messages = messages;
         this.temperature = temperature;
@@ -30,24 +43,39 @@ public class LlmRequest {
         this.toolChoice = toolChoice;
     }
 
-    public static LlmRequest reasoning(String systemPrompt, String userContent) {
-        return new LlmRequest(systemPrompt, Collections.singletonList(Message.user(userContent)),
-                0.1, 8192, true);
+    public static LlmRequest reasoning(LlmPromptStage stage, String currentSystemPrompt,
+                                       String userContent) {
+        return new LlmRequest(stage, currentSystemPrompt,
+                Collections.singletonList(Message.user(userContent)), 0.1, 8192, true);
     }
 
-    public static LlmRequest generation(String systemPrompt, String userContent) {
-        return new LlmRequest(systemPrompt, Collections.singletonList(Message.user(userContent)),
-                0.3, 16384, false);
+    /**
+     * Creates a current-only request for provider connectivity diagnostics that are not part of a pipeline stage.
+     */
+    public static LlmRequest diagnostic(String currentSystemPrompt, String userContent) {
+        return new LlmRequest(null, currentSystemPrompt, currentSystemPrompt,
+                Collections.singletonList(Message.user(userContent)), 0.0, 64, false, null, null);
     }
 
-    public static LlmRequest generation(String systemPrompt, List<Message> messages) {
-        return new LlmRequest(systemPrompt, messages, 0.3, 16384, false);
+    public static LlmRequest generation(LlmPromptStage stage, String currentSystemPrompt,
+                                        String userContent) {
+        return new LlmRequest(stage, currentSystemPrompt,
+                Collections.singletonList(Message.user(userContent)), 0.3, 16384, false);
     }
 
-    public static LlmRequest agent(String systemPrompt, List<Message> messages, List<ToolDef> tools) {
-        return new LlmRequest(systemPrompt, messages, 0.3, 16384, false, tools, "auto");
+    public static LlmRequest generation(LlmPromptStage stage, String currentSystemPrompt,
+                                        List<Message> messages) {
+        return new LlmRequest(stage, currentSystemPrompt, messages, 0.3, 16384, false);
     }
 
+    public static LlmRequest agent(LlmPromptStage stage, String currentSystemPrompt,
+                                   List<Message> messages, List<ToolDef> tools) {
+        return new LlmRequest(stage, currentSystemPrompt, messages,
+                0.3, 16384, false, tools, "auto");
+    }
+
+    public LlmPromptStage getStage() { return stage; }
+    public String getCurrentSystemPrompt() { return currentSystemPrompt; }
     public String getSystemPrompt() { return systemPrompt; }
     public List<Message> getMessages() { return messages; }
     public double getTemperature() { return temperature; }
@@ -56,6 +84,21 @@ public class LlmRequest {
     public List<ToolDef> getTools() { return tools; }
     public String getToolChoice() { return toolChoice; }
     public boolean hasTools() { return tools != null && !tools.isEmpty(); }
+
+    public LlmRequest withResolvedSystemPrompt(String resolvedSystemPrompt) {
+        if (stage == null) {
+            throw new IllegalStateException("LLM prompt stage is required");
+        }
+        return new LlmRequest(stage, currentSystemPrompt, resolvedSystemPrompt, messages,
+                temperature, maxTokens, jsonMode, tools, toolChoice);
+    }
+
+    private static LlmPromptStage requireStage(LlmPromptStage stage) {
+        if (stage == null) {
+            throw new IllegalArgumentException("LLM prompt stage is required");
+        }
+        return stage;
+    }
 
     // ==================== Message ====================
 

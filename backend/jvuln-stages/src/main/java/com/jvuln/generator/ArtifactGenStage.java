@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.PromptRegistry;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageResult;
@@ -141,8 +142,8 @@ public class ArtifactGenStage implements Stage {
             skeletonWriter.writeMinimalSkeleton(cvePath.resolve("vuln-demo"), javaProfile);
             agentCtx.discoverExistingFiles();
 
-            String systemTemplate = promptRegistry.getSystemPrompt("gen_agent");
-            String userTemplate = promptRegistry.getUserPrompt("gen_agent");
+            String systemTemplate = promptRegistry.getPrompt("current/artifact-agent-system");
+            String userTemplate = promptRegistry.getPrompt("current/artifact-agent-user");
             Map<String, String> vars = new HashMap<>();
             vars.put("cve_id", ctx.getCveId());
             vars.put("intelligence", intelligence);
@@ -264,7 +265,7 @@ public class ArtifactGenStage implements Stage {
                     log.info("Agent LLM request: turn={} phase={} tools={} messages={}",
                             turn + 1, agentCtx.phase, toolDefNames(tools), messages.size());
                     response = llmHelper.chatWithRetry(ctx,
-                            LlmRequest.agent(systemPrompt, messages, tools), 3);
+                            LlmRequest.agent(LlmPromptStage.ARTIFACT_GENERATION, systemPrompt, messages, tools), 3);
                     log.info("Agent LLM response: turn={} phase={} durationMs={} finishReason={} text='{}' toolUses={}",
                             turn + 1, agentCtx.phase, System.currentTimeMillis() - llmStart,
                             response.getFinishReason(), contextBuilder.responsePreview(response), toolUseNames(response.getToolUses()));
@@ -567,8 +568,8 @@ public class ArtifactGenStage implements Stage {
                                                    String vulnerabilityFacts, String triggerChain,
                                                    String rootCause, String patchDiff, String artifact) {
         try {
-            String systemPrompt = promptRegistry.getSystemPrompt("gen_verification_plan");
-            String userTemplate = promptRegistry.getUserPrompt("gen_verification_plan");
+            String systemPrompt = promptRegistry.getPrompt("current/artifact-verification-plan-system");
+            String userTemplate = promptRegistry.getPrompt("current/artifact-verification-plan-user");
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
             vars.put("vulnerability_facts", vulnerabilityFacts);
@@ -577,7 +578,8 @@ public class ArtifactGenStage implements Stage {
             vars.put("patch_diff", patchDiff);
             vars.put("artifact", artifact);
             String userPrompt = promptRegistry.render(userTemplate, vars);
-            LlmResponse response = llmHelper.chatWithRetry(ctx, LlmRequest.reasoning(systemPrompt, userPrompt), 2);
+            LlmResponse response = llmHelper.chatWithRetry(ctx,
+                    LlmRequest.reasoning(LlmPromptStage.ARTIFACT_GENERATION, systemPrompt, userPrompt), 2);
             return VerificationPlan.fromJson(llmHelper.parseJsonObject(response.getContent()));
         } catch (Exception e) {
             log.warn("Verification plan generation failed, using fallback: {}", e.getMessage());

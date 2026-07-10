@@ -28,3 +28,4 @@ Review whether the generated Stage 5 artifacts satisfy the CVE verification plan
 {{execution_evidence}}
 
 Return only the JSON object.
+

@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.PromptRegistry;
 import com.jvuln.pipeline.model.PipelineContext;
 import org.slf4j.Logger;
@@ -42,8 +43,8 @@ class ReviewEngine {
                                                 String triggerChain, String rootCause, String patchDiff,
                                                 String artifact) {
         try {
-            String systemPrompt = promptRegistry.getSystemPrompt("gen_verifier");
-            String userTemplate = promptRegistry.getUserPrompt("gen_verifier");
+            String systemPrompt = promptRegistry.getPrompt("current/artifact-verifier-system");
+            String userTemplate = promptRegistry.getPrompt("current/artifact-verifier-user");
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
             vars.put("vulnerability_facts", vulnerabilityFacts);
@@ -55,7 +56,8 @@ class ReviewEngine {
             vars.put("finish_summary", finishSummary == null ? "{}" : finishSummary.toPrettyString());
             vars.put("execution_evidence", llmHelper.renderJson(buildVerificationEvidence(agentCtx, finishSummary)));
             String userPrompt = promptRegistry.render(userTemplate, vars);
-            LlmResponse response = llmHelper.chatWithRetry(ctx, LlmRequest.reasoning(systemPrompt, userPrompt), 2);
+            LlmResponse response = llmHelper.chatWithRetry(ctx,
+                    LlmRequest.reasoning(LlmPromptStage.ARTIFACT_GENERATION, systemPrompt, userPrompt), 2);
             return reconcileReviewWithBackend(
                     VerificationReview.fromJson(llmHelper.parseJsonObject(response.getContent())), agentCtx, finishSummary);
         } catch (Exception e) {

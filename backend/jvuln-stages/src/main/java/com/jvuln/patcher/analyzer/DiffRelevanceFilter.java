@@ -3,8 +3,10 @@ package com.jvuln.patcher.analyzer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.llm.LlmClient;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.PromptRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -47,28 +49,14 @@ public class DiffRelevanceFilter {
             "xmldecoder", "rhino", "nashorn"
     ));
 
-    private static final String SYSTEM_PROMPT =
-            "You are a security researcher classifying code changes as CVE-relevant or not.\n" +
-            "Output ONLY valid JSON — no markdown, no explanation:\n" +
-            "[{\"file\": \"path/to/File.java\", \"relevant\": true, \"reason\": \"one sentence\"}]\n" +
-            "relevant=true means the change is directly fixing the CVE or hardening the same attack surface.\n" +
-            "relevant=false means it is a new feature, refactoring, or unrelated bug fix.\n" +
-            "When in doubt, set relevant=true.\n" +
-            "\n" +
-            "IMPORTANT: NVD/GHSA CVE descriptions and CWE labels are OFTEN INACCURATE.\n" +
-            "Do NOT rely solely on the description keyword (e.g. 'SQL Injection') to decide relevance.\n" +
-            "Judge each file by what the CODE CHANGE actually does:\n" +
-            "- A file adding class-whitelist enforcement (allowClass, allowClassSet) is relevant for RCE/injection CVEs\n" +
-            "- A file restricting expression engine access (OGNL, SpEL, JEXL, MVEL, Aviator, Groovy) is relevant\n" +
-            "- A file tightening deserialization (XMLDecoder, ObjectInputStream, readObject) is relevant\n" +
-            "- A file that only adds new features or query parameters unrelated to security is NOT relevant\n" +
-            "The description tells you what the CVE is about, but the CODE is the ground truth for relevance.";
 
     private final LlmClient llmClient;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final PromptRegistry promptRegistry;
 
-    public DiffRelevanceFilter(LlmClient llmClient) {
+    public DiffRelevanceFilter(LlmClient llmClient, PromptRegistry promptRegistry) {
         this.llmClient = llmClient;
+        this.promptRegistry = promptRegistry;
     }
 
     /**
@@ -172,7 +160,8 @@ public class DiffRelevanceFilter {
                                            String affectedComponent) {
         String prompt = buildAiPrompt(candidates, cveId, cveDescription, affectedComponent);
         try {
-            LlmResponse response = llmClient.chat(LlmRequest.reasoning(SYSTEM_PROMPT, prompt));
+            LlmResponse response = llmClient.chat(LlmRequest.reasoning(LlmPromptStage.PATCH_ANALYSIS,
+                    promptRegistry.getPrompt("current/patch-diff-relevance-filter"), prompt));
             if (response == null || response.getContent() == null) return candidates;
             return parseAiResponse(response.getContent(), candidates);
         } catch (Exception e) {

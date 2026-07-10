@@ -19,3 +19,4 @@ Rules:
 - Required evidence should focus on observable proof of successful exploitation from PoC output, HTTP responses, logs, or side effects.
 - False-positive guards should call out common ways the exploit could appear successful when the vulnerability is not actually triggered.
 - Suggested checks should be short, concrete validation steps that confirm the exploit worked.
+

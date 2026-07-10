@@ -3,8 +3,10 @@ package com.jvuln.patcher.strategy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.llm.LlmClient;
+import com.jvuln.llm.LlmPromptStage;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.PromptRegistry;
 import com.jvuln.patcher.strategy.LocateStrategy.PatchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,42 +36,20 @@ public class AiPatchSearchStrategy {
     private static final Pattern GITHUB_REPO_PAT = Pattern.compile("github\\.com/([^/]+)/([^/.]+?)(?:\\.git)?$");
     private static final Pattern VERSION_TOKEN_PATTERN = Pattern.compile("\\d+(?:\\.\\d+)+");
 
-    private static final String SYSTEM_PROMPT =
-            "You are a security patch research assistant with deep knowledge of open-source Java CVEs.\n" +
-            "Given CVE details, output ONLY valid JSON matching this schema — no markdown, no explanation:\n" +
-            "{\n" +
-            "  \"sourceRepo\": \"https://github.com/org/repo or https://gitee.com/org/repo or null\",\n" +
-            "  \"groupId\": \"com.example or null\",\n" +
-            "  \"artifactId\": \"artifact-name or null\",\n" +
-            "  \"affectedTo\": \"<= 1.2.3 or < 1.2.4 or null\",\n" +
-            "  \"commitSearchTerms\": [\"keyword1\", \"keyword2\"],\n" +
-            "  \"fixedVersion\": \"1.2.3\",\n" +
-            "  \"releaseTag\": \"v1.2.3\",\n" +
-            "  \"reasoning\": \"one sentence\"\n" +
-            "}\n" +
-            "Rules:\n" +
-            "- sourceRepo must be the canonical source repository URL when inferable.\n" +
-            "- groupId/artifactId should be Maven coordinates when inferable.\n" +
-            "- affectedTo should preserve the comparator, for example '<= 6.0.9' or '< 3.5.3'.\n" +
-            "- commitSearchTerms: 1-3 keywords LIKELY IN THE FIX COMMIT MESSAGE (not the CVE ID itself).\n" +
-            "  Think about what a developer would write: class names, method names, feature names.\n" +
-            "- fixedVersion: the exact Maven version string that FIRST CONTAINS THE FIX.\n" +
-            "  CRITICAL: fixedVersion MUST be strictly GREATER than the last affected version.\n" +
-            "  Example: if 'Affected versions: <= 5.8.11', fixedVersion must be 5.8.12 or later — NEVER 5.8.11 or earlier.\n" +
-            "  Example: if 'Affected versions: < 3.5.3', fixedVersion must be 3.5.3 or later.\n" +
-            "- releaseTag: the exact GitHub release tag for the fix (e.g. 'v3.5.3.1' or '3.5.3.1'), or null.\n" +
-            "- If you are not confident about a field, set it to null rather than guessing.";
 
     private final LlmClient llmClient;
     private final MavenSourceDiffStrategy mavenStrategy;
     private final WebClient webClient;
+    private final PromptRegistry promptRegistry;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public AiPatchSearchStrategy(LlmClient llmClient,
                                   MavenSourceDiffStrategy mavenStrategy,
+                                  PromptRegistry promptRegistry,
                                   @Value("${jvuln.github.token:}") String token) {
         this.llmClient = llmClient;
         this.mavenStrategy = mavenStrategy;
+        this.promptRegistry = promptRegistry;
         HttpClient httpClient = HttpClient.create()
                 .responseTimeout(Duration.ofSeconds(30))
                 .followRedirect(true);
@@ -202,8 +182,8 @@ public class AiPatchSearchStrategy {
         }
 
         try {
-            LlmResponse response = llmClient.chat(
-                    LlmRequest.reasoning(SYSTEM_PROMPT, user.toString()));
+            LlmResponse response = llmClient.chat(LlmRequest.reasoning(LlmPromptStage.PATCH_ANALYSIS,
+                    promptRegistry.getPrompt("current/patch-ai-patch-search"), user.toString()));
             if (response == null || response.getContent() == null) return null;
             return parseHints(response.getContent());
         } catch (Exception e) {

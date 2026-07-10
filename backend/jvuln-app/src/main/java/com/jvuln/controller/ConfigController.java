@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.llm.LlmCaller;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
+import com.jvuln.llm.PromptRegistry;
 import com.jvuln.llm.impl.AnthropicCaller;
 import com.jvuln.store.JavaProfileRepository;
 import com.jvuln.store.LlmConfigRepository;
@@ -30,11 +31,14 @@ public class ConfigController {
     private final LlmConfigRepository repo;
     private final JavaProfileRepository javaProfileRepo;
     private final ObjectMapper mapper;
+    private final PromptRegistry promptRegistry;
 
-    public ConfigController(LlmConfigRepository repo, JavaProfileRepository javaProfileRepo, ObjectMapper mapper) {
+    public ConfigController(LlmConfigRepository repo, JavaProfileRepository javaProfileRepo,
+                            ObjectMapper mapper, PromptRegistry promptRegistry) {
         this.repo = repo;
         this.javaProfileRepo = javaProfileRepo;
         this.mapper = mapper;
+        this.promptRegistry = promptRegistry;
     }
 
     @GetMapping("/llm")
@@ -94,10 +98,9 @@ public class ConfigController {
                 throw new IllegalStateException("Model is not configured");
             }
 
-            LlmRequest req = new LlmRequest(
-                    "You are a helpful assistant.",
-                    Collections.singletonList(LlmRequest.Message.user("Reply with just the word: PONG")),
-                    0.0, 64, false);
+            LlmRequest req = LlmRequest.diagnostic(
+                    promptRegistry.getPrompt("current/config-connection-test"),
+                    "Reply with just the word: PONG");
 
             LlmResponse resp;
             if ("anthropic".equals(cfg.getProviderType())) {
