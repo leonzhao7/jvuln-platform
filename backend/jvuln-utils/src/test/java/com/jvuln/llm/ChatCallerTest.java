@@ -44,9 +44,12 @@ class ChatCallerTest {
         JsonNode body = mapper.readTree(server.getLastBody());
         assertFalse(body.path("stream").asBoolean());
         assertMessage(body, 0, "system", "global");
-        assertMessage(body, 1, "developer", "stage");
+        assertMessage(body, 1, "system", "stage");
         assertMessage(body, 2, "user", "task");
         assertMessage(body, 3, "user", "payload");
+        for (JsonNode message : body.path("messages")) {
+            assertNotEquals("developer", message.path("role").asText());
+        }
         assertEquals("function", body.path("tools").path(0).path("type").asText());
         assertEquals("lookup", body.path("tools").path(0)
                 .path("function").path("name").asText());

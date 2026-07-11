@@ -85,7 +85,7 @@ public class ChatCaller extends AbstractLlmCaller {
 
         ArrayNode messages = mapper.createArrayNode();
         addTextMessage(messages, "system", prompts.getGlobalPrompt());
-        addTextMessage(messages, "developer", prompts.getStagePrompt());
+        addTextMessage(messages, "system", prompts.getStagePrompt());
         addTextMessage(messages, "user", request.getTaskPrompt());
         for (LlmRequest.Message message : request.getMessages()) {
             addHistoryMessage(messages, message);
