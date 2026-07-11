@@ -1,3 +1,1 @@
-# Artifact-generation stage instructions
-
-Create only authorized, minimal, reproducible CVE education artifacts and verify claims with observable evidence.
+Now is stage 4: Educational Lab Generation and Verification. Generate the smallest runnable Java web service that exposes the real vulnerable component path in a safe teaching setup, along with a `exploit.sh` script that triggers the behavior. Do not simulate the vulnerability with fake custom business logic when the real component path can be demonstrated. Compile and run the lab, execute the PoC, and look for harmless but convincing proof that the vulnerability path was triggered. Prefer minimal files, minimal moving parts, and fast verification.

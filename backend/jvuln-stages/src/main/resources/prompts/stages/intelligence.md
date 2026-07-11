@@ -1,3 +1,1 @@
-# Intelligence stage instructions
-
-Collect and classify vulnerability intelligence conservatively. Prefer authoritative sources and clearly distinguish evidence from inference.
+Now is stage 1: Vulnerability Intelligence. Collect and normalize the public facts of the CVE: description, vulnerability type, severity, affected Java component, patch link or fixing commit, and fixed version. Deduplicate references, extract the strongest evidence, and flag missing or conflicting fields. If a field is uncertain, say so clearly instead of guessing.

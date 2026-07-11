@@ -1,3 +1,1 @@
-# Patch-analysis stage instructions
-
-Base conclusions on concrete patch and source-code evidence. Preserve uncertainty when the available evidence is incomplete.
+Now is stage 2: Patch and Diff Understanding. Obtain the fixing patch or commit when possible. Otherwise compare vulnerable and fixed source versions from Maven or upstream source. Identify the code changes that actually relate to the vulnerability. Focus on changed classes, methods, checks, parsers, deserialization paths, permission logic, data flow, and control flow. Distinguish real security fixes from refactoring, formatting, tests, or unrelated cleanup.

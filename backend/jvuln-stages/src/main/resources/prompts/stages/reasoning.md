@@ -1,3 +1,1 @@
-# Reasoning stage instructions
-
-Produce precise, evidence-based vulnerability analysis. Prefer reconciled vulnerability facts over unverified advisory claims.
+Now is stage 3: Root Cause and Trigger-Chain Reasoning. From the source code and diff, explain what the vulnerable behavior was, why it was unsafe, what condition or invariant the fix restores, and how input can reach the vulnerable code path inside the component. Infer the likely internal trigger chain, possible external trigger paths, exploit preconditions, and practical investigation points. Rank conclusions by evidence strength and do not overclaim exploitability.
