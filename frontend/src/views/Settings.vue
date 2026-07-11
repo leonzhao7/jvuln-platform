@@ -137,7 +137,7 @@ const emptyJpForm = (): Omit<JavaProfile, 'id' | 'isDefault'> => ({
   javaVersion: '8',
   javaHome: '',
   springBootVersion: '',
-  mavenJavaVersion: '1.8',
+  mavenJavaVersion: '',
   syntaxConstraints: '',
 })
 
@@ -186,7 +186,7 @@ const saveJpForm = async () => {
     ElMessage.error(t('javaProfiles.nameRequired'))
     return
   }
-  if (!jpForm.value.javaHome || !jpForm.value.springBootVersion) {
+  if (!jpForm.value.javaHome) {
     ElMessage.error(t('javaProfiles.javaHomeRequired'))
     return
   }
@@ -448,7 +448,7 @@ onMounted(() => {
               <el-option v-for="v in javaVersionOptions" :key="v" :label="'Java ' + v" :value="v" />
             </el-select>
           </el-form-item>
-          <el-form-item :label="t('javaProfiles.mavenJavaVersion')">
+          <el-form-item v-if="jpDialogMode === 'edit'" :label="t('javaProfiles.mavenJavaVersion')">
             <el-input v-model="jpForm.mavenJavaVersion" placeholder="17" />
           </el-form-item>
         </div>
@@ -457,11 +457,11 @@ onMounted(() => {
           <el-input v-model="jpForm.javaHome" :placeholder="t('javaProfiles.javaHomePlaceholder')" />
         </el-form-item>
 
-        <el-form-item :label="t('javaProfiles.springBootVersion')">
+        <el-form-item v-if="jpDialogMode === 'edit'" :label="t('javaProfiles.springBootVersion')">
           <el-input v-model="jpForm.springBootVersion" :placeholder="t('javaProfiles.springBootPlaceholder')" />
         </el-form-item>
 
-        <el-form-item :label="t('javaProfiles.syntaxConstraints')">
+        <el-form-item v-if="jpDialogMode === 'edit'" :label="t('javaProfiles.syntaxConstraints')">
           <el-input v-model="jpForm.syntaxConstraints" type="textarea" :rows="3"
             :placeholder="t('javaProfiles.syntaxPlaceholder')" />
         </el-form-item>

@@ -213,6 +213,7 @@ const enUS = {
       impact: 'Impact Assessment',
       severity: 'Severity',
       attackVector: 'Attack Vector',
+      triggerSteps: 'Trigger Steps',
       prerequisites: 'Prerequisites',
       consequences: 'Consequences',
       realWorldScenarios: 'Real-world Scenarios',

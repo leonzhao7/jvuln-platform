@@ -48,7 +48,6 @@ public class PatchAnalysisStage implements Stage {
     private final DiffRelevanceFilter relevanceFilter;
     private final AnalysisRelevanceFilter analysisRelevanceFilter;
     private final AnalysisLayerClassifier analysisLayerClassifier;
-    private final PatchEvidenceSynthesizer patchEvidenceSynthesizer;
     private final VulnerabilityFactResolver factResolver;
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -65,7 +64,6 @@ public class PatchAnalysisStage implements Stage {
                               DiffRelevanceFilter relevanceFilter,
                               AnalysisRelevanceFilter analysisRelevanceFilter,
                               AnalysisLayerClassifier analysisLayerClassifier,
-                              PatchEvidenceSynthesizer patchEvidenceSynthesizer,
                               VulnerabilityFactResolver factResolver) {
         this.aiStrategy = aiStrategy;
         this.mavenStrategy = mavenStrategy;
@@ -74,7 +72,6 @@ public class PatchAnalysisStage implements Stage {
         this.relevanceFilter = relevanceFilter;
         this.analysisRelevanceFilter = analysisRelevanceFilter;
         this.analysisLayerClassifier = analysisLayerClassifier;
-        this.patchEvidenceSynthesizer = patchEvidenceSynthesizer;
         this.factResolver = factResolver;
     }
 
@@ -302,11 +299,6 @@ public class PatchAnalysisStage implements Stage {
             patchScope.add(fileMap);
         }
 
-        // Build patch evidence
-        List<JavaFileChange> fileChanges = parseJavaChanges(patchResult.getRawDiff());
-        Map<String, Object> patchEvidence = patchEvidenceSynthesizer.build(
-                fileChanges, analysisOutput.results);
-
         // Calculate CWE match count
         int totalCwe = 0;
         for (CodeAnalysisResult r : analysisOutput.results) {
@@ -317,7 +309,6 @@ public class PatchAnalysisStage implements Stage {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("patchInfo", patchInfo);
         result.put("patchScope", patchScope);
-        result.put("patchEvidence", patchEvidence);
         result.put("analyzedFiles", analysisOutput.results);
         result.put("layerSummary", analysisLayerClassifier.summarize(analysisOutput.results));
         result.put("traditionalAnalyzedFileCount", analysisOutput.traditionalFileCount);

@@ -12,7 +12,7 @@ Return ONLY strict JSON in this shape:
   ]
 }
 Rules:
-- patchScope is the full Stage 2 patch-file set. files is the Stage 3 per-file diff/AST summary.
+- patchScope is the full Stage 2 patch-file set. files is the Stage 2 per-file diff/AST summary.
 - layer meanings:
   * root_cause: vulnerable sink / parser / constructor / evaluator / direct exploit path.
   * enforcement_guard: validation, deny/allow-list, guard, inspector, sanitizer, security check.

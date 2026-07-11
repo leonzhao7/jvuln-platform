@@ -26,10 +26,10 @@ public class JavaProfile {
     @Column(name = "java_home", nullable = false, length = 500)
     private String javaHome;
 
-    @Column(name = "spring_boot_version", nullable = false, length = 20)
+    @Column(name = "spring_boot_version", length = 20)
     private String springBootVersion;
 
-    @Column(name = "maven_java_version", nullable = false, length = 10)
+    @Column(name = "maven_java_version", length = 10)
     private String mavenJavaVersion;
 
     @Column(name = "syntax_constraints", length = 500)

@@ -356,7 +356,7 @@ const renderMarkdown = (md: string) => {
         <!-- Overview -->
         <div v-if="selectedStage === 1">
           <div v-if="stageData[1]">
-            <el-descriptions :column="2" border size="small">
+            <el-descriptions :column="2" border size="small" label-width="140px">
               <el-descriptions-item :label="t('analysis.fields.cveId')">
                 <span style="font-family:var(--font-mono)">{{ stageData[1].cveId }}</span>
               </el-descriptions-item>
@@ -476,7 +476,7 @@ const renderMarkdown = (md: string) => {
         <div v-else-if="selectedStage === 2">
           <div v-if="stageData[2]">
             <!-- Patch Info -->
-            <el-descriptions :column="2" border size="small">
+            <el-descriptions :column="2" border size="small" label-width="140px">
               <el-descriptions-item :label="t('analysis.patch.commitHash')">
                 <span style="font-family:var(--font-mono)">{{ stageData[2].patchInfo?.commitHash || '—' }}</span>
               </el-descriptions-item>
@@ -506,33 +506,24 @@ const renderMarkdown = (md: string) => {
         <div v-else-if="selectedStage === 3">
           <div v-if="stageData[3]" class="jv-reasoning">
 
-            <!-- Summary Bar -->
-            <div class="rs-summary-bar">
-              <div class="rs-summary-chip" v-if="stageData[3].impact?.severity">
-                <span class="label">严重程度</span>
-                <span class="value" :class="severityClass(stageData[3].impact.severity)">{{ stageData[3].impact.severity }}</span>
-              </div>
-              <div class="rs-summary-divider"></div>
-              <div class="rs-summary-chip" v-if="stageData[3].trigger_chain?.steps">
-                <span class="label">触发步骤</span>
-                <span class="value">{{ stageData[3].trigger_chain.steps.length }}</span>
-              </div>
-              <div class="rs-summary-divider"></div>
-              <div class="rs-summary-chip" v-if="stageData[3].code_analysis?.vuln_code_walkthrough">
-                <span class="label">代码走查</span>
-                <span class="value">{{ stageData[3].code_analysis.vuln_code_walkthrough.length }}</span>
-              </div>
-              <div class="rs-summary-divider"></div>
-              <div class="rs-summary-chip" v-if="stageData[3].detection_points">
-                <span class="label">检测要点</span>
-                <span class="value">{{ stageData[3].detection_points.length }}</span>
-              </div>
-              <div class="rs-summary-divider" v-if="stageData[3].impact?.attack_vector"></div>
-              <div class="rs-summary-chip" v-if="stageData[3].impact?.attack_vector">
-                <span class="label">攻击向量</span>
-                <span class="value">{{ stageData[3].impact.attack_vector }}</span>
-              </div>
-            </div>
+            <!-- Summary -->
+            <el-descriptions :column="2" border size="small" label-width="140px">
+              <el-descriptions-item v-if="stageData[3].impact?.severity" :label="t('analysis.reasoning.severity')">
+                <span :class="severityClass(stageData[3].impact.severity)">{{ stageData[3].impact.severity }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item v-if="stageData[3].impact?.attack_vector" :label="t('analysis.reasoning.attackVector')">
+                <span style="font-family:var(--font-mono)">{{ stageData[3].impact.attack_vector }}</span>
+              </el-descriptions-item>
+              <el-descriptions-item v-if="stageData[3].trigger_chain?.steps" :label="t('analysis.reasoning.triggerSteps')">
+                {{ stageData[3].trigger_chain.steps.length }}
+              </el-descriptions-item>
+              <el-descriptions-item v-if="stageData[3].code_analysis?.vuln_code_walkthrough" :label="t('analysis.reasoning.codeWalkthrough')">
+                {{ stageData[3].code_analysis.vuln_code_walkthrough.length }}
+              </el-descriptions-item>
+              <el-descriptions-item v-if="stageData[3].detection_points" :label="t('analysis.reasoning.detectionPoints')">
+                {{ stageData[3].detection_points.length }}
+              </el-descriptions-item>
+            </el-descriptions>
 
             <!-- Trigger Chain (Flow) -->
             <div v-if="stageData[3].trigger_chain" class="rs-section">
@@ -1303,26 +1294,6 @@ const renderMarkdown = (md: string) => {
 }
 
 /* Stage 3 redesigned styles */
-.rs-summary-bar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 20px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  margin-bottom: 28px;
-}
-.rs-summary-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.rs-summary-chip .label { color: var(--text-disabled); font-size: 10px; letter-spacing: .5px; }
-.rs-summary-chip .value { color: var(--text-primary); }
-.rs-summary-divider { width: 1px; height: 20px; background: var(--border-subtle); }
 .rs-section { margin-bottom: 32px; }
 .rs-section-header {
   display: flex;

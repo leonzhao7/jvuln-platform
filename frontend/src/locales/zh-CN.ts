@@ -213,6 +213,7 @@ const zhCN = {
       impact: '影响评估',
       severity: '严重程度',
       attackVector: '攻击向量',
+      triggerSteps: '触发步骤',
       prerequisites: '前置条件',
       consequences: '后果',
       realWorldScenarios: '真实利用场景',

@@ -166,10 +166,10 @@ pre, code, .jv-mono {
   border-radius: 2px;
   text-transform: uppercase;
 }
-.jv-tag-critical  { background: var(--critical);  color: #fff; }
-.jv-tag-high      { background: var(--high);       color: #fff; }
-.jv-tag-medium    { background: var(--medium);     color: #161616; }
-.jv-tag-low       { background: var(--low);        color: #fff; }
+.jv-tag-critical  { background: rgba(250, 77, 86, 0.15);  color: var(--critical); }
+.jv-tag-high      { background: rgba(255, 131, 43, 0.15); color: var(--high); }
+.jv-tag-medium    { background: rgba(241, 194, 27, 0.15); color: var(--medium); }
+.jv-tag-low       { background: rgba(66, 190, 101, 0.15); color: var(--low); }
 .jv-tag-completed { background: #198038;           color: #fff; }
 .jv-tag-running   { background: #8a3800;           color: #f1c21b; border: 1px solid #f1c21b; }
 .jv-tag-failed    { background: #750e13;           color: #fa4d56; border: 1px solid #fa4d56; }
