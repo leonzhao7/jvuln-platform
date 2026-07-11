@@ -37,19 +37,17 @@ class IntelligenceStageTest {
     Path tempDir;
 
     @Test
-    void persistsResolvedAdjudicationAsLegacyDescriptionAndReturnsSuccess() throws Exception {
-        Fixture fixture = fixture(sourceResults(), DescriptionAdjudication.resolved(
-                true, "final evidence-backed description", "resolved", Collections.emptyList(),
-                Collections.singletonList("E-SRC-NVD-DESC"), new BigDecimal("0.9")));
+    void persistsPreferredSourceDescriptionAndReturnsSuccess() throws Exception {
+        Fixture fixture = fixture(sourceResults());
 
         StageResult result = fixture.stage.execute(fixture.context);
         CveIntelligence intelligence = (CveIntelligence) result.getData();
         CveIntelligence persisted = fixture.workspace.readStageData(CVE, 1, CveIntelligence.class);
 
         assertTrue(result.isSuccess());
-        assertEquals("final evidence-backed description", intelligence.getDescription());
-        assertEquals(intelligence.getDescriptionAdjudication().getFinalDescription(),
-                intelligence.getDescription());
+        assertEquals("NVD original description", intelligence.getDescription());
+        assertEquals(DescriptionAdjudication.Status.NOT_RUN,
+                intelligence.getDescriptionAdjudication().getStatus());
         assertEquals(3, persisted.getSourceResults().size());
         assertEquals("NVD original description",
                 persisted.getSourceResults().get(0).getOriginalDescription());
@@ -58,7 +56,6 @@ class IntelligenceStageTest {
         assertEquals("org.example:demo", persisted.getArtifact().toGav());
         assertTrue(fixture.classifier.called);
         assertTrue(fixture.evidenceCollector.called);
-        assertTrue(fixture.adjudicator.called);
     }
 
     @Test
@@ -66,9 +63,7 @@ class IntelligenceStageTest {
         List<SourceResult> failures = Arrays.asList(
                 failed(SourceResult.Source.NVD), notFound(SourceResult.Source.GHSA),
                 failed(SourceResult.Source.OSV));
-        Fixture fixture = fixture(failures, DescriptionAdjudication.resolved(
-                false, "must not be used", "", Collections.emptyList(),
-                Collections.singletonList("E-SRC-NVD-DESC"), BigDecimal.ONE));
+        Fixture fixture = fixture(failures);
 
         StageResult result = fixture.stage.execute(fixture.context);
         CveIntelligence persisted = fixture.workspace.readStageData(CVE, 1, CveIntelligence.class);
@@ -80,12 +75,11 @@ class IntelligenceStageTest {
                 persisted.getDescriptionAdjudication().getStatus());
         assertFalse(fixture.classifier.called);
         assertFalse(fixture.evidenceCollector.called);
-        assertFalse(fixture.adjudicator.called);
     }
 
     @Test
     void classificationFailurePersistsRuleClassifiedReferencesAndNotRunAdjudication() throws Exception {
-        Fixture fixture = fixture(sourceResults(), DescriptionAdjudication.failed("unused"));
+        Fixture fixture = fixture(sourceResults());
         CveIntelligence.Article partial = classifiedArticle("patch");
         fixture.classifier.failure = new ArticleClassifier.ClassificationException(
                 "INVALID_LLM_RESPONSE", "missing ID", Collections.singletonList(partial));
@@ -101,30 +95,7 @@ class IntelligenceStageTest {
         assertFalse(fixture.evidenceCollector.called);
     }
 
-    @Test
-    void insufficientEvidenceAndAdjudicationFailureBothFailClosed() throws Exception {
-        List<DescriptionAdjudication> outcomes = Arrays.asList(
-                DescriptionAdjudication.insufficient("component unresolved",
-                        Collections.singletonList("conflict"),
-                        Collections.singletonList("E-SRC-NVD-DESC"),
-                        new BigDecimal("0.4")),
-                DescriptionAdjudication.failed("malformed response"));
-
-        for (DescriptionAdjudication outcome : outcomes) {
-            Fixture fixture = fixture(sourceResults(), outcome);
-            StageResult result = fixture.stage.execute(fixture.context);
-            CveIntelligence persisted = fixture.workspace.readStageData(
-                    CVE, 1, CveIntelligence.class);
-
-            assertFalse(result.isSuccess());
-            assertEquals("", persisted.getDescription());
-            assertEquals(outcome.getStatus(), persisted.getDescriptionAdjudication().getStatus());
-            assertEquals(outcome.getVerdict(), persisted.getDescriptionAdjudication().getVerdict());
-        }
-    }
-
-    private Fixture fixture(List<SourceResult> results, DescriptionAdjudication outcome)
-            throws Exception {
+    private Fixture fixture(List<SourceResult> results) throws Exception {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         WorkspaceManager workspace = new WorkspaceManager(tempDir.toString(), mapper);
         workspace.initCveWorkspace(CVE);
@@ -133,11 +104,10 @@ class IntelligenceStageTest {
         FakeSourceCollector sourceCollector = new FakeSourceCollector(results);
         FakeArticleClassifier classifier = new FakeArticleClassifier();
         FakeEvidenceCollector evidenceCollector = new FakeEvidenceCollector();
-        FakeAdjudicator adjudicator = new FakeAdjudicator(outcome);
         IntelligenceStage stage = new IntelligenceStage(
                 namedSources(), sourceCollector, classifier, evidenceCollector,
-                adjudicator, new IntelligenceAssembler());
-        return new Fixture(stage, context, workspace, classifier, evidenceCollector, adjudicator);
+                new IntelligenceAssembler());
+        return new Fixture(stage, context, workspace, classifier, evidenceCollector);
     }
 
     private List<SourceResult> sourceResults() {
@@ -208,17 +178,15 @@ class IntelligenceStageTest {
         private final WorkspaceManager workspace;
         private final FakeArticleClassifier classifier;
         private final FakeEvidenceCollector evidenceCollector;
-        private final FakeAdjudicator adjudicator;
 
         private Fixture(IntelligenceStage stage, PipelineContext context,
                         WorkspaceManager workspace, FakeArticleClassifier classifier,
-                        FakeEvidenceCollector evidenceCollector, FakeAdjudicator adjudicator) {
+                        FakeEvidenceCollector evidenceCollector) {
             this.stage = stage;
             this.context = context;
             this.workspace = workspace;
             this.classifier = classifier;
             this.evidenceCollector = evidenceCollector;
-            this.adjudicator = adjudicator;
         }
     }
 
@@ -277,20 +245,4 @@ class IntelligenceStageTest {
         }
     }
 
-    private class FakeAdjudicator extends DescriptionAdjudicator {
-        private final DescriptionAdjudication outcome;
-        private boolean called;
-
-        private FakeAdjudicator(DescriptionAdjudication outcome) {
-            super(noOpLlm(), new PromptRegistry(), new ObjectMapper());
-            this.outcome = outcome;
-        }
-
-        @Override
-        public DescriptionAdjudication adjudicate(String cveId,
-                List<SourceResult> sources, List<EvidenceResult> evidence) {
-            called = true;
-            return outcome;
-        }
-    }
 }

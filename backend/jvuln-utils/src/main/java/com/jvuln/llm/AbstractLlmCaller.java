@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jvuln.llm.impl.LlmConfigProvider;
 import com.jvuln.llm.util.HttpUtil;
+import com.jvuln.util.RequestLogContext;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -125,6 +126,7 @@ abstract class AbstractLlmCaller implements LlmProtocolCaller {
         HttpClient httpClient = HttpClient.create().responseTimeout(Duration.ofSeconds(300));
         WebClient.Builder builder = WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .filter(RequestLogContext.llmRequestFilter(model, endpointPath))
                 .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(10 * 1024 * 1024));
         if (messagesHeaders) {
             builder.defaultHeader("anthropic-version", "2023-06-01");

@@ -274,11 +274,14 @@ File: `jvuln-llm/.../LlmRequest.java`
 
 Supports three modes via factory methods:
 
-| Mode | Factory | temperature | maxTokens | jsonMode | tools |
-|------|---------|-------------|-----------|----------|-------|
-| Reasoning (Stages 1-4) | `reasoning(sys, user)` | 0.1 | 8192 | true | none |
-| Generation | `generation(sys, user)` | 0.3 | 16384 | false | none |
-| Agent (Stage 5) | `agent(sys, messages, tools)` | 0.3 | 16384 | false | provided |
+| Mode | Factory | jsonMode | tools |
+|------|---------|----------|-------|
+| Reasoning (Stages 1-4) | `reasoning(sys, user)` | true | none |
+| Generation | `generation(sys, user)` | false | none |
+| Agent (Stage 5) | `agent(sys, messages, tools)` | false | provided |
+
+Every provider payload uses the same defaults: `temperature=0.0` and a
+65,536-token output limit.
 
 Key extension for tool-use: `Message.content` is `Object` (can be `String` or `List<ContentBlock>`). Classes: `ToolDef`, `ContentBlock` (text/tool_use/tool_result).
 
@@ -386,8 +389,6 @@ provider_type VARCHAR(30)          -- "anthropic" | "openai-compat"
 base_url     VARCHAR(500)
 api_key      VARCHAR(500)
 model        VARCHAR(100)
-temperature  DOUBLE (default 0.1)
-max_tokens   INT (default 8192)
 active       BOOLEAN (only one row should be true)
 ```
 

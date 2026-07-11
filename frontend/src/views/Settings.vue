@@ -22,8 +22,6 @@ const emptyForm = (): Omit<LlmConfig, 'id' | 'active'> => ({
   apiKey: '',
   model: '',
   endpoint: '/v1/chat/completions',
-  temperature: 0.1,
-  maxTokens: 8192,
 })
 
 const form = ref(emptyForm())
@@ -56,8 +54,6 @@ const openEdit = (cfg: LlmConfig) => {
     apiKey: cfg.apiKey ?? '',
     model: cfg.model ?? '',
     endpoint: cfg.endpoint ?? '/v1/chat/completions',
-    temperature: cfg.temperature ?? 0.1,
-    maxTokens: cfg.maxTokens ?? 8192,
   }
   dialogVisible.value = true
 }
@@ -363,16 +359,6 @@ onMounted(() => {
           <el-input v-model="form.model" :placeholder="t('settings.modelPlaceholder')" />
         </el-form-item>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
-          <el-form-item :label="t('settings.temperature')">
-            <el-input-number v-model="form.temperature" :min="0" :max="2" :step="0.05" :precision="2"
-              style="width:100%" />
-          </el-form-item>
-          <el-form-item :label="t('settings.maxTokens')">
-            <el-input-number v-model="form.maxTokens" :min="512" :max="128000" :step="1024"
-              style="width:100%" />
-          </el-form-item>
-        </div>
       </el-form>
 
       <template #footer>

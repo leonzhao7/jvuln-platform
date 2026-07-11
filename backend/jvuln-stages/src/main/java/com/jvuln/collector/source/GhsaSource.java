@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.llm.util.HttpUtil;
 import com.jvuln.store.model.CveIntelligence;
 import com.jvuln.store.model.SourceData;
+import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,7 +35,8 @@ public class GhsaSource implements IntelSource {
     public GhsaSource(@Value("${jvuln.github.token:}") String token) {
         HttpClient httpClient = HttpClient.create().responseTimeout(REQUEST_TIMEOUT);
         WebClient.Builder builder = WebClient.builder().baseUrl("https://api.github.com")
-                .clientConnector(new ReactorClientHttpConnector(httpClient));
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .filter(RequestLogContext.webRequestFilter());
         if (token != null && !token.trim().isEmpty()) {
             builder.defaultHeader("Authorization", "Bearer " + token);
         }

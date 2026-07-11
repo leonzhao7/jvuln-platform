@@ -2,6 +2,7 @@ package com.jvuln.patcher.strategy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,6 +40,7 @@ public class CveCommitSearchStrategy implements LocateStrategy {
                 .baseUrl("https://api.github.com")
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(5 * 1024 * 1024))
+                .filter(RequestLogContext.webRequestFilter())
                 .defaultHeader("User-Agent", "JVuln-Platform/1.0");
         if (token != null && !token.trim().isEmpty()) {
             builder.defaultHeader("Authorization", "Bearer " + token);

@@ -74,8 +74,7 @@ public class MessagesCaller extends AbstractLlmCaller {
         PromptContext prompts = call.getPromptContext();
         ObjectNode body = mapper.createObjectNode();
         body.put("model", model);
-        body.put("max_tokens", request.getMaxTokens());
-        body.put("temperature", request.getTemperature());
+        LlmRequestDefaults.apply(body, "max_tokens");
         body.put("stream", stream);
         body.set("system", buildSystem(prompts));
         addTools(body, request);

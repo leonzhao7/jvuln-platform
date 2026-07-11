@@ -7,6 +7,7 @@ import com.jvuln.service.AnalysisQueryService;
 import com.jvuln.service.AnalysisStatusSyncService;
 import com.jvuln.store.CveTaskRepository;
 import com.jvuln.store.StageRecordRepository;
+import com.jvuln.store.WorkspaceManager;
 import com.jvuln.store.entity.CveTask;
 import com.jvuln.store.entity.StageRecord;
 import org.springframework.http.ResponseEntity;
@@ -26,16 +27,19 @@ public class AnalysisController {
     private final StageRecordRepository stageRepo;
     private final AnalysisQueryService analysisQueryService;
     private final AnalysisStatusSyncService analysisStatusSyncService;
+    private final WorkspaceManager workspaceManager;
 
     public AnalysisController(PipelineEngine pipelineEngine, CveTaskRepository taskRepo,
                               StageRecordRepository stageRepo,
                               AnalysisQueryService analysisQueryService,
-                              AnalysisStatusSyncService analysisStatusSyncService) {
+                              AnalysisStatusSyncService analysisStatusSyncService,
+                              WorkspaceManager workspaceManager) {
         this.pipelineEngine = pipelineEngine;
         this.taskRepo = taskRepo;
         this.stageRepo = stageRepo;
         this.analysisQueryService = analysisQueryService;
         this.analysisStatusSyncService = analysisStatusSyncService;
+        this.workspaceManager = workspaceManager;
     }
 
     @PostMapping
@@ -183,10 +187,22 @@ public class AnalysisController {
 
     @DeleteMapping("/{cveId}")
     public ResponseEntity<?> deleteAnalysis(@PathVariable String cveId) {
-        taskRepo.findByCveId(cveId).ifPresent(task -> {
-            stageRepo.findByCveIdOrderByStageNum(cveId).forEach(stageRepo::delete);
-            taskRepo.delete(task);
-        });
+        CveTask task = taskRepo.findByCveId(cveId).orElse(null);
+        if (task == null) {
+            return ResponseEntity.noContent().build();
+        }
+        if (pipelineEngine.isRunning(cveId)) {
+            return ApiResponseFactory.conflict("Analysis is currently running for " + cveId);
+        }
+        try {
+            workspaceManager.deleteCveWorkspace(cveId);
+        } catch (IOException e) {
+            return ApiResponseFactory.internalServerError(
+                    "Failed to delete workspace: " + e.getMessage());
+        }
+        stageRepo.findByCveIdOrderByStageNum(cveId).forEach(stageRepo::delete);
+        taskRepo.delete(task);
+        pipelineEngine.clearProgress(cveId);
         return ResponseEntity.noContent().build();
     }
 

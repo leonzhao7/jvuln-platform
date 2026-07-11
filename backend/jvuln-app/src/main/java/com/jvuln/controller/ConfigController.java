@@ -184,8 +184,6 @@ public class ConfigController {
         cfg.setBaseUrl(incoming.getBaseUrl());
         cfg.setModel(incoming.getModel());
         cfg.setEndpoint(endpoint);
-        cfg.setTemperature(incoming.getTemperature() != null ? incoming.getTemperature() : 0.1);
-        cfg.setMaxTokens(incoming.getMaxTokens() != null ? incoming.getMaxTokens() : 8192);
         if (incoming.getApiKey() != null && !incoming.getApiKey().equals("••••••••")) {
             cfg.setApiKey(incoming.getApiKey());
         }
@@ -198,8 +196,6 @@ public class ConfigController {
         copy.setBaseUrl(src.getBaseUrl());
         copy.setModel(src.getModel());
         copy.setEndpoint(src.getEndpoint());
-        copy.setTemperature(src.getTemperature());
-        copy.setMaxTokens(src.getMaxTokens());
         copy.setActive(src.isActive());
         copy.setApiKey(src.getApiKey() != null && !src.getApiKey().isEmpty() ? "••••••••" : "");
         return copy;

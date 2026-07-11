@@ -72,8 +72,7 @@ public class ResponsesCaller extends AbstractLlmCaller {
         ObjectNode body = mapper.createObjectNode();
         body.put("model", model);
         body.put("instructions", prompts.getGlobalPrompt());
-        body.put("temperature", request.getTemperature());
-        body.put("max_output_tokens", request.getMaxTokens());
+        LlmRequestDefaults.apply(body, "max_output_tokens");
         body.put("stream", stream);
         addTextFormat(body, request);
         addTools(body, request);

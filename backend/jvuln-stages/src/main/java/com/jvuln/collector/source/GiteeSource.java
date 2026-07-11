@@ -3,6 +3,7 @@ package com.jvuln.collector.source;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.store.model.CveIntelligence;
+import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -46,6 +47,7 @@ public class GiteeSource implements IntelSource {
                 .exchangeStrategies(ExchangeStrategies.builder()
                         .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(MAX_IN_MEMORY_SIZE))
                         .build())
+                .filter(RequestLogContext.webRequestFilter())
                 .defaultHeader("User-Agent", "JVuln-Platform/1.0")
                 .build();
     }

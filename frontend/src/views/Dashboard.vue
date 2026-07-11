@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, type CveTask } from '../api'
 import { useI18n } from '../i18n'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -18,8 +19,12 @@ const load = async () => {
 onMounted(load)
 
 const deleteTask = async (cveId: string) => {
-  await api.deleteTask(cveId)
-  await load()
+  try {
+    await api.deleteTask(cveId)
+    await load()
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error ?? t('dashboard.deleteFailed'))
+  }
 }
 
 const cvssClass = (score: number) => {

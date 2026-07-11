@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.store.model.CveIntelligence;
 import com.jvuln.store.model.SourceData;
+import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,7 +32,8 @@ public class NvdSource implements IntelSource {
         HttpClient httpClient = HttpClient.create().responseTimeout(REQUEST_TIMEOUT);
         WebClient.Builder builder = WebClient.builder()
                 .baseUrl("https://services.nvd.nist.gov/rest/json/cves/2.0")
-                .clientConnector(new ReactorClientHttpConnector(httpClient));
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .filter(RequestLogContext.webRequestFilter());
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             builder.defaultHeader("apiKey", apiKey);
         }

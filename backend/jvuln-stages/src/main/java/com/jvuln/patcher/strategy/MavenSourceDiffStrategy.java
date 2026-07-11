@@ -2,6 +2,7 @@ package com.jvuln.patcher.strategy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -63,6 +64,7 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
         this.webClient = WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(30 * 1024 * 1024))
+                .filter(RequestLogContext.webRequestFilter())
                 .defaultHeader("User-Agent", "JVuln-Platform/1.0")
                 .build();
     }

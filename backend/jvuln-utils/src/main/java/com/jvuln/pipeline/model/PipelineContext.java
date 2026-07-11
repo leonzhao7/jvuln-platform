@@ -17,6 +17,7 @@ public class PipelineContext {
     private final Map<Integer, StageResult> completedStages = new ConcurrentHashMap<>();
     private Consumer<StageProgress> progressCallback;
     private int fromStage = 1;
+    private int currentStage;
 
     public PipelineContext(String cveId, Path workspacePath, LlmClient llmClient,
                            WorkspaceManager workspaceManager) {
@@ -38,10 +39,11 @@ public class PipelineContext {
 
     public void reportProgress(String message) {
         if (progressCallback != null) {
-            progressCallback.accept(new StageProgress("progress", 0, message));
+            progressCallback.accept(new StageProgress("progress", currentStage, message));
         }
     }
 
     public int getFromStage() { return fromStage; }
     public void setFromStage(int fromStage) { this.fromStage = fromStage; }
+    public void setCurrentStage(int currentStage) { this.currentStage = currentStage; }
 }

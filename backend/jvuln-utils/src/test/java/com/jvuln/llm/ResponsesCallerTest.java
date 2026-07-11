@@ -44,6 +44,9 @@ class ResponsesCallerTest {
         assertEquals("/v1/responses", server.getLastPath());
         JsonNode body = mapper.readTree(server.getLastBody());
         assertEquals("global", body.path("instructions").asText());
+        assertEquals(0.0, body.path("temperature").asDouble());
+        assertEquals(65536, body.path("max_output_tokens").asInt());
+        assertFalse(body.has("reasoning"));
         assertInputMessage(body, 0, "developer", "input_text", "stage");
         assertInputMessage(body, 1, "user", "input_text", "task");
         assertEquals("message", body.path("input").path(2).path("type").asText());
@@ -56,7 +59,6 @@ class ResponsesCallerTest {
         assertEquals("lookup", body.path("tools").path(0).path("name").asText());
         assertTrue(body.path("tools").path(0).has("parameters"));
         assertFalse(body.path("tools").path(0).has("function"));
-        assertEquals(4096, body.path("max_output_tokens").asInt());
         assertEquals("json_object", body.path("text").path("format").path("type").asText());
 
         assertEquals("answer", response.getContent());
@@ -128,7 +130,7 @@ class ResponsesCallerTest {
         LlmRequest.ToolDef tool = new LlmRequest.ToolDef("lookup", "Look up a record",
                 Collections.<String, Object>singletonMap("type", "object"));
         LlmRequest request = new LlmRequest(LlmPromptStage.REASONING, "task", messages,
-                0.2, 4096, true, Collections.singletonList(tool), "auto");
+                true, Collections.singletonList(tool), "auto");
         return new LlmCall(request, new PromptContext("global", "stage"));
     }
 

@@ -25,20 +25,17 @@ public class IntelligenceStage implements Stage {
     private final SourceCollector sourceCollector;
     private final ArticleClassifier articleClassifier;
     private final EvidenceCollector evidenceCollector;
-    private final DescriptionAdjudicator descriptionAdjudicator;
     private final IntelligenceAssembler assembler;
 
     public IntelligenceStage(List<IntelSource> sources,
                              SourceCollector sourceCollector,
                              ArticleClassifier articleClassifier,
                              EvidenceCollector evidenceCollector,
-                             DescriptionAdjudicator descriptionAdjudicator,
                              IntelligenceAssembler assembler) {
         this.sources = supportedSources(sources);
         this.sourceCollector = sourceCollector;
         this.articleClassifier = articleClassifier;
         this.evidenceCollector = evidenceCollector;
-        this.descriptionAdjudicator = descriptionAdjudicator;
         this.assembler = assembler;
     }
 
@@ -91,23 +88,9 @@ public class IntelligenceStage implements Stage {
             return persistFailure(context, partial, message);
         }
 
-        DescriptionAdjudication adjudication;
-        try {
-            adjudication = descriptionAdjudicator.adjudicate(cveId, sourceResults, evidence);
-        } catch (Exception e) {
-            adjudication = DescriptionAdjudication.failed(errorMessage(e, 500));
-        }
-        if (adjudication == null) {
-            adjudication = DescriptionAdjudication.failed("Adjudicator returned no result");
-        }
-        if (!adjudication.isResolved()) {
-            String message = failureMessage(adjudication);
-            CveIntelligence partial = draft.toIntelligence("", classified, evidence, adjudication);
-            return persistFailure(context, partial, message);
-        }
-
         CveIntelligence complete = draft.toIntelligence(
-                adjudication.getFinalDescription(), classified, evidence, adjudication);
+                draft.getDescription(), classified, evidence,
+                DescriptionAdjudication.notRun(""));
         context.getWorkspaceManager().writeStageData(cveId, number(), complete);
         return StageResult.success(number(), name(), complete);
     }
@@ -117,16 +100,6 @@ public class IntelligenceStage implements Stage {
         context.getWorkspaceManager().writeStageData(
                 context.getCveId(), number(), partial);
         return StageResult.failure(number(), name(), message);
-    }
-
-    private String failureMessage(DescriptionAdjudication adjudication) {
-        if (!adjudication.getErrorMessage().trim().isEmpty()) {
-            return adjudication.getErrorMessage();
-        }
-        if (!adjudication.getReason().trim().isEmpty()) {
-            return adjudication.getReason();
-        }
-        return "Description adjudication did not resolve the CVE";
     }
 
     private List<IntelSource> supportedSources(List<IntelSource> configured) {

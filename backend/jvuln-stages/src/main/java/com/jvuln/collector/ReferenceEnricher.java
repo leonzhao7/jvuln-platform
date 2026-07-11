@@ -3,6 +3,7 @@ package com.jvuln.collector;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.store.model.CveIntelligence;
+import com.jvuln.util.RequestLogContext;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -66,6 +67,7 @@ public class ReferenceEnricher implements DisposableBean {
                 .baseUrl("https://api.github.com")
                 .clientConnector(new ReactorClientHttpConnector(reactorClient))
                 .defaultHeader("User-Agent", "JVuln-Platform/1.0")
+                .filter(RequestLogContext.webRequestFilter())
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(5 * 1024 * 1024));
         if (token != null && !token.trim().isEmpty()) {
             apiBuilder.defaultHeader("Authorization", "Bearer " + token.trim());
@@ -75,6 +77,7 @@ public class ReferenceEnricher implements DisposableBean {
         this.httpClient = WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(reactorClient))
                 .defaultHeader("User-Agent", "JVuln-Platform/1.0")
+                .filter(RequestLogContext.webRequestFilter())
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(5 * 1024 * 1024))
                 .build();
     }

@@ -98,8 +98,6 @@ class ConfigControllerTest {
         config.setApiKey("secret");
         config.setModel("model");
         config.setEndpoint(endpoint);
-        config.setTemperature(0.1);
-        config.setMaxTokens(8192);
         return config;
     }
 }

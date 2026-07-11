@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jvuln.store.model.CveIntelligence;
 import com.jvuln.store.model.SourceData;
+import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -27,7 +28,8 @@ public class OsvSource implements IntelSource {
     public OsvSource() {
         HttpClient httpClient = HttpClient.create().responseTimeout(REQUEST_TIMEOUT);
         this.webClient = WebClient.builder().baseUrl("https://api.osv.dev/v1")
-                .clientConnector(new ReactorClientHttpConnector(httpClient)).build();
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .filter(RequestLogContext.webRequestFilter()).build();
     }
 
     @Override

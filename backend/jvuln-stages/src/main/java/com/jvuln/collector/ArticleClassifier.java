@@ -121,7 +121,7 @@ public class ArticleClassifier {
                     LlmPromptStage.INTELLIGENCE,
                     promptRegistry.getPrompt("current/intelligence-article-classifier"),
                     Collections.singletonList(LlmRequest.Message.user(prompt)),
-                    0.0, 8192, true);
+                    true);
             LlmResponse response = llmClient.chat(request);
             Map<String, LlmDecision> decisions = parseDecisions(
                     response == null ? null : response.getContent(), pending);

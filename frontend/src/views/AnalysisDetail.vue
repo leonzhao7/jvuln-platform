@@ -171,6 +171,7 @@ const startStream = () => {
     sseMessages.value.push(formatSseEvent(type, `${e.data ?? ''}`))
     if (type === 'pipeline_done' || type === 'error') {
       sseActive.value = false
+      evtSource?.close()
       load()
     } else if (type.startsWith('stage_')) {
       load()
@@ -182,7 +183,10 @@ const startStream = () => {
   evtSource.addEventListener('progress', handleEvent('progress'))
   evtSource.addEventListener('pipeline_done', handleEvent('pipeline_done'))
   evtSource.addEventListener('error', handleEvent('error'))
-  evtSource.onerror = () => { sseActive.value = false }
+  evtSource.onerror = () => {
+    sseActive.value = false
+    evtSource?.close()
+  }
 }
 
 const rerun = async (fromStage?: number) => {
@@ -193,7 +197,7 @@ const rerun = async (fromStage?: number) => {
 
 onMounted(async () => {
   await load()
-  if (task.value?.status === 'RUNNING') startStream()
+  startStream()
 })
 
 onUnmounted(() => evtSource?.close())

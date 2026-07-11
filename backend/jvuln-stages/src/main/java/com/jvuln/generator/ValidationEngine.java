@@ -6,6 +6,7 @@ import static com.jvuln.generator.ArtifactGenUtils.truncate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.jvuln.util.RequestLogContext;
 import org.springframework.stereotype.Component;
 
 import java.net.HttpURLConnection;
@@ -111,6 +112,7 @@ class ValidationEngine {
                 conn.setConnectTimeout(1000);
                 conn.setReadTimeout(1000);
                 conn.setRequestMethod("GET");
+                RequestLogContext.logWebRequest("GET", conn.getURL().toString());
                 int code = conn.getResponseCode();
                 conn.disconnect();
                 if (code > 0) {

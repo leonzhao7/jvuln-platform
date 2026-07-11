@@ -77,8 +77,7 @@ public class ChatCaller extends AbstractLlmCaller {
         PromptContext prompts = call.getPromptContext();
         ObjectNode body = mapper.createObjectNode();
         body.put("model", model);
-        body.put("temperature", request.getTemperature());
-        body.put("max_tokens", request.getMaxTokens());
+        LlmRequestDefaults.apply(body, "max_tokens");
         body.put("stream", stream);
         addResponseFormat(body, request);
         addTools(body, request);

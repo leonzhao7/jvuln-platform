@@ -22,8 +22,6 @@ class LlmRequestTest {
         assertSame(messages, request.getMessages());
         assertSame(tools, request.getTools());
         assertEquals("auto", request.getToolChoice());
-        assertEquals(0.3, request.getTemperature());
-        assertEquals(16384, request.getMaxTokens());
         assertFalse(request.isJsonMode());
     }
 
@@ -39,7 +37,5 @@ class LlmRequestTest {
 
         assertNull(request.getStage());
         assertEquals("diagnostic", request.getTaskPrompt());
-        assertEquals(0.0, request.getTemperature());
-        assertEquals(64, request.getMaxTokens());
     }
 }

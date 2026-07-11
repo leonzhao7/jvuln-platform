@@ -27,13 +27,12 @@ public class IntelligenceAssembler {
 
     public Draft merge(String cveId, List<SourceResult> sourceResults) {
         Draft draft = new Draft(cveId, sourceResults);
-        String sourceDescription = "";
         for (SourceResult result : sourceResults) {
             if (!result.isSuccess()) {
                 continue;
             }
             SourceData data = result.getParsedData();
-            sourceDescription = first(sourceDescription, result.getOriginalDescription());
+            draft.description = first(draft.description, result.getOriginalDescription());
             draft.cweId = first(draft.cweId, data.getCweId());
             draft.cvssScore = firstScore(draft.cvssScore, data.getCvssScore());
             draft.cvssVector = first(draft.cvssVector, data.getCvssVector());
@@ -47,7 +46,7 @@ public class IntelligenceAssembler {
             draft.fixCommits.addAll(data.getFixCommits());
             draft.articles.addAll(data.getReferences());
         }
-        applyCompatibleFallbacks(draft, sourceDescription);
+        applyCompatibleFallbacks(draft, draft.description);
         return draft;
     }
 
@@ -121,6 +120,7 @@ public class IntelligenceAssembler {
         private final String cveId;
         private final List<SourceResult> sourceResults;
         private final Instant collectedAt = Instant.now();
+        private String description = "";
         private BigDecimal cvssScore = BigDecimal.ZERO;
         private String cvssVector = "";
         private String cvssSeverity = "";
@@ -142,6 +142,10 @@ public class IntelligenceAssembler {
 
         public List<CveIntelligence.Article> getArticles() {
             return Collections.unmodifiableList(articles);
+        }
+
+        public String getDescription() {
+            return description;
         }
 
         public CveIntelligence toIntelligence(

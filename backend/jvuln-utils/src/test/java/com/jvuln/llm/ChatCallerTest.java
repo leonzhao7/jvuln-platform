@@ -43,6 +43,7 @@ class ChatCallerTest {
         assertEquals("Bearer secret", server.getLastHeader("Authorization"));
         JsonNode body = mapper.readTree(server.getLastBody());
         assertFalse(body.path("stream").asBoolean());
+        assertRequestDefaults(body, "max_tokens");
         assertMessage(body, 0, "system", "global");
         assertMessage(body, 1, "system", "stage");
         assertMessage(body, 2, "user", "task");
@@ -97,6 +98,12 @@ class ChatCallerTest {
         JsonNode message = body.path("messages").path(index);
         assertEquals(role, message.path("role").asText());
         assertEquals(content, message.path("content").asText());
+    }
+
+    private void assertRequestDefaults(JsonNode body, String maxTokensField) {
+        assertEquals(0.0, body.path("temperature").asDouble());
+        assertEquals(65536, body.path(maxTokensField).asInt());
+        assertFalse(body.has("reasoning"));
     }
 
     private boolean readStreamFlag() {

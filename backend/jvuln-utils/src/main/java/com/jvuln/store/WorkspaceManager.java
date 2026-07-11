@@ -8,8 +8,11 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.regex.Pattern;
 
 @Component
@@ -63,6 +66,31 @@ public class WorkspaceManager {
         Files.createDirectories(cvePath.resolve("references/articles"));
         Files.createDirectories(cvePath.resolve("report"));
         return cvePath;
+    }
+
+    public void deleteCveWorkspace(String cveId) throws IOException {
+        Path cvePath = getCvePath(cveId);
+        if (!Files.exists(cvePath)) {
+            return;
+        }
+        Files.walkFileTree(cvePath, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                    throws IOException {
+                Files.delete(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException error)
+                    throws IOException {
+                if (error != null) {
+                    throw error;
+                }
+                Files.delete(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 
     public Path getStageFile(String cveId, int stageNum) {

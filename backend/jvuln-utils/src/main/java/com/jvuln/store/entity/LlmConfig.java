@@ -26,12 +26,6 @@ public class LlmConfig {
     @Column(name = "endpoint", length = 100)
     private String endpoint;
 
-    @Column(name = "temperature")
-    private Double temperature = 0.1;
-
-    @Column(name = "max_tokens")
-    private Integer maxTokens = 8192;
-
     @Column(name = "active")
     private Boolean active = false;
 
@@ -47,10 +41,6 @@ public class LlmConfig {
     public void setModel(String model) { this.model = model; }
     public String getEndpoint() { return endpoint; }
     public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
-    public Double getTemperature() { return temperature; }
-    public void setTemperature(Double temperature) { this.temperature = temperature; }
-    public Integer getMaxTokens() { return maxTokens; }
-    public void setMaxTokens(Integer maxTokens) { this.maxTokens = maxTokens; }
     public boolean isActive() { return Boolean.TRUE.equals(active); }
     public void setActive(boolean active) { this.active = active; }
 
@@ -63,8 +53,6 @@ public class LlmConfig {
                 ", apiKey='***'" + // 隐藏敏感信息
                 ", model='" + model + '\'' +
                 ", endpoint='" + endpoint + '\'' +
-                ", temperature=" + temperature +
-                ", maxTokens=" + maxTokens +
                 ", active=" + active +
                 '}';
     }

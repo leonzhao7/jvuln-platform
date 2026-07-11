@@ -46,6 +46,9 @@ class MessagesCallerTest {
         assertEquals("Bearer secret", server.getLastHeader("Authorization"));
         JsonNode body = readBody();
         assertFalse(body.path("stream").asBoolean());
+        assertEquals(0.0, body.path("temperature").asDouble());
+        assertEquals(65536, body.path("max_tokens").asInt());
+        assertFalse(body.has("reasoning"));
         assertEquals("global", body.path("system").path(0).path("text").asText());
         assertEquals("stage", body.path("system").path(1).path("text").asText());
         JsonNode firstMessage = body.path("messages").path(0);

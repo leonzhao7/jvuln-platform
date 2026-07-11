@@ -14,6 +14,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 import static com.jvuln.util.ValueUtils.errorMessage;
+import com.jvuln.util.RequestLogContext;
 
 @Component
 public class SecureEvidenceFetcher implements EvidencePageFetcher {
@@ -53,6 +54,7 @@ public class SecureEvidenceFetcher implements EvidencePageFetcher {
                 current = urlPolicy.requirePublic(current.toString());
                 HttpURLConnection connection = open(current.toURL());
                 try {
+                    RequestLogContext.logWebRequest("GET", current.toString());
                     int status = connection.getResponseCode();
                     if (isRedirect(status)) {
                         if (redirect == maxRedirects) {

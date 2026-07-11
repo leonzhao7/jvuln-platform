@@ -9,33 +9,27 @@ public class LlmRequest {
     private final LlmPromptStage stage;
     private final String taskPrompt;
     private final List<Message> messages;
-    private final double temperature;
-    private final int maxTokens;
     private final boolean jsonMode;
     private final List<ToolDef> tools;
     private final String toolChoice;
 
     public LlmRequest(LlmPromptStage stage, String taskPrompt, List<Message> messages,
-                      double temperature, int maxTokens, boolean jsonMode) {
-        this(requireStage(stage), taskPrompt, messages,
-                temperature, maxTokens, jsonMode, null, null);
+                      boolean jsonMode) {
+        this(requireStage(stage), taskPrompt, messages, jsonMode, null, null);
     }
 
     public LlmRequest(LlmPromptStage stage, String taskPrompt, List<Message> messages,
-                      double temperature, int maxTokens, boolean jsonMode,
+                      boolean jsonMode,
                       List<ToolDef> tools, String toolChoice) {
-        this(stage, taskPrompt, messages, temperature, maxTokens, jsonMode,
-                tools, toolChoice, false);
+        this(stage, taskPrompt, messages, jsonMode, tools, toolChoice, false);
     }
 
     private LlmRequest(LlmPromptStage stage, String taskPrompt,
-                       List<Message> messages, double temperature, int maxTokens, boolean jsonMode,
+                       List<Message> messages, boolean jsonMode,
                        List<ToolDef> tools, String toolChoice, boolean allowMissingStage) {
         this.stage = allowMissingStage ? stage : requireStage(stage);
         this.taskPrompt = taskPrompt;
         this.messages = messages;
-        this.temperature = temperature;
-        this.maxTokens = maxTokens;
         this.jsonMode = jsonMode;
         this.tools = tools;
         this.toolChoice = toolChoice;
@@ -44,7 +38,7 @@ public class LlmRequest {
     public static LlmRequest reasoning(LlmPromptStage stage, String taskPrompt,
                                        String userContent) {
         return new LlmRequest(stage, taskPrompt,
-                Collections.singletonList(Message.user(userContent)), 0.1, 8192, true);
+                Collections.singletonList(Message.user(userContent)), true);
     }
 
     /**
@@ -52,32 +46,29 @@ public class LlmRequest {
      */
     public static LlmRequest diagnostic(String taskPrompt, String userContent) {
         return new LlmRequest(null, taskPrompt,
-                Collections.singletonList(Message.user(userContent)), 0.0, 64, false,
-                null, null, true);
+                Collections.singletonList(Message.user(userContent)), false, null, null, true);
     }
 
     public static LlmRequest generation(LlmPromptStage stage, String taskPrompt,
                                         String userContent) {
         return new LlmRequest(stage, taskPrompt,
-                Collections.singletonList(Message.user(userContent)), 0.3, 16384, false);
+                Collections.singletonList(Message.user(userContent)), false);
     }
 
     public static LlmRequest generation(LlmPromptStage stage, String taskPrompt,
                                         List<Message> messages) {
-        return new LlmRequest(stage, taskPrompt, messages, 0.3, 16384, false);
+        return new LlmRequest(stage, taskPrompt, messages, false);
     }
 
     public static LlmRequest agent(LlmPromptStage stage, String taskPrompt,
                                    List<Message> messages, List<ToolDef> tools) {
         return new LlmRequest(stage, taskPrompt, messages,
-                0.3, 16384, false, tools, "auto");
+                false, tools, "auto");
     }
 
     public LlmPromptStage getStage() { return stage; }
     public String getTaskPrompt() { return taskPrompt; }
     public List<Message> getMessages() { return messages; }
-    public double getTemperature() { return temperature; }
-    public int getMaxTokens() { return maxTokens; }
     public boolean isJsonMode() { return jsonMode; }
     public List<ToolDef> getTools() { return tools; }
     public String getToolChoice() { return toolChoice; }

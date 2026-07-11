@@ -95,8 +95,6 @@ export interface LlmConfig {
   apiKey: string
   model: string
   endpoint: '/v1/chat/completions' | '/v1/responses' | '/v1/messages'
-  temperature: number
-  maxTokens: number
   active: boolean
 }
 

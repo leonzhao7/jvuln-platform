@@ -8,6 +8,7 @@ import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
 import com.jvuln.llm.PromptRegistry;
 import com.jvuln.patcher.strategy.LocateStrategy.PatchResult;
+import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,6 +58,7 @@ public class AiPatchSearchStrategy {
                 .baseUrl("https://api.github.com")
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(5 * 1024 * 1024))
+                .filter(RequestLogContext.webRequestFilter())
                 .defaultHeader("User-Agent", "JVuln-Platform/1.0");
         if (token != null && !token.trim().isEmpty()) {
             builder.defaultHeader("Authorization", "Bearer " + token);
