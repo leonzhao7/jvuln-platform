@@ -1,41 +1,45 @@
 package com.jvuln.collector;
 
-import com.jvuln.store.model.CveIntelligence;
 import com.jvuln.collector.source.IntelSource;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageResult;
 import com.jvuln.pipeline.stage.Stage;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.jvuln.store.model.CveIntelligence;
+import com.jvuln.store.model.DescriptionAdjudication;
+import com.jvuln.store.model.EvidenceResult;
+import com.jvuln.store.model.SourceResult;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+
+import static com.jvuln.util.ValueUtils.errorMessage;
 
 @Component
 public class IntelligenceStage implements Stage {
 
-    private static final Logger log = LoggerFactory.getLogger(IntelligenceStage.class);
-    private static final int SOURCE_STAGE_TIMEOUT_SECONDS = 45;
-    private static final Pattern DESCRIPTION_COMPONENT_PATTERN =
-            Pattern.compile("^([a-zA-Z0-9_.-]+)\\s+v?\\d+(?:\\.\\d+)+", Pattern.CASE_INSENSITIVE);
-    private static final Pattern DESCRIPTION_AFFECTED_PATTERN =
-            Pattern.compile("v?(\\d+(?:\\.\\d+)+)\\s+and below", Pattern.CASE_INSENSITIVE);
     private final List<IntelSource> sources;
-    private final ReferenceEnricher referenceEnricher;
+    private final SourceCollector sourceCollector;
     private final ArticleClassifier articleClassifier;
-    private final DescriptionCorrector descriptionCorrector;
+    private final EvidenceCollector evidenceCollector;
+    private final DescriptionAdjudicator descriptionAdjudicator;
+    private final IntelligenceAssembler assembler;
 
-    public IntelligenceStage(List<IntelSource> sources, ReferenceEnricher referenceEnricher,
-                             ArticleClassifier articleClassifier, DescriptionCorrector descriptionCorrector) {
-        this.sources = sources;
-        this.referenceEnricher = referenceEnricher;
+    public IntelligenceStage(List<IntelSource> sources,
+                             SourceCollector sourceCollector,
+                             ArticleClassifier articleClassifier,
+                             EvidenceCollector evidenceCollector,
+                             DescriptionAdjudicator descriptionAdjudicator,
+                             IntelligenceAssembler assembler) {
+        this.sources = supportedSources(sources);
+        this.sourceCollector = sourceCollector;
         this.articleClassifier = articleClassifier;
-        this.descriptionCorrector = descriptionCorrector;
+        this.evidenceCollector = evidenceCollector;
+        this.descriptionAdjudicator = descriptionAdjudicator;
+        this.assembler = assembler;
     }
 
     @Override
@@ -45,263 +49,104 @@ public class IntelligenceStage implements Stage {
     public String name() { return "Intelligence Collection"; }
 
     @Override
-    public StageResult execute(PipelineContext ctx) throws Exception {
-        String cveId = ctx.getCveId();
-        ctx.reportProgress("Starting intelligence collection from " + sources.size() + " sources");
+    public StageResult execute(PipelineContext context) throws Exception {
+        String cveId = context.getCveId();
+        context.reportProgress("Collecting NVD, GHSA, and OSV intelligence concurrently");
+        List<SourceResult> sourceResults = sourceCollector.collect(cveId, sources);
+        IntelligenceAssembler.Draft draft = assembler.merge(cveId, sourceResults);
+        long successCount = sourceResults.stream().filter(SourceResult::isSuccess).count();
+        context.reportProgress("Collected from " + successCount + "/" + sources.size()
+                + " public intelligence sources");
 
-        ExecutorService executor = Executors.newFixedThreadPool(sources.size());
-        List<Future<IntelSource.IntelFragment>> futures = new ArrayList<>();
-        List<IntelSource> scheduledSources = new ArrayList<>();
-
-        for (final IntelSource source : sources) {
-            scheduledSources.add(source);
-            futures.add(executor.submit(new Callable<IntelSource.IntelFragment>() {
-                @Override
-                public IntelSource.IntelFragment call() {
-                    try {
-                        IntelSource.IntelFragment fragment = source.collect(cveId);
-                        ctx.reportProgress("Source " + source.name() + " completed"
-                                + (fragment.isSuccess() ? "" : " with no usable match"));
-                        return fragment;
-                    } catch (Exception e) {
-                        log.warn("Source {} failed: {}", source.name(), e.getMessage());
-                        ctx.reportProgress("Source " + source.name() + " failed: " + e.getMessage());
-                        return failedFragment(source, e.getMessage());
-                    }
-                }
-            }));
+        if (successCount == 0) {
+            String message = "No public intelligence source succeeded";
+            CveIntelligence partial = draft.toIntelligence("", Collections.emptyList(),
+                    Collections.emptyList(), DescriptionAdjudication.notRun(message));
+            return persistFailure(context, partial, message);
         }
 
+        List<CveIntelligence.Article> classified;
         try {
-            executor.shutdown();
-            boolean finished = executor.awaitTermination(SOURCE_STAGE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            if (!finished) {
-                log.warn("IntelligenceStage timed out after {}s for {}", SOURCE_STAGE_TIMEOUT_SECONDS, cveId);
-                ctx.reportProgress("Intelligence collection timed out after " + SOURCE_STAGE_TIMEOUT_SECONDS
-                        + "s; cancelling slow sources");
-                executor.shutdownNow();
-            }
-        } finally {
-            // 确保在任何情况下都关闭线程池
-            if (!executor.isShutdown()) {
-                executor.shutdownNow();
-            }
+            classified = articleClassifier.classifyAndDeduplicate(
+                    draft.getArticles(), cveId);
+        } catch (ArticleClassifier.ClassificationException e) {
+            String message = e.getCode() + ": " + e.getMessage();
+            CveIntelligence partial = draft.toIntelligence("", e.getPartialArticles(),
+                    Collections.emptyList(), DescriptionAdjudication.notRun(message));
+            return persistFailure(context, partial, message);
+        } catch (Exception e) {
+            String message = "Reference classification failed: " + errorMessage(e, 500);
+            CveIntelligence partial = draft.toIntelligence("", Collections.emptyList(),
+                    Collections.emptyList(), DescriptionAdjudication.notRun(message));
+            return persistFailure(context, partial, message);
         }
 
-        List<IntelSource.IntelFragment> fragments = new ArrayList<>();
-        for (int i = 0; i < futures.size(); i++) {
-            Future<IntelSource.IntelFragment> f = futures.get(i);
-            IntelSource source = scheduledSources.get(i);
-            try {
-                if (!f.isDone()) {
-                    f.cancel(true);
-                    String message = "Timed out after " + SOURCE_STAGE_TIMEOUT_SECONDS + "s";
-                    log.warn("Source {} did not finish for {}: {}", source.name(), cveId, message);
-                    fragments.add(failedFragment(source, message));
-                    continue;
+        List<EvidenceResult> evidence;
+        try {
+            evidence = evidenceCollector.collect(sourceResults, classified);
+        } catch (Exception e) {
+            String message = "Evidence collection failed: " + errorMessage(e, 500);
+            CveIntelligence partial = draft.toIntelligence("", classified,
+                    Collections.emptyList(), DescriptionAdjudication.notRun(message));
+            return persistFailure(context, partial, message);
+        }
+
+        DescriptionAdjudication adjudication;
+        try {
+            adjudication = descriptionAdjudicator.adjudicate(cveId, sourceResults, evidence);
+        } catch (Exception e) {
+            adjudication = DescriptionAdjudication.failed(errorMessage(e, 500));
+        }
+        if (adjudication == null) {
+            adjudication = DescriptionAdjudication.failed("Adjudicator returned no result");
+        }
+        if (!adjudication.isResolved()) {
+            String message = failureMessage(adjudication);
+            CveIntelligence partial = draft.toIntelligence("", classified, evidence, adjudication);
+            return persistFailure(context, partial, message);
+        }
+
+        CveIntelligence complete = draft.toIntelligence(
+                adjudication.getFinalDescription(), classified, evidence, adjudication);
+        context.getWorkspaceManager().writeStageData(cveId, number(), complete);
+        return StageResult.success(number(), name(), complete);
+    }
+
+    private StageResult persistFailure(PipelineContext context,
+                                       CveIntelligence partial, String message) throws Exception {
+        context.getWorkspaceManager().writeStageData(
+                context.getCveId(), number(), partial);
+        return StageResult.failure(number(), name(), message);
+    }
+
+    private String failureMessage(DescriptionAdjudication adjudication) {
+        if (!adjudication.getErrorMessage().trim().isEmpty()) {
+            return adjudication.getErrorMessage();
+        }
+        if (!adjudication.getReason().trim().isEmpty()) {
+            return adjudication.getReason();
+        }
+        return "Description adjudication did not resolve the CVE";
+    }
+
+    private List<IntelSource> supportedSources(List<IntelSource> configured) {
+        List<IntelSource> result = new ArrayList<>();
+        if (configured != null) {
+            for (IntelSource source : configured) {
+                if (source != null && sourceOrder(source.name()) < 3) {
+                    result.add(source);
                 }
-                fragments.add(f.get(1, TimeUnit.SECONDS));
-            } catch (CancellationException e) {
-                String message = "Cancelled after stage timeout";
-                log.warn("Source {} cancelled for {}: {}", source.name(), cveId, message);
-                fragments.add(failedFragment(source, message));
-            } catch (TimeoutException e) {
-                f.cancel(true);
-                String message = "Timed out while collecting result";
-                log.warn("Source {} timed out while retrieving result for {}", source.name(), cveId);
-                fragments.add(failedFragment(source, message));
-            } catch (Exception e) {
-                log.warn("Fragment retrieval failed for {}: {}", source.name(), e.getMessage());
-                fragments.add(failedFragment(source, e.getMessage()));
             }
         }
-
-        CveIntelligence intel = merge(cveId, fragments);
-        ctx.getWorkspaceManager().writeStageData(cveId, 1, intel);
-
-        long successCount = 0;
-        for (IntelSource.IntelFragment f : fragments) {
-            if (f.isSuccess()) successCount++;
-        }
-        ctx.reportProgress("Collected from " + successCount + "/" + sources.size() + " sources");
-
-        return StageResult.success(1, name(), intel);
+        result.sort(Comparator.comparingInt(source -> sourceOrder(source.name())));
+        return Collections.unmodifiableList(result);
     }
 
-    private IntelSource.IntelFragment failedFragment(IntelSource source, String message) {
-        return new IntelSource.IntelFragment(
-                source.name(), false, "", "", "", "", "", "", "", "", "", "",
-                Collections.<String>emptyList(),
-                Collections.<CveIntelligence.Article>emptyList(),
-                message == null ? "" : message);
-    }
-
-    private CveIntelligence merge(String cveId, List<IntelSource.IntelFragment> fragments) {
-        String description = "";
-        String cweId = "";
-        BigDecimal cvssScore = BigDecimal.ZERO;
-        String cvssSeverity = "";
-        String groupId = "";
-        String artifactId = "";
-        String affectedFrom = "";
-        String affectedTo = "";
-        String fixedVersion = "";
-        String sourceRepo = "";
-        Set<String> fixCommits = new LinkedHashSet<>();
-        List<CveIntelligence.Article> allArticles = new ArrayList<>();
-
-        for (IntelSource.IntelFragment f : fragments) {
-            if (!f.isSuccess()) continue;
-
-            if (description.isEmpty() && !f.getDescription().isEmpty()) description = f.getDescription();
-            if (cweId.isEmpty() && !f.getCweId().isEmpty()) cweId = f.getCweId();
-            if (cvssScore.compareTo(BigDecimal.ZERO) == 0 && !f.getCvssScore().isEmpty()) {
-                try { cvssScore = new BigDecimal(f.getCvssScore()); } catch (Exception ignored) {}
-            }
-            if (cvssSeverity.isEmpty() && !f.getCvssSeverity().isEmpty()) cvssSeverity = f.getCvssSeverity();
-            if (groupId.isEmpty() && !f.getArtifactGroupId().isEmpty()) groupId = f.getArtifactGroupId();
-            if (artifactId.isEmpty() && !f.getArtifactId().isEmpty()) artifactId = f.getArtifactId();
-            if (affectedFrom.isEmpty() && !f.getAffectedFrom().isEmpty()) affectedFrom = f.getAffectedFrom();
-            if (affectedTo.isEmpty() && !f.getAffectedTo().isEmpty()) affectedTo = f.getAffectedTo();
-            if (fixedVersion.isEmpty() && !f.getFixedVersion().isEmpty()) fixedVersion = f.getFixedVersion();
-            if (sourceRepo.isEmpty() && !f.getSourceRepo().isEmpty()) sourceRepo = f.getSourceRepo();
-            fixCommits.addAll(f.getFixCommits());
-            allArticles.addAll(f.getArticles());
-        }
-
-        sourceRepo = preferRepo(sourceRepo, allArticles);
-        affectedTo = preferAffectedTo(affectedTo, description);
-        artifactId = preferArtifactId(artifactId, sourceRepo);
-        artifactId = preferDescriptionArtifact(artifactId, sourceRepo, description);
-        ReferenceEnricher.EnrichmentResult enrichment = referenceEnricher.enrich(
-                cveId, sourceRepo, fixedVersion, allArticles, fixCommits);
-
-        if (sourceRepo.isEmpty() && enrichment.getSourceRepo() != null && !enrichment.getSourceRepo().isEmpty()) {
-            sourceRepo = enrichment.getSourceRepo();
-        }
-        if ((fixedVersion == null || fixedVersion.isEmpty())
-                && enrichment.getFixedVersion() != null && !enrichment.getFixedVersion().isEmpty()) {
-            fixedVersion = enrichment.getFixedVersion();
-        }
-        if (enrichment.getFixCommits() != null && !enrichment.getFixCommits().isEmpty()) {
-            fixCommits.addAll(enrichment.getFixCommits());
-        }
-
-        // 对文章进行去重和分类
-        List<CveIntelligence.Article> classifiedArticles =
-            articleClassifier.classifyAndDeduplicate(allArticles, cveId);
-
-        // 基于技术分析文章纠正描述
-        log.info("IntelligenceStage: Starting description correction for {}", cveId);
-        String correctedDescription = descriptionCorrector.correctDescription(
-            cveId, description, classifiedArticles);
-        if (!correctedDescription.equals(description)) {
-            log.info("IntelligenceStage: Description changed from '{}' to '{}'",
-                description, correctedDescription);
-        } else {
-            log.info("IntelligenceStage: Description unchanged for {}", cveId);
-        }
-
-        return new CveIntelligence(
-                cveId, correctedDescription,
-                new CveIntelligence.CvssScore(cvssScore, "", cvssSeverity),
-                cweId,
-                new CveIntelligence.MavenCoordinate(groupId, artifactId),
-                new CveIntelligence.VersionRange(affectedFrom, affectedTo),
-                fixedVersion, sourceRepo,
-                new ArrayList<>(fixCommits),
-                classifiedArticles,
-                enrichment.getReferenceFindings(),
-                Instant.now()
-        );
-    }
-
-    private String preferRepo(String sourceRepo, List<CveIntelligence.Article> articles) {
-        if (sourceRepo != null && !sourceRepo.isEmpty()) {
-            return sourceRepo;
-        }
-        if (articles == null) {
-            return "";
-        }
-        for (CveIntelligence.Article article : articles) {
-            String normalized = normalizeRepoUrl(article.getUrl());
-            if (!normalized.isEmpty()) {
-                return normalized;
-            }
-        }
-        return "";
-    }
-
-    private String preferArtifactId(String artifactId, String sourceRepo) {
-        if (artifactId != null && !artifactId.isEmpty()) {
-            return artifactId;
-        }
-        String normalized = normalizeRepoUrl(sourceRepo);
-        if (normalized.isEmpty()) {
-            return "";
-        }
-        int lastSlash = normalized.lastIndexOf('/');
-        return lastSlash >= 0 ? normalized.substring(lastSlash + 1) : "";
-    }
-
-    private String preferAffectedTo(String affectedTo, String description) {
-        if (affectedTo != null && !affectedTo.isEmpty()) {
-            return affectedTo;
-        }
-        if (description == null || description.isEmpty()) {
-            return "";
-        }
-        Matcher matcher = DESCRIPTION_AFFECTED_PATTERN.matcher(description);
-        return matcher.find() ? "<= " + matcher.group(1) : "";
-    }
-
-    private String preferDescriptionArtifact(String artifactId, String sourceRepo, String description) {
-        if (description == null || description.isEmpty()) {
-            return artifactId;
-        }
-        Matcher matcher = DESCRIPTION_COMPONENT_PATTERN.matcher(description);
-        if (!matcher.find()) {
-            return artifactId;
-        }
-        String described = matcher.group(1);
-        if (artifactId == null || artifactId.isEmpty()) {
-            return described;
-        }
-        String repoArtifact = preferArtifactId("", sourceRepo);
-        if (artifactId.equals(repoArtifact)) {
-            return described;
-        }
-        return artifactId;
-    }
-
-    private String normalizeRepoUrl(String url) {
-        if (url == null || url.isEmpty()) {
-            return "";
-        }
-        String trimmed = url.trim();
-        if (trimmed.contains("github.com/")) {
-            int idx = trimmed.indexOf("github.com/");
-            String tail = trimmed.substring(idx + "github.com/".length());
-            String[] parts = tail.split("/");
-            if (parts.length >= 2) {
-                return "https://github.com/" + stripSuffix(parts[0]) + "/" + stripSuffix(parts[1]);
-            }
-        }
-        if (trimmed.contains("gitee.com/")) {
-            int idx = trimmed.indexOf("gitee.com/");
-            String tail = trimmed.substring(idx + "gitee.com/".length());
-            String[] parts = tail.split("/");
-            if (parts.length >= 2) {
-                return "https://gitee.com/" + stripSuffix(parts[0]) + "/" + stripSuffix(parts[1]);
-            }
-        }
-        return "";
-    }
-
-    private String stripSuffix(String segment) {
-        if (segment == null) {
-            return "";
-        }
-        return segment.replaceAll("\\.git$", "").replaceAll("[?#].*$", "");
+    private int sourceOrder(String name) {
+        String normalized = name == null ? "" : name.toUpperCase(Locale.ROOT);
+        if ("NVD".equals(normalized)) return 0;
+        if ("GHSA".equals(normalized) || normalized.contains("GITHUB")) return 1;
+        if ("OSV".equals(normalized)) return 2;
+        return 3;
     }
 }

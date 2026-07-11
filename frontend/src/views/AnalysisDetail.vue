@@ -401,7 +401,7 @@ const renderMarkdown = (md: string) => {
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'advisory')" :key="article.url" class="jv-ref-item">
                   <a :href="article.url" target="_blank" class="jv-ref-link">
-                    {{ article.title || article.url }}
+                    {{ article.url }}
                   </a>
                   <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
                 </div>
@@ -415,7 +415,7 @@ const renderMarkdown = (md: string) => {
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'analysis')" :key="article.url" class="jv-ref-item">
                   <a :href="article.url" target="_blank" class="jv-ref-link">
-                    {{ article.title || article.url }}
+                    {{ article.url }}
                   </a>
                   <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
                 </div>
@@ -429,7 +429,7 @@ const renderMarkdown = (md: string) => {
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'patch')" :key="article.url" class="jv-ref-item">
                   <a :href="article.url" target="_blank" class="jv-ref-link">
-                    {{ article.title || article.url }}
+                    {{ article.url }}
                   </a>
                   <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
                 </div>
@@ -443,7 +443,7 @@ const renderMarkdown = (md: string) => {
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'poc')" :key="article.url" class="jv-ref-item">
                   <a :href="article.url" target="_blank" class="jv-ref-link">
-                    {{ article.title || article.url }}
+                    {{ article.url }}
                   </a>
                   <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
                 </div>
@@ -457,7 +457,7 @@ const renderMarkdown = (md: string) => {
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'other')" :key="article.url" class="jv-ref-item">
                   <a :href="article.url" target="_blank" class="jv-ref-link">
-                    {{ article.title || article.url }}
+                    {{ article.url }}
                   </a>
                   <span v-if="article.source" class="jv-ref-source">{{ article.source }}</span>
                 </div>
