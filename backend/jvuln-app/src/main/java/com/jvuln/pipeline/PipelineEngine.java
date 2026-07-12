@@ -1,5 +1,6 @@
 package com.jvuln.pipeline;
 
+import com.jvuln.llm.LlmAuditLogger;
 import com.jvuln.llm.LlmClient;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageProgress;
@@ -11,6 +12,7 @@ import com.jvuln.store.WorkspaceManager;
 import com.jvuln.store.entity.CveTask;
 import com.jvuln.store.entity.StageRecord;
 import com.jvuln.store.model.CveIntelligence;
+import com.jvuln.llm.LlmAuditLogger;
 import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -142,9 +144,12 @@ public class PipelineEngine {
             ctx.setProgressCallback(buildSseCallback(cveId));
 
             boolean succeeded;
+            LlmAuditLogger.setContextDir(workspace);
             try (RequestLogContext.Scope ignored =
                          RequestLogContext.bind(ctx::reportProgress)) {
                 succeeded = runStages(cveId, fromStage, task, ctx);
+            } finally {
+                LlmAuditLogger.clearContextDir();
             }
             if (!succeeded) {
                 return;

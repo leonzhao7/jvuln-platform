@@ -25,9 +25,11 @@ abstract class AbstractLlmCaller implements LlmProtocolCaller {
     private final String endpointUri;
     private final String endpointPath;
     private final WebClient webClient;
+    private final LlmAuditLogger auditLogger;
 
     AbstractLlmCaller(LlmConfigProvider.ActiveConfig config, ObjectMapper mapper,
-                      LlmEndpoint expectedEndpoint, boolean messagesHeaders) {
+                      LlmEndpoint expectedEndpoint, boolean messagesHeaders,
+                      LlmAuditLogger auditLogger) {
         if (config == null) {
             throw new IllegalArgumentException("LLM config is required");
         }
@@ -44,11 +46,13 @@ abstract class AbstractLlmCaller implements LlmProtocolCaller {
         this.endpointPath = expectedEndpoint.getPath();
         this.endpointUri = expectedEndpoint.resolveUri(config.getBaseUrl());
         this.webClient = buildWebClient(config.getApiKey(), messagesHeaders);
+        this.auditLogger = auditLogger;
     }
 
     protected String postJson(ObjectNode body) {
+        String raw;
         try {
-            return HttpUtil.executeBlockingWithRetry(
+            raw = HttpUtil.executeBlockingWithRetry(
                     client -> client.post()
                             .uri(endpointUri)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -59,8 +63,15 @@ abstract class AbstractLlmCaller implements LlmProtocolCaller {
                     "LLM API request to " + endpointPath
             );
         } catch (WebClientResponseException e) {
+            if (auditLogger != null) {
+                auditLogger.log(model, endpointPath, body, e.getResponseBodyAsString());
+            }
             throw apiException(e);
         }
+        if (auditLogger != null) {
+            auditLogger.log(model, endpointPath, body, raw);
+        }
+        return raw;
     }
 
     protected Flux<String> postSse(ObjectNode body) {

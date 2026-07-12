@@ -12,8 +12,9 @@ import java.util.List;
 
 public class ChatCaller extends AbstractLlmCaller {
 
-    public ChatCaller(LlmConfigProvider.ActiveConfig config, ObjectMapper mapper) {
-        super(config, mapper, LlmEndpoint.CHAT_COMPLETIONS, false);
+    public ChatCaller(LlmConfigProvider.ActiveConfig config, ObjectMapper mapper,
+                      LlmAuditLogger auditLogger) {
+        super(config, mapper, LlmEndpoint.CHAT_COMPLETIONS, false, auditLogger);
     }
 
     @Override

@@ -12,8 +12,9 @@ import java.util.List;
 
 public class ResponsesCaller extends AbstractLlmCaller {
 
-    public ResponsesCaller(LlmConfigProvider.ActiveConfig config, ObjectMapper mapper) {
-        super(config, mapper, LlmEndpoint.RESPONSES, false);
+    public ResponsesCaller(LlmConfigProvider.ActiveConfig config, ObjectMapper mapper,
+                           LlmAuditLogger auditLogger) {
+        super(config, mapper, LlmEndpoint.RESPONSES, false, auditLogger);
     }
 
     @Override
