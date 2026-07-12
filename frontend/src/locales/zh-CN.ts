@@ -150,6 +150,9 @@ const zhCN = {
       },
       methodChanges: '方法变更',
       fileDiff: '文件 Diff',
+      fileDecisions: '文件相关性判定',
+      relevant: '相关',
+      excluded: '排除',
     },
     artifacts: {
       fileList: '生成文件列表',

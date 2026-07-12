@@ -150,6 +150,9 @@ const enUS = {
       },
       methodChanges: 'Method Changes',
       fileDiff: 'File Diff',
+      fileDecisions: 'File Relevance Decisions',
+      relevant: 'Relevant',
+      excluded: 'Excluded',
     },
     artifacts: {
       fileList: 'Generated Files',

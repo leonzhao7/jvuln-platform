@@ -227,7 +227,7 @@ public class PatchAnalysisStage implements Stage {
 
         if (fileChanges.isEmpty()) {
             log.warn("No Java file changes found in diff, returning empty analysis");
-            return new CodeAnalysisOutput(Collections.emptyList(), 0, 0);
+            return new CodeAnalysisOutput(Collections.emptyList(), 0, 0, Collections.emptyList());
         }
 
         // Pre-filter to avoid obvious noise
@@ -252,22 +252,25 @@ public class PatchAnalysisStage implements Stage {
         }
 
         // AI filtering and classification
-        List<CodeAnalysisResult> results = analysisRelevanceFilter.filter(
-                cveId, cveDescription, affectedComponent, patchResult, traditionalResults);
-        results = analysisLayerClassifier.classify(results);
+        AnalysisRelevanceFilter.FilterResult filterResult = analysisRelevanceFilter.filterWithDecisions(
+                cveId, cveDescription, affectedComponent, patchResult, traditionalResults, candidates);
+        List<CodeAnalysisResult> results = analysisLayerClassifier.classify(filterResult.filtered);
 
-        return new CodeAnalysisOutput(results, traditionalResults.size(), results.size());
+        return new CodeAnalysisOutput(results, traditionalResults.size(), results.size(), filterResult.decisions);
     }
 
     private static class CodeAnalysisOutput {
         final List<CodeAnalysisResult> results;
         final int traditionalFileCount;
         final int filteredFileCount;
+        final List<AnalysisRelevanceFilter.FileDecision> fileDecisions;
 
-        CodeAnalysisOutput(List<CodeAnalysisResult> results, int traditional, int filtered) {
+        CodeAnalysisOutput(List<CodeAnalysisResult> results, int traditional, int filtered,
+                           List<AnalysisRelevanceFilter.FileDecision> fileDecisions) {
             this.results = results;
             this.traditionalFileCount = traditional;
             this.filteredFileCount = filtered;
+            this.fileDecisions = fileDecisions;
         }
     }
 
@@ -314,6 +317,7 @@ public class PatchAnalysisStage implements Stage {
         result.put("traditionalAnalyzedFileCount", analysisOutput.traditionalFileCount);
         result.put("filteredAnalyzedFileCount", analysisOutput.filteredFileCount);
         result.put("totalCweMatches", totalCwe);
+        result.put("fileDecisions", analysisOutput.fileDecisions);
 
         return result;
     }

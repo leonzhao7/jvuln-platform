@@ -6,11 +6,19 @@ import { ColorSchemeType } from 'diff2html/lib/types'
 import { useI18n } from '../i18n'
 import 'diff2html/bundles/css/diff2html.min.css'
 
+interface FileDecision {
+  fileName: string
+  relevant: boolean
+  reason: string
+  layer?: string
+}
+
 const props = withDefaults(defineProps<{
   diffContent: string
   loading?: boolean
   title?: string
   emptyText?: string
+  fileDecisions?: FileDecision[]
 }>(), {
   loading: false,
   title: '',
@@ -74,6 +82,13 @@ const toggleView = () => {
 const fileCount = computed(() => fileDiffs.value.length)
 
 const resolvedEmptyText = computed(() => props.emptyText || t('diff.empty'))
+
+const decisionFor = (fileName: string): FileDecision | undefined => {
+  if (!props.fileDecisions?.length) return undefined
+  const short = fileName.includes('/') ? fileName.substring(fileName.lastIndexOf('/') + 1) : fileName
+  return props.fileDecisions.find(d => d.fileName === fileName || d.fileName === short
+    || (d.fileName.includes('/') ? d.fileName.substring(d.fileName.lastIndexOf('/') + 1) : d.fileName) === short)
+}
 </script>
 
 <template>
@@ -98,10 +113,23 @@ const resolvedEmptyText = computed(() => props.emptyText || t('diff.empty'))
           <div class="jv-file-diff-info">
             <span class="jv-file-diff-icon">{{ expandedFile === file.fileName ? '▼' : '▶' }}</span>
             <span class="jv-file-diff-name">{{ file.fileName }}</span>
+            <span
+              v-if="decisionFor(file.fileName)"
+              class="jv-file-relevance"
+              :class="decisionFor(file.fileName)!.relevant ? 'is-relevant' : 'is-excluded'"
+            >
+              {{ decisionFor(file.fileName)!.relevant ? t('analysis.patch.relevant') : t('analysis.patch.excluded') }}
+            </span>
             <span class="jv-file-diff-stats">
               <span class="additions">+{{ file.stats.additions }}</span>
               <span class="deletions">-{{ file.stats.deletions }}</span>
             </span>
+          </div>
+          <div
+            v-if="decisionFor(file.fileName)?.relevant && decisionFor(file.fileName)?.reason"
+            class="jv-file-relevance-reason"
+          >
+            {{ decisionFor(file.fileName)!.reason }}
           </div>
         </div>
 
@@ -282,7 +310,26 @@ const resolvedEmptyText = computed(() => props.emptyText || t('diff.empty'))
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--accent-light);
-  flex: 1;
+}
+
+.jv-file-relevance {
+  margin-left: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+}
+.jv-file-relevance.is-relevant {
+  color: #42be65;
+  border-color: rgba(66, 190, 101, .4);
+  background: rgba(66, 190, 101, .1);
+}
+.jv-file-relevance.is-excluded {
+  color: var(--text-disabled);
+  border-color: var(--border-subtle);
+  background: rgba(130, 130, 130, .08);
 }
 
 .jv-file-diff-stats {
@@ -291,12 +338,21 @@ const resolvedEmptyText = computed(() => props.emptyText || t('diff.empty'))
   gap: 8px;
   font-family: var(--font-mono);
   font-size: 11px;
+  margin-left: auto;
 }
 .jv-file-diff-stats .additions {
   color: #42be65;
 }
 .jv-file-diff-stats .deletions {
   color: #fa4d56;
+}
+
+.jv-file-relevance-reason {
+  margin-top: 6px;
+  padding-left: 22px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
 .jv-file-diff-content {

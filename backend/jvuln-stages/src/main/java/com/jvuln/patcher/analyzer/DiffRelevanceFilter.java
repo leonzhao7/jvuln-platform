@@ -180,23 +180,15 @@ public class DiffRelevanceFilter {
 
         for (int i = 0; i < candidates.size(); i++) {
             JavaFileChange c = candidates.get(i);
-            String shortPath = c.filePath.contains("/")
-                    ? c.filePath.substring(c.filePath.lastIndexOf('/') + 1)
-                    : c.filePath;
             sb.append(i + 1).append(". ").append(c.filePath).append("\n");
-            sb.append("   +").append(c.addedCode.split("\n").length)
+            sb.append("   +").append(c.addedLineCount())
               .append("/-").append(c.removedLineCount()).append(" lines");
             if (!c.methodNames.isEmpty()) {
                 sb.append(", methods: ").append(String.join(", ", c.methodNames));
             }
-            // Include first 3 lines of removed code as context
-            String[] removedLines = c.removedCode.split("\n");
-            if (removedLines.length > 0) {
-                sb.append("\n   removed sample: ");
-                for (int j = 0; j < Math.min(3, removedLines.length); j++) {
-                    String line = removedLines[j].trim();
-                    if (!line.isEmpty()) sb.append(line).append(" ");
-                }
+            sb.append("\n");
+            if (c.rawSection != null && !c.rawSection.isEmpty()) {
+                sb.append("```diff\n").append(c.rawSection).append("\n```\n");
             }
             sb.append("\n");
         }

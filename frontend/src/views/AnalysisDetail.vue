@@ -481,7 +481,7 @@ const renderMarkdown = (md: string) => {
                 <span style="font-family:var(--font-mono)">{{ stageData[2].patchInfo?.commitHash || '—' }}</span>
               </el-descriptions-item>
               <el-descriptions-item :label="t('analysis.patch.strategy')">
-                <span style="font-family:var(--font-mono)">{{ stageData[2].patchInfo?.strategyName || '—' }}</span>
+                <span style="font-family:var(--font-mono)">{{ stageData[2].patchInfo?.strategy || stageData[2].patchInfo?.strategyName || '—' }}</span>
               </el-descriptions-item>
               <el-descriptions-item :label="t('analysis.patch.commitMessage')" :span="2">
                 {{ stageData[2].patchInfo?.commitMessage || '—' }}
@@ -493,6 +493,7 @@ const renderMarkdown = (md: string) => {
               <DiffViewer
                 :diff-content="diffContent"
                 :loading="diffLoading"
+                :file-decisions="stageData[2].fileDecisions"
                 :title="t('analysis.codeDiff')"
                 :empty-text="t('diff.empty')"
               />

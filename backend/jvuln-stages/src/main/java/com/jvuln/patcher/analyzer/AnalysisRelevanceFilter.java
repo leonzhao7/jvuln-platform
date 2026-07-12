@@ -42,28 +42,85 @@ public class AnalysisRelevanceFilter {
         this.promptRegistry = promptRegistry;
     }
 
-    public List<CodeAnalysisResult> filter(String cveId, String cveDescription, String affectedComponent,
-                                           Object stage2Data, List<CodeAnalysisResult> results) {
+    public FilterResult filterWithDecisions(String cveId, String cveDescription, String affectedComponent,
+                                              Object stage2Data, List<CodeAnalysisResult> results,
+                                              List<JavaFileChange> fileChanges) {
         if (results == null || results.size() <= 1) {
-            return results;
+            return new FilterResult(results, java.util.Collections.emptyList());
         }
         try {
             String userPrompt = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(
-                    buildPrompt(cveId, cveDescription, affectedComponent, stage2Data, results));
+                    buildPrompt(cveId, cveDescription, affectedComponent, stage2Data, results, fileChanges));
             LlmResponse response = llmClient.chat(LlmRequest.reasoning(LlmPromptStage.PATCH_ANALYSIS,
                     promptRegistry.getPrompt("current/patch-analysis-relevance-filter"), userPrompt));
             if (response == null || response.getContent() == null || response.getContent().trim().isEmpty()) {
-                return results;
+                return new FilterResult(results, java.util.Collections.emptyList());
             }
-            return applyDecisions(results, extractDecisions(response.getContent()));
+            Map<String, Decision> decisions = extractDecisions(response.getContent());
+            List<FileDecision> fileDecisions = buildFileDecisions(results, decisions);
+            List<CodeAnalysisResult> filtered = applyDecisions(results, decisions);
+            return new FilterResult(filtered, fileDecisions);
         } catch (Exception e) {
             log.warn("Analysis relevance filter failed, keeping traditional results: {}", e.getMessage());
-            return results;
+            return new FilterResult(results, java.util.Collections.emptyList());
         }
     }
 
+    public List<CodeAnalysisResult> filter(String cveId, String cveDescription, String affectedComponent,
+                                           Object stage2Data, List<CodeAnalysisResult> results,
+                                           List<JavaFileChange> fileChanges) {
+        return filterWithDecisions(cveId, cveDescription, affectedComponent, stage2Data, results, fileChanges).filtered;
+    }
+
+    private List<FileDecision> buildFileDecisions(List<CodeAnalysisResult> results, Map<String, Decision> decisions) {
+        List<FileDecision> out = new ArrayList<>();
+        for (CodeAnalysisResult result : results) {
+            Decision decision = decisions.get(result.getFileName());
+            if (decision == null) {
+                decision = decisions.get(shortName(result.getFileName()));
+            }
+            out.add(new FileDecision(
+                    result.getFileName(),
+                    decision != null ? decision.relevant : true,
+                    decision != null ? decision.reason : "",
+                    decision != null ? decision.layer : ""
+            ));
+        }
+        return out;
+    }
+
+    public static class FilterResult {
+        public final List<CodeAnalysisResult> filtered;
+        public final List<FileDecision> decisions;
+
+        FilterResult(List<CodeAnalysisResult> filtered, List<FileDecision> decisions) {
+            this.filtered = filtered;
+            this.decisions = decisions;
+        }
+    }
+
+    public static class FileDecision {
+        private final String fileName;
+        private final boolean relevant;
+        private final String reason;
+        private final String layer;
+
+        public FileDecision(String fileName, boolean relevant, String reason, String layer) {
+            this.fileName = fileName;
+            this.relevant = relevant;
+            this.reason = reason;
+            this.layer = layer;
+        }
+
+        public String getFileName() { return fileName; }
+        public boolean isRelevant() { return relevant; }
+        public String getReason() { return reason; }
+        public String getLayer() { return layer; }
+    }
+
     private ObjectNode buildPrompt(String cveId, String cveDescription, String affectedComponent,
-                                   Object stage2Data, List<CodeAnalysisResult> results) {
+                                   Object stage2Data, List<CodeAnalysisResult> results,
+                                   List<JavaFileChange> fileChanges) {
         JsonNode stage2 = mapper.valueToTree(stage2Data);
         ObjectNode root = mapper.createObjectNode();
         root.put("cveId", cveId);
@@ -75,6 +132,20 @@ public class AnalysisRelevanceFilter {
         }
         root.put("patchStrategy", stage2.path("strategy").asText(""));
         root.set("patchScope", extractPatchScope(stage2));
+
+        // Build a lookup from fileName -> rawSection for full diff content
+        Map<String, String> diffByFile = new LinkedHashMap<>();
+        if (fileChanges != null) {
+            for (JavaFileChange change : fileChanges) {
+                if (change.filePath != null && change.rawSection != null) {
+                    diffByFile.put(change.filePath, change.rawSection);
+                    String shortName = change.filePath.contains("/")
+                            ? change.filePath.substring(change.filePath.lastIndexOf('/') + 1)
+                            : change.filePath;
+                    diffByFile.putIfAbsent(shortName, change.rawSection);
+                }
+            }
+        }
 
         ArrayNode files = mapper.createArrayNode();
         for (CodeAnalysisResult result : results) {
@@ -100,8 +171,16 @@ public class AnalysisRelevanceFilter {
             }
             file.set("cweMatches", cweMatches);
             file.set("callChain", mapper.valueToTree(result.getCallChain()));
-            file.put("vulnerableSample", abbreviate(joinVulnerableCode(result.getMethods()), 300));
-            file.put("fixedSample", abbreviate(joinFixedCode(result.getMethods()), 300));
+
+            // Include full diff for this file
+            String diff = diffByFile.get(result.getFileName());
+            if (diff == null) {
+                diff = diffByFile.get(shortName(result.getFileName()));
+            }
+            if (diff != null) {
+                file.put("diff", diff);
+            }
+
             files.add(file);
         }
         root.set("files", files);
