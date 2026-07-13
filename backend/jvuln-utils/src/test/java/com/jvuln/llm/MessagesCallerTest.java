@@ -37,7 +37,7 @@ class MessagesCallerTest {
                 + "\"input\":{\"id\":12}}],\"stop_reason\":\"tool_use\","
                 + "\"usage\":{\"input_tokens\":17,\"output_tokens\":6}}");
 
-        MessagesCaller caller = new MessagesCaller(config(), mapper);
+        MessagesCaller caller = new MessagesCaller(config(), mapper, new LlmAuditLogger());
         LlmResponse response = caller.chat(callWithHistory());
 
         assertEquals("/v1/messages", server.getLastPath());
@@ -83,7 +83,7 @@ class MessagesCallerTest {
                 + "\"type\":\"text_delta\",\"text\":\"lo\"}}\n\n"
                 + "data: {\"type\":\"message_stop\"}\n\n");
 
-        MessagesCaller caller = new MessagesCaller(config(), mapper);
+        MessagesCaller caller = new MessagesCaller(config(), mapper, new LlmAuditLogger());
         List<String> chunks = caller.chatStream(callWithHistory()).collectList().block();
 
         assertEquals(Arrays.asList("hel", "lo"), chunks);
@@ -95,7 +95,7 @@ class MessagesCallerTest {
         server.enqueueSse("data: {\"type\":\"error\",\"error\":{"
                 + "\"message\":\"overloaded\"}}\n\n");
 
-        MessagesCaller caller = new MessagesCaller(config(), mapper);
+        MessagesCaller caller = new MessagesCaller(config(), mapper, new LlmAuditLogger());
 
         RuntimeException exception = assertThrows(RuntimeException.class,
                 () -> caller.chatStream(callWithHistory()).collectList().block());

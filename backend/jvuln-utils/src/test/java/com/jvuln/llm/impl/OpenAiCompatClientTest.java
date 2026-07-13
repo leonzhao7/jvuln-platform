@@ -1,6 +1,7 @@
 package com.jvuln.llm.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jvuln.llm.LlmAuditLogger;
 import com.jvuln.llm.LlmCall;
 import com.jvuln.llm.LlmCallerFactory;
 import com.jvuln.llm.LlmEndpoint;
@@ -74,6 +75,7 @@ class OpenAiCompatClientTest {
         private LlmConfigProvider.ActiveConfig lastConfig;
 
         private CapturingFactory(LlmProtocolCaller caller) {
+            super(new LlmAuditLogger());
             this.caller = caller;
         }
 

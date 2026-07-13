@@ -36,7 +36,7 @@ class ChatCallerTest {
                 + "\"finish_reason\":\"tool_calls\"}],"
                 + "\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":5}}");
 
-        ChatCaller caller = new ChatCaller(config(), mapper);
+        ChatCaller caller = new ChatCaller(config(), mapper, new LlmAuditLogger());
         LlmResponse response = caller.chat(agentCall());
 
         assertEquals("/v1/chat/completions", server.getLastPath());
@@ -73,7 +73,7 @@ class ChatCallerTest {
                 + "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n"
                 + "data: [DONE]\n\n");
 
-        ChatCaller caller = new ChatCaller(config(), mapper);
+        ChatCaller caller = new ChatCaller(config(), mapper, new LlmAuditLogger());
         List<String> chunks = caller.chatStream(agentCall()).collectList().block();
 
         assertEquals(java.util.Arrays.asList("hel", "lo"), chunks);

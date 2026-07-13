@@ -38,7 +38,7 @@ class ResponsesCallerTest {
                 + "\"name\":\"lookup\",\"arguments\":\"{\\\"id\\\":9}\"}],"
                 + "\"usage\":{\"input_tokens\":13,\"output_tokens\":8}}");
 
-        ResponsesCaller caller = new ResponsesCaller(config(), mapper);
+        ResponsesCaller caller = new ResponsesCaller(config(), mapper, new LlmAuditLogger());
         LlmResponse response = caller.chat(callWithToolHistory());
 
         assertEquals("/v1/responses", server.getLastPath());
@@ -78,7 +78,7 @@ class ResponsesCallerTest {
                 + "data: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n\n"
                 + "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n");
 
-        ResponsesCaller caller = new ResponsesCaller(config(), mapper);
+        ResponsesCaller caller = new ResponsesCaller(config(), mapper, new LlmAuditLogger());
         List<String> chunks = caller.chatStream(callWithToolHistory()).collectList().block();
 
         assertEquals(Arrays.asList("hel", "lo"), chunks);
@@ -90,7 +90,7 @@ class ResponsesCallerTest {
         server.enqueueSse("data: {\"type\":\"response.failed\",\"response\":{"
                 + "\"error\":{\"message\":\"model failed\"}}}\n\n");
 
-        ResponsesCaller caller = new ResponsesCaller(config(), mapper);
+        ResponsesCaller caller = new ResponsesCaller(config(), mapper, new LlmAuditLogger());
 
         RuntimeException exception = assertThrows(RuntimeException.class,
                 () -> caller.chatStream(callWithToolHistory()).collectList().block());
@@ -104,7 +104,7 @@ class ResponsesCallerTest {
                 + "\"error\":{\"message\":\"model failed\"},"
                 + "\"usage\":{\"input_tokens\":4,\"output_tokens\":0}}");
 
-        ResponsesCaller caller = new ResponsesCaller(config(), mapper);
+        ResponsesCaller caller = new ResponsesCaller(config(), mapper, new LlmAuditLogger());
 
         LlmResponse response = caller.chat(callWithToolHistory());
         assertEquals("", response.getContent());

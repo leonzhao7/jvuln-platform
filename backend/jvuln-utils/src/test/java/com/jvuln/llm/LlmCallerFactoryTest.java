@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class LlmCallerFactoryTest {
 
-    private final LlmCallerFactory factory = new LlmCallerFactory();
+    private final LlmCallerFactory factory = new LlmCallerFactory(new LlmAuditLogger());
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
