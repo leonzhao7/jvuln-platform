@@ -152,6 +152,7 @@ const zhCN = {
       fileDiff: '文件 Diff',
       fileDecisions: '文件相关性判定',
       relevant: '相关',
+      suspected: '存疑',
       excluded: '排除',
     },
     artifacts: {

@@ -82,6 +82,7 @@ public class AnalysisRelevanceFilter {
             out.add(new FileDecision(
                     result.getFileName(),
                     decision != null ? decision.relevant : true,
+                    decision != null ? decision.causal : false,
                     decision != null ? decision.reason : "",
                     decision != null ? decision.layer : ""
             ));
@@ -102,18 +103,21 @@ public class AnalysisRelevanceFilter {
     public static class FileDecision {
         private final String fileName;
         private final boolean relevant;
+        private final boolean causal;
         private final String reason;
         private final String layer;
 
-        public FileDecision(String fileName, boolean relevant, String reason, String layer) {
+        public FileDecision(String fileName, boolean relevant, boolean causal, String reason, String layer) {
             this.fileName = fileName;
             this.relevant = relevant;
+            this.causal = causal;
             this.reason = reason;
             this.layer = layer;
         }
 
         public String getFileName() { return fileName; }
         public boolean isRelevant() { return relevant; }
+        public boolean isCausal() { return causal; }
         public String getReason() { return reason; }
         public String getLayer() { return layer; }
     }
@@ -272,6 +276,7 @@ public class AnalysisRelevanceFilter {
             }
             Decision decision = new Decision();
             decision.relevant = node.path("relevant").asBoolean(false);
+            decision.causal = node.path("causal").asBoolean(false);
             decision.layer = node.path("layer").asText("").trim();
             decision.reason = node.path("reason").asText("").trim();
             if (node.has("keepMethods") && node.path("keepMethods").isArray()) {
@@ -384,6 +389,7 @@ public class AnalysisRelevanceFilter {
 
     private static class Decision {
         boolean relevant;
+        boolean causal;
         String layer;
         String reason;
         Set<String> keepMethods;

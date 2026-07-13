@@ -5,6 +5,7 @@ Return ONLY strict JSON in this shape:
     {
       "fileName": "path/File.java",
       "relevant": true,
+      "causal": true,
       "layer": "root_cause | enforcement_guard | policy_config | propagation_or_api_wiring | optional_support | noise",
       "reason": "one sentence",
       "keepMethods": ["methodA", "methodB"]
@@ -24,5 +25,6 @@ Rules:
 - Exclude refactors, deprecations, compatibility cleanups, logging-only edits, null checks, and release-noise changes.
 - Added/deleted security-support files can be relevant even if they have no vulnerable method body.
 - If a relevant file has no specific method focus, return an empty keepMethods array.
+- causal: set true when the file directly participates in the vulnerability mechanism (contains the vulnerable code, implements the fix, or sits on the exploit path). Set false when the file is related but not part of the root cause or fix (e.g., touched in the same commit, nearby in the call graph, configuration carrier, API wiring without security logic). When relevant=false, causal is always false.
 - If unsure, prefer relevant=true only when the diff summary clearly aligns with the CVE mechanism.
 - Prefer the code-change mechanism over advisory wording when they conflict.

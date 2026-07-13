@@ -152,6 +152,7 @@ const enUS = {
       fileDiff: 'File Diff',
       fileDecisions: 'File Relevance Decisions',
       relevant: 'Relevant',
+      suspected: 'Suspected',
       excluded: 'Excluded',
     },
     artifacts: {

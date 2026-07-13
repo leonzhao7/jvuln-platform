@@ -9,6 +9,7 @@ import 'diff2html/bundles/css/diff2html.min.css'
 interface FileDecision {
   fileName: string
   relevant: boolean
+  causal?: boolean
   reason: string
   layer?: string
 }
@@ -116,9 +117,15 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
             <span
               v-if="decisionFor(file.fileName)"
               class="jv-file-relevance"
-              :class="decisionFor(file.fileName)!.relevant ? 'is-relevant' : 'is-excluded'"
+              :class="decisionFor(file.fileName)!.relevant
+                ? (decisionFor(file.fileName)!.causal ? 'is-causal' : 'is-suspected')
+                : 'is-excluded'"
             >
-              {{ decisionFor(file.fileName)!.relevant ? t('analysis.patch.relevant') : t('analysis.patch.excluded') }}
+              {{ !decisionFor(file.fileName)!.relevant
+                ? t('analysis.patch.excluded')
+                : decisionFor(file.fileName)!.causal
+                  ? t('analysis.patch.relevant')
+                  : t('analysis.patch.suspected') }}
             </span>
             <span class="jv-file-diff-stats">
               <span class="additions">+{{ file.stats.additions }}</span>
@@ -321,10 +328,16 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
   padding: 1px 8px;
   border: 1px solid transparent;
 }
-.jv-file-relevance.is-relevant {
+.jv-file-relevance.is-causal {
   color: #42be65;
   border-color: rgba(66, 190, 101, .4);
   background: rgba(66, 190, 101, .1);
+}
+.jv-file-relevance.is-suspected {
+  color: #f1c21b;
+  border-color: rgba(241, 194, 27, .35);
+  background: rgba(241, 194, 27, .08);
+  border-style: dashed;
 }
 .jv-file-relevance.is-excluded {
   color: var(--text-disabled);
