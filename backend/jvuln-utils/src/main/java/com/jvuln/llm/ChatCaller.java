@@ -22,6 +22,10 @@ public class ChatCaller extends AbstractLlmCaller {
         String raw = postJson(buildBody(call, false));
         try {
             JsonNode json = mapper.readTree(raw);
+            String responseId = json.path("id").asText(null);
+            if (responseId != null) {
+                LlmConversationContext.setLastResponseId(responseId);
+            }
             JsonNode choice = json.path("choices").path(0);
             if (choice.isMissingNode()) {
                 throw new IllegalStateException("Missing choices[0]");
@@ -80,6 +84,10 @@ public class ChatCaller extends AbstractLlmCaller {
         body.put("model", model);
         LlmRequestDefaults.apply(body, "max_tokens");
         body.put("stream", stream);
+        String lastId = LlmConversationContext.getLastResponseId();
+        if (lastId != null) {
+            body.put("id", lastId);
+        }
         addResponseFormat(body, request);
         addTools(body, request);
 
@@ -91,6 +99,9 @@ public class ChatCaller extends AbstractLlmCaller {
             addHistoryMessage(messages, message);
         }
         body.set("messages", messages);
+        if (request.isJsonMode()) {
+            ensureJsonMentioned(body);
+        }
         return body;
     }
 
@@ -99,6 +110,23 @@ public class ChatCaller extends AbstractLlmCaller {
             ObjectNode format = mapper.createObjectNode();
             format.put("type", "json_object");
             body.set("response_format", format);
+        }
+    }
+
+    private void ensureJsonMentioned(ObjectNode body) {
+        JsonNode messages = body.path("messages");
+        if (messages.isArray()) {
+            for (JsonNode msg : messages) {
+                String content = msg.path("content").asText("");
+                if (content.toLowerCase().contains("json")) {
+                    return;
+                }
+            }
+        }
+        ArrayNode arr = (ArrayNode) body.get("messages");
+        if (arr != null && arr.size() > 0) {
+            ObjectNode first = (ObjectNode) arr.get(0);
+            first.put("content", first.path("content").asText("") + "\nRespond in JSON format.");
         }
     }
 

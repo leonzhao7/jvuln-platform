@@ -12,7 +12,7 @@ import com.jvuln.store.WorkspaceManager;
 import com.jvuln.store.entity.CveTask;
 import com.jvuln.store.entity.StageRecord;
 import com.jvuln.store.model.CveIntelligence;
-import com.jvuln.llm.LlmAuditLogger;
+import com.jvuln.llm.LlmConversationContext;
 import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -145,10 +145,12 @@ public class PipelineEngine {
 
             boolean succeeded;
             LlmAuditLogger.setContextDir(workspace);
+            LlmConversationContext.clear();
             try (RequestLogContext.Scope ignored =
                          RequestLogContext.bind(ctx::reportProgress)) {
                 succeeded = runStages(cveId, fromStage, task, ctx);
             } finally {
+                LlmConversationContext.clear();
                 LlmAuditLogger.clearContextDir();
             }
             if (!succeeded) {
