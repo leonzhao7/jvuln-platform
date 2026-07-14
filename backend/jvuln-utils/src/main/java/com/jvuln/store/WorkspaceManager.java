@@ -128,6 +128,20 @@ public class WorkspaceManager {
         Files.write(diffFile, diffContent.getBytes(StandardCharsets.UTF_8));
     }
 
+    public void writeRelevantDiff(String cveId, String diffContent) throws IOException {
+        Path diffFile = getCvePath(cveId).resolve("patches/relevant.diff");
+        Files.createDirectories(diffFile.getParent());
+        Files.write(diffFile, diffContent.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public String readRelevantDiff(String cveId) throws IOException {
+        Path diffFile = getCvePath(cveId).resolve("patches/relevant.diff");
+        if (!Files.exists(diffFile)) {
+            return null;
+        }
+        return new String(Files.readAllBytes(diffFile), StandardCharsets.UTF_8);
+    }
+
     public ObjectMapper getObjectMapper() {
         return objectMapper;
     }

@@ -10,6 +10,7 @@ import java.util.UUID;
 public final class LlmConversationContext {
 
     private static final ThreadLocal<String> USER_ID = new ThreadLocal<>();
+    private static final ThreadLocal<String> RELEVANT_DIFF = new ThreadLocal<>();
 
     private LlmConversationContext() {
     }
@@ -22,7 +23,18 @@ public final class LlmConversationContext {
         return USER_ID.get();
     }
 
+    public static void setRelevantDiff(String diff) {
+        if (diff != null && !diff.trim().isEmpty()) {
+            RELEVANT_DIFF.set(diff);
+        }
+    }
+
+    public static String getRelevantDiff() {
+        return RELEVANT_DIFF.get();
+    }
+
     public static void clear() {
         USER_ID.remove();
+        RELEVANT_DIFF.remove();
     }
 }

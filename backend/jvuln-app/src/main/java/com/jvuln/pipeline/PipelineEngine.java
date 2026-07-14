@@ -198,6 +198,15 @@ public class PipelineEngine {
                     log.warn("Could not load cached stage {} data: {}",
                             stage.number(), e.getMessage());
                 }
+                if (stage.number() == 2) {
+                    try {
+                        LlmConversationContext.setRelevantDiff(
+                                workspaceManager.readRelevantDiff(cveId));
+                    } catch (Exception e) {
+                        log.warn("Could not load relevant diff for {}: {}",
+                                cveId, e.getMessage());
+                    }
+                }
                 continue;
             }
 

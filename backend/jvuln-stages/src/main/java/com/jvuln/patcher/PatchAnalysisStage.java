@@ -7,6 +7,7 @@ import com.github.javaparser.ParseResult;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.jvuln.llm.LlmConversationContext;
 import com.jvuln.patcher.analyzer.*;
 import com.jvuln.patcher.strategy.AiPatchSearchStrategy;
 import com.jvuln.patcher.strategy.AiPatchSearchStrategy.AiEnrichment;
@@ -142,6 +143,12 @@ public class PatchAnalysisStage implements Stage {
         ctx.getWorkspaceManager().writeStageData(cveId, 2, combinedResult);
         ctx.getWorkspaceManager().writeDiff(cveId, rawDiff);
 
+        // Persist relevant-file diff and expose it to Stage 3/4 LLM calls
+        if (analysisOutput.relevantDiff != null && !analysisOutput.relevantDiff.trim().isEmpty()) {
+            ctx.getWorkspaceManager().writeRelevantDiff(cveId, analysisOutput.relevantDiff);
+            LlmConversationContext.setRelevantDiff(analysisOutput.relevantDiff);
+        }
+
         ctx.reportProgress("Patch analysis complete: " + analysisOutput.filteredFileCount
                 + " relevant file(s) analyzed");
 
@@ -227,7 +234,7 @@ public class PatchAnalysisStage implements Stage {
 
         if (fileChanges.isEmpty()) {
             log.warn("No Java file changes found in diff, returning empty analysis");
-            return new CodeAnalysisOutput(Collections.emptyList(), 0, 0, Collections.emptyList());
+            return new CodeAnalysisOutput(Collections.emptyList(), 0, 0, Collections.emptyList(), null);
         }
 
         // Pre-filter to avoid obvious noise
@@ -256,7 +263,49 @@ public class PatchAnalysisStage implements Stage {
                 cveId, cveDescription, affectedComponent, patchResult, traditionalResults, candidates);
         List<CodeAnalysisResult> results = analysisLayerClassifier.classify(filterResult.filtered);
 
-        return new CodeAnalysisOutput(results, traditionalResults.size(), results.size(), filterResult.decisions);
+        String relevantDiff = buildRelevantDiff(filterResult.filtered, candidates);
+
+        return new CodeAnalysisOutput(results, traditionalResults.size(), results.size(),
+                filterResult.decisions, relevantDiff);
+    }
+
+    /** Concatenate the full diff of files judged relevant, in filtered order. */
+    private String buildRelevantDiff(List<CodeAnalysisResult> relevant, List<JavaFileChange> candidates) {
+        if (relevant == null || relevant.isEmpty() || candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        Map<String, String> diffByFile = new LinkedHashMap<>();
+        for (JavaFileChange change : candidates) {
+            if (change.filePath == null || change.rawSection == null) {
+                continue;
+            }
+            diffByFile.put(change.filePath, change.rawSection);
+            String shortName = shortName(change.filePath);
+            diffByFile.putIfAbsent(shortName, change.rawSection);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (CodeAnalysisResult result : relevant) {
+            String diff = diffByFile.get(result.getFileName());
+            if (diff == null) {
+                diff = diffByFile.get(shortName(result.getFileName()));
+            }
+            if (diff == null || diff.trim().isEmpty()) {
+                continue;
+            }
+            if (sb.length() == 0) {
+                sb.append("# Relevant patch file diffs (judged relevant to this CVE in Stage 2)\n");
+            }
+            sb.append("\n").append(diff.trim()).append("\n");
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private String shortName(String fileName) {
+        if (fileName == null) {
+            return "";
+        }
+        int idx = fileName.lastIndexOf('/');
+        return idx >= 0 ? fileName.substring(idx + 1) : fileName;
     }
 
     private static class CodeAnalysisOutput {
@@ -264,13 +313,16 @@ public class PatchAnalysisStage implements Stage {
         final int traditionalFileCount;
         final int filteredFileCount;
         final List<AnalysisRelevanceFilter.FileDecision> fileDecisions;
+        final String relevantDiff;
 
         CodeAnalysisOutput(List<CodeAnalysisResult> results, int traditional, int filtered,
-                           List<AnalysisRelevanceFilter.FileDecision> fileDecisions) {
+                           List<AnalysisRelevanceFilter.FileDecision> fileDecisions,
+                           String relevantDiff) {
             this.results = results;
             this.traditionalFileCount = traditional;
             this.filteredFileCount = filtered;
             this.fileDecisions = fileDecisions;
+            this.relevantDiff = relevantDiff;
         }
     }
 
