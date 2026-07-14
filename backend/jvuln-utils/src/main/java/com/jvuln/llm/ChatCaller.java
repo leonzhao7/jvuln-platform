@@ -84,9 +84,6 @@ public class ChatCaller extends AbstractLlmCaller {
         if (userId != null) {
             body.put("user_id", userId);
         }
-        addResponseFormat(body, request);
-        addTools(body, request);
-
         ArrayNode messages = mapper.createArrayNode();
         addTextMessage(messages, "system", prompts.getGlobalPrompt());
         addTextMessage(messages, "system", LlmConversationContext.getRelevantDiff());
@@ -99,6 +96,8 @@ public class ChatCaller extends AbstractLlmCaller {
         if (request.isJsonMode()) {
             ensureJsonMentioned(body);
         }
+        addResponseFormat(body, request);
+        addTools(body, request);
         return body;
     }
 

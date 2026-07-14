@@ -70,16 +70,16 @@ class JavaProfileResolver {
             String recommendedSBVersion = result.path("springBootVersion").asText("").trim();
 
             JavaProfile selected = findProfileByName(profiles, selectedName);
-            if (selected != null) {
-                return applySpringBootVersionOverride(selected, recommendedSBVersion);
-            } else {
-                log.warn("LLM returned unknown profile '{}', using default", selectedName);
+            if (selected == null) {
+                throw new IllegalStateException(
+                        "LLM returned unknown Java profile: '" + selectedName + "'");
             }
+            return applySpringBootVersionOverride(selected, recommendedSBVersion);
+        } catch (IllegalStateException e) {
+            throw e;
         } catch (Exception e) {
-            log.warn("Error during LLM-based Java profile resolution: {}", e.getMessage());
+            throw new RuntimeException("Java profile LLM resolution failed", e);
         }
-
-        return getDefaultProfile(profiles);
     }
 
     private String buildProfileList(List<JavaProfile> profiles) {
@@ -136,13 +136,6 @@ class JavaProfileResolver {
         overridden.setMavenJavaVersion(selected.getMavenJavaVersion());
         overridden.setSyntaxConstraints(selected.getSyntaxConstraints());
         return overridden;
-    }
-
-    private JavaProfile getDefaultProfile(List<JavaProfile> profiles) {
-        return profiles.stream()
-                .filter(p -> Boolean.TRUE.equals(p.getIsDefault()))
-                .findFirst()
-                .orElse(profiles.get(0));
     }
 
     private JavaProfile createHardcodedFallback() {
