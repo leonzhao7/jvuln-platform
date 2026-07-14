@@ -22,10 +22,6 @@ public class ChatCaller extends AbstractLlmCaller {
         String raw = postJson(buildBody(call, false));
         try {
             JsonNode json = mapper.readTree(raw);
-            String responseId = json.path("id").asText(null);
-            if (responseId != null) {
-                LlmConversationContext.setLastResponseId(responseId);
-            }
             JsonNode choice = json.path("choices").path(0);
             if (choice.isMissingNode()) {
                 throw new IllegalStateException("Missing choices[0]");
@@ -84,9 +80,9 @@ public class ChatCaller extends AbstractLlmCaller {
         body.put("model", model);
         LlmRequestDefaults.apply(body, "max_tokens");
         body.put("stream", stream);
-        String lastId = LlmConversationContext.getLastResponseId();
-        if (lastId != null) {
-            body.put("id", lastId);
+        String userId = LlmConversationContext.getUserId();
+        if (userId != null) {
+            body.put("user_id", userId);
         }
         addResponseFormat(body, request);
         addTools(body, request);

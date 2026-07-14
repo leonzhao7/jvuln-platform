@@ -1,31 +1,28 @@
 package com.jvuln.llm;
 
+import java.util.UUID;
+
 /**
- * Per-CVE holder for the most recent LLM response id, so subsequent requests in
- * the same pipeline run can echo it back and let the server reuse its cache.
- *
- * Lifecycle is bound to the pipeline thread by {@code PipelineEngine}, mirroring
- * {@link LlmAuditLogger}'s ThreadLocal context.
+ * Per-CVE thread-local context for LLM requests. Holds a stable user_id
+ * for the entire pipeline run so the LLM server can isolate KV cache
+ * and scheduling per logical session.
  */
 public final class LlmConversationContext {
 
-    private static final ThreadLocal<String> LAST_RESPONSE_ID = new ThreadLocal<>();
+    private static final ThreadLocal<String> USER_ID = new ThreadLocal<>();
 
     private LlmConversationContext() {
     }
 
-    public static void setLastResponseId(String id) {
-        if (id == null || id.trim().isEmpty()) {
-            return;
-        }
-        LAST_RESPONSE_ID.set(id);
+    public static void init() {
+        USER_ID.set(UUID.randomUUID().toString().replace("-", ""));
     }
 
-    public static String getLastResponseId() {
-        return LAST_RESPONSE_ID.get();
+    public static String getUserId() {
+        return USER_ID.get();
     }
 
     public static void clear() {
-        LAST_RESPONSE_ID.remove();
+        USER_ID.remove();
     }
 }

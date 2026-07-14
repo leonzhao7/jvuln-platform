@@ -1,4 +1,4 @@
-Build CVE-specific verification criteria for Stage 5.
+Build CVE-specific verification criteria for Stage 4.
 
 ## CVE Intelligence
 {{intelligence}}

@@ -145,7 +145,7 @@ public class PipelineEngine {
 
             boolean succeeded;
             LlmAuditLogger.setContextDir(workspace);
-            LlmConversationContext.clear();
+            LlmConversationContext.init();
             try (RequestLogContext.Scope ignored =
                          RequestLogContext.bind(ctx::reportProgress)) {
                 succeeded = runStages(cveId, fromStage, task, ctx);
