@@ -20,7 +20,21 @@ const reportMarkdown = ref('')
 const sseActive = ref(false)
 const transcriptEvents = ref<TranscriptEvent[]>([])
 const transcriptExpanded = ref(false)
-const sseMessages = ref<string[]>([])
+interface TerminalEntry {
+  type: string
+  stageNum: number
+  message: string
+  formatted: string
+}
+interface StageGroup {
+  stageNum: number
+  label: string
+  entries: TerminalEntry[]
+  hasError: boolean
+}
+const sseMessages = ref<TerminalEntry[]>([])
+const terminalVisible = ref(true)
+const collapsedStages = ref(new Set<number>())
 let evtSource: EventSource | null = null
 
 const activeTab = ref<'impact' | 'secure'>('impact')
@@ -136,39 +150,71 @@ const stageLabel = (num: number) => {
   return name ? `${prefix} ${name}` : prefix
 }
 
-// 只提取 message 部分展示，避免输出完整 JSON；stage_start 额外打印一条阶段说明
-const formatSseEvent = (type: string, raw: string): string => {
-  let message = raw
-  let stageNum = 0
-  try {
-    const data = JSON.parse(raw)
-    message = data.message ?? ''
-    stageNum = data.stageNum ?? 0
-  } catch {
-    // 非 JSON 数据，原样展示
-  }
+const formatSseEntry = (type: string, stageNum: number, message: string): TerminalEntry => {
+  let formatted: string
   switch (type) {
     case 'stage_start':
-      return `▶ ${stageLabel(stageNum)} ${t('analysis.log.start')}`
+      formatted = `${stageLabel(stageNum)} ${t('analysis.log.start')}`
+      break
     case 'stage_done':
-      return `✔ ${stageLabel(stageNum)} · ${message}`
+      formatted = `✔ ${stageLabel(stageNum)} · ${message}`
+      break
     case 'error':
-      return `✖ ${stageNum ? stageLabel(stageNum) + ' · ' : ''}${message}`
+      formatted = `✖ ${stageNum ? stageLabel(stageNum) + ' · ' : ''}${message}`
+      break
     case 'pipeline_done':
-      return `✔ ${message}`
+      formatted = `✔ ${message}`
+      break
     default:
-      return stageNum ? `${stageLabel(stageNum)} · ${message}` : message
+      formatted = stageNum ? `${stageLabel(stageNum)} · ${message}` : message
   }
+  return { type, stageNum, message, formatted }
+}
+
+const terminalGroups = computed<StageGroup[]>(() => {
+  const groups: StageGroup[] = []
+  let current: StageGroup | null = null
+  for (const entry of sseMessages.value) {
+    if (entry.type === 'stage_start' && entry.stageNum > 0) {
+      current = { stageNum: entry.stageNum, label: entry.formatted, entries: [], hasError: false }
+      groups.push(current)
+    } else if (current !== null && entry.stageNum === current.stageNum) {
+      current.entries.push(entry)
+      if (entry.type === 'error') current.hasError = true
+    } else if (entry.stageNum > 0) {
+      current = { stageNum: entry.stageNum, label: stageLabel(entry.stageNum), entries: [entry], hasError: entry.type === 'error' }
+      groups.push(current)
+    } else {
+      groups.push({ stageNum: 0, label: '', entries: [entry], hasError: entry.type === 'error' })
+      current = null
+    }
+  }
+  return groups
+})
+
+const toggleStageGroup = (stageNum: number) => {
+  const s = new Set(collapsedStages.value)
+  if (s.has(stageNum)) s.delete(stageNum)
+  else s.add(stageNum)
+  collapsedStages.value = s
 }
 
 const startStream = () => {
   if (evtSource) evtSource.close()
   sseMessages.value = []
+  collapsedStages.value = new Set()
   sseActive.value = true
   evtSource = new EventSource(`/api/analysis/${cveId}/stream`)
 
   const handleEvent = (type: string) => (e: MessageEvent) => {
-    sseMessages.value.push(formatSseEvent(type, `${e.data ?? ''}`))
+    let message = e.data ?? ''
+    let stageNum = 0
+    try {
+      const data = JSON.parse(e.data)
+      message = data.message ?? ''
+      stageNum = data.stageNum ?? 0
+    } catch {}
+    sseMessages.value.push(formatSseEntry(type, stageNum, message))
     if (type === 'pipeline_done' || type === 'error') {
       sseActive.value = false
       evtSource?.close()
@@ -197,6 +243,12 @@ const rerun = async (fromStage?: number) => {
 
 onMounted(async () => {
   await load()
+  if (!sseMessages.value.length) {
+    try {
+      const log = await api.getPipelineLog(cveId)
+      sseMessages.value = log.map(e => formatSseEntry(e.type, e.stageNum, e.message))
+    } catch {}
+  }
   startStream()
 })
 
@@ -299,6 +351,9 @@ const renderMarkdown = (md: string) => {
         <span :class="taskStatusClass(task!.status)">{{ t(`status.${task!.status}`) }}</span>
       </div>
       <div class="jv-detail-header-right">
+        <el-button size="small" :disabled="!sseMessages.length" @click="terminalVisible = !terminalVisible">
+          {{ terminalVisible ? t('analysis.hideLog') : t('analysis.showLog') }}
+        </el-button>
         <el-button size="small" :loading="sseActive" @click="rerun()">{{ t('analysis.rerunAll') }}</el-button>
       </div>
     </div>
@@ -316,8 +371,28 @@ const renderMarkdown = (md: string) => {
     </div>
 
     <!-- SSE Terminal -->
-    <div v-if="sseMessages.length" class="jv-terminal" style="margin-bottom:20px">
-      <div v-for="(msg, i) in sseMessages" :key="i">{{ msg }}</div>
+    <div v-if="sseMessages.length && terminalVisible" class="jv-terminal" style="margin-bottom:20px">
+      <template v-for="(group, gi) in terminalGroups" :key="gi">
+        <template v-if="group.stageNum > 0">
+          <div class="jv-term-stage-header" :class="{ 'has-error': group.hasError }"
+               @click="toggleStageGroup(group.stageNum)">
+            <span class="jv-term-caret">{{ collapsedStages.has(group.stageNum) ? '▶' : '▼' }}</span>
+            {{ group.label }}
+          </div>
+          <template v-if="!collapsedStages.has(group.stageNum)">
+            <div v-for="(entry, ei) in group.entries" :key="ei"
+                 :class="{ 'jv-term-error': entry.type === 'error', 'jv-term-done': entry.type === 'stage_done' }">
+              {{ entry.formatted }}
+            </div>
+          </template>
+        </template>
+        <template v-else>
+          <div v-for="(entry, ei) in group.entries" :key="ei"
+               :class="{ 'jv-term-error': entry.type === 'error', 'jv-term-done': entry.type === 'pipeline_done' }">
+            {{ entry.formatted }}
+          </div>
+        </template>
+      </template>
     </div>
 
     <!-- Selected stage result -->

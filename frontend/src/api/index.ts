@@ -72,6 +72,9 @@ export const api = {
   getTranscript: (cveId: string) =>
     http.get<TranscriptEvent[]>(`/analysis/${cveId}/transcript`).then(r => r.data),
 
+  getPipelineLog: (cveId: string) =>
+    http.get<PipelineLogEntry[]>(`/analysis/${cveId}/pipeline-log`).then(r => r.data),
+
   listLlmConfigs: () => http.get<LlmConfig[]>('/config/llm').then(r => r.data),
   createLlmConfig: (cfg: Omit<LlmConfig, 'id' | 'active'>) => http.post<LlmConfig>('/config/llm', cfg).then(r => r.data),
   updateLlmConfig: (id: number, cfg: Partial<LlmConfig>) => http.put<LlmConfig>(`/config/llm/${id}`, cfg).then(r => r.data),
@@ -115,4 +118,11 @@ export interface TranscriptEvent {
   type: 'assistant' | 'directive' | 'tool_results' | 'compact'
   phase: string
   payload: any
+}
+
+export interface PipelineLogEntry {
+  type: string
+  stageNum: number
+  message: string
+  timestamp: number
 }

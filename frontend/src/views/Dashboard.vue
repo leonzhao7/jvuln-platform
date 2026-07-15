@@ -47,6 +47,22 @@ const stats = computed(() => ({
   running:  tasks.value.filter(t => t.status === 'RUNNING').length,
   done:     tasks.value.filter(t => t.status === 'COMPLETED').length,
 }))
+
+const formatDuration = (start: string | null, end: string | null, status?: string) => {
+  if (!start) return '—'
+  const endMs = status === 'RUNNING' ? Date.now() : (end ? new Date(end).getTime() : NaN)
+  if (Number.isNaN(endMs)) return '—'
+  const ms = endMs - new Date(start).getTime()
+  if (ms < 0) return '—'
+  const sec = Math.floor(ms / 1000)
+  if (sec < 60) return `${sec}s`
+  const min = Math.floor(sec / 60)
+  const remSec = sec % 60
+  if (min < 60) return `${min}m ${remSec}s`
+  const hr = Math.floor(min / 60)
+  const remMin = min % 60
+  return `${hr}h ${remMin}m`
+}
 </script>
 
 <template>
@@ -98,14 +114,6 @@ const stats = computed(() => ({
         </template>
       </el-table-column>
 
-      <el-table-column :label="t('common.stage')" width="80">
-        <template #default="{ row }">
-          <span style="font-family:var(--font-mono); color:var(--text-muted); font-size:13px">
-            {{ row.currentStage }}/4
-          </span>
-        </template>
-      </el-table-column>
-
       <el-table-column :label="t('dashboard.cvss')" width="110">
         <template #default="{ row }">
           <span v-if="row.cvssScore" :class="cvssClass(row.cvssScore)">
@@ -131,17 +139,24 @@ const stats = computed(() => ({
         </template>
       </el-table-column>
 
-      <el-table-column :label="t('dashboard.updated')" width="170">
+      <el-table-column :label="t('dashboard.startedAt')" width="170">
         <template #default="{ row }">
           <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled)">
-            {{ row.updatedAt?.replace('T', ' ').slice(0, 19) }}
+            {{ row.createdAt?.replace('T', ' ').slice(0, 19) ?? '—' }}
           </span>
         </template>
       </el-table-column>
 
-      <el-table-column label="" width="120" align="right">
+      <el-table-column :label="t('dashboard.duration')" width="100">
         <template #default="{ row }">
-          <el-button size="small" @click="router.push(`/analysis/${row.cveId}`)">{{ t('common.view') }}</el-button>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled)">
+            {{ formatDuration(row.createdAt, row.updatedAt, row.status) }}
+          </span>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="" width="100" align="right">
+        <template #default="{ row }">
           <el-popconfirm
             :title="t('dashboard.deleteConfirm')"
             :confirm-button-text="t('common.delete')"

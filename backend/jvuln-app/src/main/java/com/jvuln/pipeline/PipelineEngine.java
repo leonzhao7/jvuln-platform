@@ -128,6 +128,14 @@ public class PipelineEngine {
         return running != null && running.get();
     }
 
+    public List<StageProgress> getProgressSnapshot(String cveId) {
+        List<StageProgress> history = progressHistory.get(cveId);
+        if (history == null) return null;
+        synchronized (history) {
+            return new ArrayList<>(history);
+        }
+    }
+
     private void runPipeline(String cveId, int fromStage) {
         log.info("Pipeline started: cveId={}, fromStage={}", cveId, fromStage);
 
@@ -169,6 +177,14 @@ public class PipelineEngine {
             });
             sendEvent(cveId, new StageProgress("error", 0, e.getMessage()));
         } finally {
+            List<StageProgress> history = progressHistory.remove(cveId);
+            if (history != null && !history.isEmpty()) {
+                try {
+                    workspaceManager.writePipelineLog(cveId, history);
+                } catch (Exception ex) {
+                    log.warn("Failed to write pipeline log for {}: {}", cveId, ex.getMessage());
+                }
+            }
             AtomicBoolean current = runningTasks.get(cveId);
             if (current != null) {
                 current.set(false);

@@ -5,6 +5,7 @@ import com.jvuln.pipeline.PipelineConstants;
 import com.jvuln.pipeline.PipelineEngine;
 import com.jvuln.service.AnalysisQueryService;
 import com.jvuln.service.AnalysisStatusSyncService;
+import com.jvuln.pipeline.model.StageProgress;
 import com.jvuln.store.CveTaskRepository;
 import com.jvuln.store.StageRecordRepository;
 import com.jvuln.store.WorkspaceManager;
@@ -225,6 +226,21 @@ public class AnalysisController {
         try {
             Object data = analysisQueryService.readStageJson(cveId, stageNum);
             if (data != null) return ResponseEntity.ok(data);
+            return ResponseEntity.notFound().build();
+        } catch (IOException e) {
+            return ApiResponseFactory.internalServerError(e.getMessage());
+        }
+    }
+
+    @GetMapping("/{cveId}/pipeline-log")
+    public ResponseEntity<?> getPipelineLog(@PathVariable String cveId) {
+        if (pipelineEngine.isRunning(cveId)) {
+            List<StageProgress> snapshot = pipelineEngine.getProgressSnapshot(cveId);
+            if (snapshot != null) return ResponseEntity.ok(snapshot);
+        }
+        try {
+            List<StageProgress> log = workspaceManager.readPipelineLog(cveId);
+            if (log != null) return ResponseEntity.ok(log);
             return ResponseEntity.notFound().build();
         } catch (IOException e) {
             return ApiResponseFactory.internalServerError(e.getMessage());

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import com.jvuln.pipeline.model.StageProgress;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -13,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.List;
 import java.util.regex.Pattern;
 
 @Component
@@ -140,6 +143,20 @@ public class WorkspaceManager {
             return null;
         }
         return new String(Files.readAllBytes(diffFile), StandardCharsets.UTF_8);
+    }
+
+    public void writePipelineLog(String cveId, List<StageProgress> events) throws IOException {
+        Path file = getCvePath(cveId).resolve("pipeline-log.json");
+        objectMapper.writeValue(file.toFile(), events);
+    }
+
+    public List<StageProgress> readPipelineLog(String cveId) throws IOException {
+        Path file = getCvePath(cveId).resolve("pipeline-log.json");
+        if (!Files.exists(file)) {
+            return null;
+        }
+        return objectMapper.readValue(file.toFile(),
+                objectMapper.getTypeFactory().constructCollectionType(List.class, StageProgress.class));
     }
 
     public ObjectMapper getObjectMapper() {

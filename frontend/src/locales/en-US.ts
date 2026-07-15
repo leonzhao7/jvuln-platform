@@ -39,6 +39,8 @@ const enUS = {
     cwe: 'CWE',
     artifact: 'Artifact',
     updated: 'Updated',
+    startedAt: 'Started',
+    duration: 'Duration',
     deleteConfirm: 'Delete this task?',
     deleteFailed: 'Failed to delete task',
     empty: 'No analyses yet.',
@@ -56,6 +58,8 @@ const enUS = {
   },
   analysis: {
     rerunAll: '↺ Rerun All',
+    showLog: 'Show Log',
+    hideLog: 'Hide Log',
     viewDiff: 'View Diff',
     rerunFromStage: 'Rerun from Stage {stage}',
     rerunStage: '↺ Rerun This Stage',

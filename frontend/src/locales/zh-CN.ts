@@ -39,6 +39,8 @@ const zhCN = {
     cwe: 'CWE',
     artifact: '组件坐标',
     updated: '更新时间',
+    startedAt: '开始时间',
+    duration: '用时',
     deleteConfirm: '确认删除这个任务？',
     deleteFailed: '删除任务失败',
     empty: '暂无分析任务。',
@@ -56,6 +58,8 @@ const zhCN = {
   },
   analysis: {
     rerunAll: '↺ 全部重跑',
+    showLog: '显示日志',
+    hideLog: '隐藏日志',
     viewDiff: '查看 Diff',
     rerunFromStage: '从阶段 {stage} 开始重跑',
     rerunStage: '↺ 重跑本阶段',

@@ -224,10 +224,26 @@ pre, code, .jv-mono {
   font-size: 12px;
   color: #42be65;
   padding: 12px 14px;
-  max-height: 200px;
+  max-height: 300px;
   overflow-y: auto;
   line-height: 1.7;
 }
+.jv-term-stage-header {
+  cursor: pointer;
+  color: #78a9ff;
+  font-weight: 600;
+  user-select: none;
+  padding: 1px 0;
+}
+.jv-term-stage-header:hover { color: #a6c8ff; }
+.jv-term-stage-header.has-error { color: #ff8389; }
+.jv-term-caret {
+  display: inline-block;
+  width: 1.2em;
+  text-align: center;
+}
+.jv-term-error { color: #ff8389; }
+.jv-term-done { color: #42be65; font-weight: 600; }
 
 /* ── Element Plus component overrides ──────────────────────────────── */
 
