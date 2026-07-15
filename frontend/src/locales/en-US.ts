@@ -145,6 +145,8 @@ const enUS = {
     patch: {
       commitHash: 'Commit Hash',
       commitMessage: 'Commit Message',
+      fixedVersion: 'Fixed Version',
+      locateNote: 'Locate Note',
       strategy: 'Locate Strategy',
       changedFiles: 'Patch Files',
       changeTypes: {

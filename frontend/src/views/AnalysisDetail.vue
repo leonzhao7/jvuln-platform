@@ -63,6 +63,10 @@ const selectedStageRecord = computed(() =>
   stages.value.find(s => s.stageNum === selectedStage.value)
 )
 const stage4Data = computed(() => stageData.value[4] ?? null)
+const isMavenSourceDiff = computed(() => {
+  const p = stageData.value[2]?.patchInfo
+  return (p?.strategy || p?.strategyName) === 'maven-source-diff'
+})
 const stage4PocFiles = computed<any[]>(() =>
   (stage4Data.value?.files ?? []).filter((item: any) => item.type === 'poc')
 )
@@ -493,13 +497,13 @@ const renderMarkdown = (md: string) => {
           <div v-if="stageData[2]">
             <!-- Patch Info -->
             <el-descriptions :column="2" border size="small" label-width="140px">
-              <el-descriptions-item :label="t('analysis.patch.commitHash')">
+              <el-descriptions-item :label="isMavenSourceDiff ? t('analysis.patch.fixedVersion') : t('analysis.patch.commitHash')">
                 <span style="font-family:var(--font-mono)">{{ stageData[2].patchInfo?.commitHash || '—' }}</span>
               </el-descriptions-item>
               <el-descriptions-item :label="t('analysis.patch.strategy')">
                 <span style="font-family:var(--font-mono)">{{ stageData[2].patchInfo?.strategy || stageData[2].patchInfo?.strategyName || '—' }}</span>
               </el-descriptions-item>
-              <el-descriptions-item :label="t('analysis.patch.commitMessage')" :span="2">
+              <el-descriptions-item :label="isMavenSourceDiff ? t('analysis.patch.locateNote') : t('analysis.patch.commitMessage')" :span="2">
                 {{ stageData[2].patchInfo?.commitMessage || '—' }}
               </el-descriptions-item>
             </el-descriptions>

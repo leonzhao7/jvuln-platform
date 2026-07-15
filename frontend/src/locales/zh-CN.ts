@@ -145,6 +145,8 @@ const zhCN = {
     patch: {
       commitHash: '提交哈希',
       commitMessage: '提交说明',
+      fixedVersion: '修复版本',
+      locateNote: '定位说明',
       strategy: '定位策略',
       changedFiles: '补丁文件',
       changeTypes: {

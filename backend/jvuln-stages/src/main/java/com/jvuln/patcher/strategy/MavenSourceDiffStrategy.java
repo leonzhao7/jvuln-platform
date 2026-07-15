@@ -163,8 +163,9 @@ public class MavenSourceDiffStrategy implements LocateStrategy {
             }
 
             String fakeCommitUrl = "maven-central/" + groupId + "/" + artifactId + "/" + fixedVersion;
+            String locateNote = "对比 " + prevVersion + " 和 " + fixedVersion + " 的代码差异";
             log.info("MavenSourceDiff: generated diff for {}:{}, size={}c", groupId, artifactId, diff.length());
-            return Optional.of(new PatchResult(fakeCommitUrl, fixedVersion, "Maven source diff", diff));
+            return Optional.of(new PatchResult(fakeCommitUrl, fixedVersion, locateNote, diff));
         } finally {
             deleteDir(tmpDir.toFile());
         }
