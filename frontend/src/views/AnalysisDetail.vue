@@ -37,7 +37,6 @@ const terminalVisible = ref(true)
 const collapsedStages = ref(new Set<number>())
 let evtSource: EventSource | null = null
 
-const activeTab = ref<'impact' | 'secure'>('impact')
 const dpFilter = ref('all')
 
 const dpCountByType = (type: string) => {
@@ -245,14 +244,6 @@ onMounted(async () => {
 })
 
 onUnmounted(() => evtSource?.close())
-
-const severityClass = (s: string) => {
-  const v = (s || '').toUpperCase()
-  if (v.includes('CRITICAL') || v.includes('严重')) return 'jv-tag jv-tag-critical'
-  if (v.includes('HIGH') || v.includes('高')) return 'jv-tag jv-tag-high'
-  if (v.includes('MEDIUM') || v.includes('中')) return 'jv-tag jv-tag-medium'
-  return 'jv-tag jv-tag-low'
-}
 
 
 const hasEvidenceList = (value: unknown) =>
@@ -527,25 +518,6 @@ const renderMarkdown = (md: string) => {
         <div v-else-if="selectedStage === 3">
           <div v-if="stageData[3]" class="jv-reasoning">
 
-            <!-- Summary -->
-            <el-descriptions :column="2" border size="small" label-width="140px">
-              <el-descriptions-item v-if="stageData[3].impact?.severity" :label="t('analysis.reasoning.severity')">
-                <span :class="severityClass(stageData[3].impact.severity)">{{ stageData[3].impact.severity }}</span>
-              </el-descriptions-item>
-              <el-descriptions-item v-if="stageData[3].impact?.attack_vector" :label="t('analysis.reasoning.attackVector')">
-                <span style="font-family:var(--font-mono)">{{ stageData[3].impact.attack_vector }}</span>
-              </el-descriptions-item>
-              <el-descriptions-item v-if="stageData[3].trigger_chain?.steps" :label="t('analysis.reasoning.triggerSteps')">
-                {{ stageData[3].trigger_chain.steps.length }}
-              </el-descriptions-item>
-              <el-descriptions-item v-if="stageData[3].code_analysis?.vuln_code_walkthrough" :label="t('analysis.reasoning.codeWalkthrough')">
-                {{ stageData[3].code_analysis.vuln_code_walkthrough.length }}
-              </el-descriptions-item>
-              <el-descriptions-item v-if="stageData[3].detection_points" :label="t('analysis.reasoning.detectionPoints')">
-                {{ stageData[3].detection_points.length }}
-              </el-descriptions-item>
-            </el-descriptions>
-
             <!-- Trigger Chain (Flow) -->
             <div v-if="stageData[3].trigger_chain" class="rs-section">
               <div class="rs-section-header">
@@ -567,121 +539,56 @@ const renderMarkdown = (md: string) => {
                 </div>
               </div>
 
-              <div class="rs-flow-endpoints">
-                <div style="flex:1">
-                  <div class="label"><span class="rs-entry-marker">▶</span> {{ t('analysis.reasoning.entryPoint') }}</div>
-                  <div class="value">{{ stageData[3].trigger_chain.entry_point }}</div>
-                </div>
-                <div style="flex:1">
-                  <div class="label"><span class="rs-sink-marker">◆</span> {{ t('analysis.reasoning.sink') }}</div>
-                  <div class="value">{{ stageData[3].trigger_chain.sink }}</div>
-                </div>
-              </div>
             </div>
 
-            <!-- Root Cause + Code Analysis -->
-            <div v-if="stageData[3].code_analysis" class="rs-section">
+            <!-- Impact Assessment -->
+            <div v-if="stageData[3].impact" class="rs-section">
               <div class="rs-section-header">
-                <span class="rs-section-title">{{ t('analysis.reasoning.rootCause') }}</span>
+                <span class="rs-section-title">{{ t('analysis.reasoning.impact') }}</span>
               </div>
-              <div class="rs-root-cause-text">{{ stageData[3].code_analysis.vuln_root_cause }}</div>
+              <div class="rs-impact-header">
+                <div class="rs-impact-kv">
+                  <div class="label">{{ t('analysis.reasoning.attackVector') }}</div>
+                  <div class="value">{{ stageData[3].impact.attack_vector }}</div>
+                </div>
+              </div>
+
+              <div v-if="stageData[3].impact.prerequisites?.length" class="rs-list-section">
+                <div class="rs-list-label">{{ t('analysis.reasoning.prerequisites') }}</div>
+                <ul class="rs-list-items">
+                  <li v-for="p in stageData[3].impact.prerequisites" :key="p">{{ p }}</li>
+                </ul>
+              </div>
+
+              <div v-if="stageData[3].impact.consequences?.length" class="rs-list-section">
+                <div class="rs-list-label">{{ t('analysis.reasoning.consequences') }}</div>
+                <ul class="rs-list-items">
+                  <li v-for="c in stageData[3].impact.consequences" :key="c">{{ c }}</li>
+                </ul>
+              </div>
+
+              <div v-if="stageData[3].impact.real_world_scenarios?.length" class="rs-list-section">
+                <div class="rs-list-label">{{ t('analysis.reasoning.realWorldScenarios') }}</div>
+                <ul class="rs-list-items">
+                  <li v-for="s in stageData[3].impact.real_world_scenarios" :key="s">{{ s }}</li>
+                </ul>
+              </div>
             </div>
 
-            <!-- Code Walkthrough -->
-            <div v-if="stageData[3].code_analysis?.vuln_code_walkthrough?.length" class="rs-section">
+            <!-- Vulnerability Fix -->
+            <div v-if="stageData[3].code_analysis?.fix_description || stageData[3].secure_coding?.recommendations?.length" class="rs-section">
               <div class="rs-section-header">
-                <span class="rs-section-title">{{ t('analysis.reasoning.codeWalkthrough') }}</span>
-                <span class="rs-section-badge">{{ stageData[3].code_analysis.vuln_code_walkthrough.length }} ENTRIES</span>
+                <span class="rs-section-title">{{ t('analysis.reasoning.vulnFix') }}</span>
               </div>
-
-              <div v-for="(w, i) in stageData[3].code_analysis.vuln_code_walkthrough" :key="i" class="rs-walkthrough-item">
-                <div class="rs-walkthrough-code">{{ w.line }}</div>
-                <div class="rs-walkthrough-explain">{{ w.explanation }}</div>
+              <div v-if="stageData[3].code_analysis?.fix_description" class="rs-list-section">
+                <div class="rs-list-label">{{ t('analysis.reasoning.fixDescription') }}</div>
+                <div class="rs-root-cause-text">{{ stageData[3].code_analysis.fix_description }}</div>
               </div>
-            </div>
-
-            <!-- Fix Info -->
-            <div v-if="stageData[3].code_analysis" class="rs-section">
-              <div class="rs-fix-grid">
-                <div class="rs-fix-cell">
-                  <div class="label">{{ t('analysis.reasoning.fixDescription') }}</div>
-                  <div class="value">{{ stageData[3].code_analysis.fix_description }}</div>
-                </div>
-                <div class="rs-fix-cell">
-                  <div class="label">{{ t('analysis.reasoning.fixCompleteness') }}</div>
-                  <div class="value">{{ stageData[3].code_analysis.fix_completeness }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Impact + Secure Coding (Tabs) -->
-            <div v-if="stageData[3].impact || stageData[3].secure_coding" class="rs-section">
-              <div class="rs-tabs">
-                <div class="rs-tab" :class="{ active: activeTab === 'impact' }" @click="activeTab = 'impact'">
-                  {{ t('analysis.reasoning.impact') }}
-                </div>
-                <div class="rs-tab" :class="{ active: activeTab === 'secure' }" @click="activeTab = 'secure'">
-                  {{ t('analysis.reasoning.secureCoding') }}
-                </div>
-              </div>
-
-              <!-- Impact Panel -->
-              <div v-if="activeTab === 'impact' && stageData[3].impact" class="rs-tab-panel">
-                <div class="rs-impact-header">
-                  <div class="rs-impact-kv">
-                    <div class="label">{{ t('analysis.reasoning.severity') }}</div>
-                    <div class="value" :class="severityClass(stageData[3].impact.severity)">{{ stageData[3].impact.severity }}</div>
-                  </div>
-                  <div class="rs-impact-kv">
-                    <div class="label">{{ t('analysis.reasoning.attackVector') }}</div>
-                    <div class="value">{{ stageData[3].impact.attack_vector }}</div>
-                  </div>
-                </div>
-
-                <div v-if="stageData[3].impact.prerequisites?.length" class="rs-list-section">
-                  <div class="rs-list-label">{{ t('analysis.reasoning.prerequisites') }}</div>
-                  <ul class="rs-list-items">
-                    <li v-for="p in stageData[3].impact.prerequisites" :key="p">{{ p }}</li>
-                  </ul>
-                </div>
-
-                <div v-if="stageData[3].impact.consequences?.length" class="rs-list-section">
-                  <div class="rs-list-label">{{ t('analysis.reasoning.consequences') }}</div>
-                  <ul class="rs-list-items">
-                    <li v-for="c in stageData[3].impact.consequences" :key="c">{{ c }}</li>
-                  </ul>
-                </div>
-
-                <div v-if="stageData[3].impact.real_world_scenarios?.length" class="rs-list-section">
-                  <div class="rs-list-label">{{ t('analysis.reasoning.realWorldScenarios') }}</div>
-                  <ul class="rs-list-items">
-                    <li v-for="s in stageData[3].impact.real_world_scenarios" :key="s">{{ s }}</li>
-                  </ul>
-                </div>
-              </div>
-
-              <!-- Secure Coding Panel -->
-              <div v-if="activeTab === 'secure' && stageData[3].secure_coding" class="rs-tab-panel">
-                <div v-if="stageData[3].secure_coding.violated_principles?.length" class="rs-list-section">
-                  <div class="rs-list-label">{{ t('analysis.reasoning.violatedPrinciples') }}</div>
-                  <ul class="rs-list-items">
-                    <li v-for="v in stageData[3].secure_coding.violated_principles" :key="v">{{ v }}</li>
-                  </ul>
-                </div>
-
-                <div v-if="stageData[3].secure_coding.recommendations?.length" class="rs-list-section">
-                  <div class="rs-list-label">{{ t('analysis.reasoning.recommendations') }}</div>
-                  <ul class="rs-list-items">
-                    <li v-for="r in stageData[3].secure_coding.recommendations" :key="r">{{ r }}</li>
-                  </ul>
-                </div>
-
-                <div v-if="stageData[3].secure_coding.similar_patterns?.length" class="rs-list-section">
-                  <div class="rs-list-label">{{ t('analysis.reasoning.similarPatterns') }}</div>
-                  <ul class="rs-list-items">
-                    <li v-for="s in stageData[3].secure_coding.similar_patterns" :key="s">{{ s }}</li>
-                  </ul>
-                </div>
+              <div v-if="stageData[3].secure_coding?.recommendations?.length" class="rs-list-section">
+                <div class="rs-list-label">{{ t('analysis.reasoning.recommendations') }}</div>
+                <ul class="rs-list-items">
+                  <li v-for="r in stageData[3].secure_coding.recommendations" :key="r">{{ r }}</li>
+                </ul>
               </div>
             </div>
 
@@ -1355,89 +1262,13 @@ const renderMarkdown = (md: string) => {
   color: var(--text-secondary);
   line-height: 1.5;
 }
-.rs-flow-endpoints {
-  display: flex;
-  gap: 24px;
-  margin-top: 14px;
-  padding: 10px 16px;
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  font-size: 12px;
-}
-.rs-flow-endpoints .label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: .5px;
-}
-.rs-flow-endpoints .value { color: var(--text-secondary); margin-top: 2px; }
-.rs-entry-marker { color: var(--success); font-family: var(--font-mono); font-size: 11px; }
-.rs-sink-marker  { color: var(--critical); font-family: var(--font-mono); font-size: 11px; }
 .rs-root-cause-text {
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.8;
   padding: 16px;
   background: var(--bg-surface);
-  border-left: 3px solid var(--critical);
 }
-.rs-walkthrough-item {
-  margin-bottom: 2px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  overflow: hidden;
-}
-.rs-walkthrough-code {
-  padding: 10px 14px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-primary);
-  background: var(--bg-base);
-  border-bottom: 1px solid var(--border-subtle);
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.rs-walkthrough-explain {
-  padding: 8px 14px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-.rs-fix-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  background: var(--border-subtle);
-  border: 1px solid var(--border-subtle);
-}
-.rs-fix-cell { background: var(--bg-surface); padding: 14px 16px; }
-.rs-fix-cell .label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: .5px;
-  margin-bottom: 6px;
-}
-.rs-fix-cell .value { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
-.rs-tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--border-subtle);
-  margin-bottom: 16px;
-}
-.rs-tab {
-  padding: 8px 16px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-disabled);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  letter-spacing: .5px;
-  transition: all .15s;
-}
-.rs-tab:hover { color: var(--text-secondary); }
-.rs-tab.active { color: var(--accent-light); border-bottom-color: var(--accent); }
 .rs-impact-header {
   display: flex;
   gap: 20px;

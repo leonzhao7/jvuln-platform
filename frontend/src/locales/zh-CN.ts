@@ -218,6 +218,7 @@ const zhCN = {
       step: '步骤',
       rootCause: '根因分析',
       codeWalkthrough: '漏洞代码走查',
+      vulnFix: '漏洞修复',
       fixDescription: '修复措施',
       fixCompleteness: '修复完整性',
       impact: '影响评估',

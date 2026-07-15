@@ -218,6 +218,7 @@ const enUS = {
       step: 'Step',
       rootCause: 'Root Cause',
       codeWalkthrough: 'Code Walkthrough',
+      vulnFix: 'Vulnerability Fix',
       fixDescription: 'Fix Description',
       fixCompleteness: 'Fix Completeness',
       impact: 'Impact Assessment',
