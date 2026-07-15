@@ -1746,11 +1746,15 @@ const renderMarkdown = (md: string) => {
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .jv-artifacts-review-reason {
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .jv-artifacts-review-actions {
   margin-top: 10px;
@@ -1765,6 +1769,11 @@ const renderMarkdown = (md: string) => {
   padding-left: 18px;
   color: var(--text-primary);
   font-size: 13px;
+}
+.jv-artifacts-review-actions li {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
 }
 .jv-artifacts-files {
   display: flex;

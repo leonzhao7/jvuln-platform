@@ -255,6 +255,8 @@ const enUS = {
     fileCount: '{count} file(s)',
     unifiedView: 'Unified View',
     sideBySide: 'Side-by-Side',
+    relevantOnly: 'Relevant Only ({count})',
+    showAll: 'Show All',
     empty: 'No diff available for this CVE',
     loadFailed: 'Failed to load diff',
   },

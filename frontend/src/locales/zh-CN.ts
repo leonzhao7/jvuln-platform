@@ -255,6 +255,8 @@ const zhCN = {
     fileCount: '{count} 个文件',
     unifiedView: '统一视图',
     sideBySide: '左右对比',
+    relevantOnly: '仅相关文件 ({count})',
+    showAll: '显示全部',
     empty: '该 CVE 暂无补丁 Diff',
     loadFailed: '加载 Diff 失败',
   },

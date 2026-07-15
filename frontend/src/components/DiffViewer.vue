@@ -29,6 +29,7 @@ const props = withDefaults(defineProps<{
 const { t } = useI18n()
 const viewType = ref<'side-by-side' | 'line-by-line'>('side-by-side')
 const expandedFile = ref<string | null>(null)
+const showRelevantOnly = ref(false)
 
 interface FileDiff {
   fileName: string
@@ -61,6 +62,16 @@ const fileDiffs = computed<FileDiff[]>(() => {
     }
   })
 })
+
+const hasDecisions = computed(() => !!props.fileDecisions?.length)
+
+const relevantCount = computed(() =>
+  fileDiffs.value.filter(f => decisionFor(f.fileName)?.causal).length)
+
+const displayedFileDiffs = computed<FileDiff[]>(() =>
+  showRelevantOnly.value
+    ? fileDiffs.value.filter(f => decisionFor(f.fileName)?.causal)
+    : fileDiffs.value)
 
 const toggleFile = (fileName: string) => {
   expandedFile.value = expandedFile.value === fileName ? null : fileName
@@ -101,15 +112,25 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
           {{ t('diff.fileCount', { count: fileCount }) }}
         </span>
       </div>
-      <el-button size="small" :disabled="!diffContent" @click="toggleView">
-        {{ viewType === 'side-by-side' ? t('diff.unifiedView') : t('diff.sideBySide') }}
-      </el-button>
+      <div class="jv-diff-toolbar-right">
+        <el-button
+          v-if="hasDecisions"
+          size="small"
+          :type="showRelevantOnly ? 'primary' : 'default'"
+          @click="showRelevantOnly = !showRelevantOnly"
+        >
+          {{ showRelevantOnly ? t('diff.showAll') : t('diff.relevantOnly', { count: relevantCount }) }}
+        </el-button>
+        <el-button size="small" :disabled="!diffContent" @click="toggleView">
+          {{ viewType === 'side-by-side' ? t('diff.unifiedView') : t('diff.sideBySide') }}
+        </el-button>
+      </div>
     </div>
 
     <el-skeleton v-if="loading" :rows="10" animated />
 
-    <div v-else-if="fileDiffs.length" class="jv-file-diffs">
-      <div v-for="file in fileDiffs" :key="file.fileName" class="jv-file-diff-block">
+    <div v-else-if="displayedFileDiffs.length" class="jv-file-diffs">
+      <div v-for="file in displayedFileDiffs" :key="file.fileName" class="jv-file-diff-block">
         <div class="jv-file-diff-header" @click="toggleFile(file.fileName)">
           <div class="jv-file-diff-info">
             <span class="jv-file-diff-icon">{{ expandedFile === file.fileName ? '▼' : '▶' }}</span>
@@ -261,6 +282,11 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+.jv-diff-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .jv-section-label {
   font-family: var(--font-mono);
