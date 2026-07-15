@@ -500,7 +500,7 @@ const renderMarkdown = (md: string) => {
             </el-descriptions>
 
             <!-- Diff Viewer -->
-            <div v-if="diffContent || diffLoading" class="jv-stage3-section">
+            <div v-if="diffContent || diffLoading" class="jv-stage3-section jv-diff-section">
               <DiffViewer
                 :diff-content="diffContent"
                 :loading="diffLoading"
@@ -519,8 +519,9 @@ const renderMarkdown = (md: string) => {
           <div v-if="stageData[3]" class="jv-reasoning">
 
             <!-- Trigger Chain (Flow) -->
-            <div v-if="stageData[3].trigger_chain" class="rs-section">
+            <div v-if="stageData[3].trigger_chain" class="rs-section rs-section--trigger">
               <div class="rs-section-header">
+                <span class="rs-section-num">01</span>
                 <span class="rs-section-title">{{ t('analysis.reasoning.triggerChain') }}</span>
                 <span class="rs-section-badge" v-if="stageData[3].trigger_chain.steps">{{ stageData[3].trigger_chain.steps.length }} STEPS</span>
               </div>
@@ -542,59 +543,69 @@ const renderMarkdown = (md: string) => {
             </div>
 
             <!-- Impact Assessment -->
-            <div v-if="stageData[3].impact" class="rs-section">
+            <div v-if="stageData[3].impact" class="rs-section rs-section--impact">
               <div class="rs-section-header">
+                <span class="rs-section-num">02</span>
                 <span class="rs-section-title">{{ t('analysis.reasoning.impact') }}</span>
               </div>
-              <div class="rs-impact-header">
-                <div class="rs-impact-kv">
-                  <div class="label">{{ t('analysis.reasoning.attackVector') }}</div>
-                  <div class="value">{{ stageData[3].impact.attack_vector }}</div>
+
+              <div v-if="stageData[3].impact.attack_vector" class="rs-impact-vector">
+                <div class="rs-impact-vector-icon">⚡</div>
+                <div class="rs-impact-vector-body">
+                  <div class="rs-impact-vector-label">{{ t('analysis.reasoning.attackVector') }}</div>
+                  <div class="rs-impact-vector-value">{{ stageData[3].impact.attack_vector }}</div>
                 </div>
               </div>
 
-              <div v-if="stageData[3].impact.prerequisites?.length" class="rs-list-section">
-                <div class="rs-list-label">{{ t('analysis.reasoning.prerequisites') }}</div>
-                <ul class="rs-list-items">
-                  <li v-for="p in stageData[3].impact.prerequisites" :key="p">{{ p }}</li>
-                </ul>
-              </div>
+              <div class="rs-impact-grid">
+                <div v-if="stageData[3].impact.prerequisites?.length" class="rs-impact-card rs-impact-card--prereq">
+                  <div class="rs-impact-card-head">{{ t('analysis.reasoning.prerequisites') }}</div>
+                  <ul class="rs-impact-list">
+                    <li v-for="p in stageData[3].impact.prerequisites" :key="p">{{ p }}</li>
+                  </ul>
+                </div>
 
-              <div v-if="stageData[3].impact.consequences?.length" class="rs-list-section">
-                <div class="rs-list-label">{{ t('analysis.reasoning.consequences') }}</div>
-                <ul class="rs-list-items">
-                  <li v-for="c in stageData[3].impact.consequences" :key="c">{{ c }}</li>
-                </ul>
-              </div>
+                <div v-if="stageData[3].impact.consequences?.length" class="rs-impact-card rs-impact-card--conseq">
+                  <div class="rs-impact-card-head">{{ t('analysis.reasoning.consequences') }}</div>
+                  <ul class="rs-impact-list">
+                    <li v-for="c in stageData[3].impact.consequences" :key="c">{{ c }}</li>
+                  </ul>
+                </div>
 
-              <div v-if="stageData[3].impact.real_world_scenarios?.length" class="rs-list-section">
-                <div class="rs-list-label">{{ t('analysis.reasoning.realWorldScenarios') }}</div>
-                <ul class="rs-list-items">
-                  <li v-for="s in stageData[3].impact.real_world_scenarios" :key="s">{{ s }}</li>
-                </ul>
+                <div v-if="stageData[3].impact.real_world_scenarios?.length" class="rs-impact-card rs-impact-card--scenario">
+                  <div class="rs-impact-card-head">{{ t('analysis.reasoning.realWorldScenarios') }}</div>
+                  <ul class="rs-impact-list">
+                    <li v-for="s in stageData[3].impact.real_world_scenarios" :key="s">{{ s }}</li>
+                  </ul>
+                </div>
               </div>
             </div>
 
             <!-- Vulnerability Fix -->
-            <div v-if="stageData[3].code_analysis?.fix_description || stageData[3].secure_coding?.recommendations?.length" class="rs-section">
+            <div v-if="stageData[3].code_analysis?.fix_description || stageData[3].secure_coding?.recommendations?.length" class="rs-section rs-section--fix">
               <div class="rs-section-header">
+                <span class="rs-section-num">03</span>
                 <span class="rs-section-title">{{ t('analysis.reasoning.vulnFix') }}</span>
               </div>
-              <div v-if="stageData[3].code_analysis?.fix_description" class="rs-list-section">
-                <div class="rs-list-label">{{ t('analysis.reasoning.fixDescription') }}</div>
-                <div class="rs-root-cause-text">{{ stageData[3].code_analysis.fix_description }}</div>
+              <div v-if="stageData[3].code_analysis?.fix_description" class="rs-fix-desc">
+                <div class="rs-fix-desc-icon">✓</div>
+                <div class="rs-fix-desc-body">
+                  <div class="rs-fix-desc-label">{{ t('analysis.reasoning.fixDescription') }}</div>
+                  <div class="rs-fix-desc-text">{{ stageData[3].code_analysis.fix_description }}</div>
+                </div>
               </div>
-              <div v-if="stageData[3].secure_coding?.recommendations?.length" class="rs-list-section">
-                <div class="rs-list-label">{{ t('analysis.reasoning.recommendations') }}</div>
-                <ul class="rs-list-items">
+              <div v-if="stageData[3].secure_coding?.recommendations?.length" class="rs-fix-recos">
+                <div class="rs-fix-recos-label">{{ t('analysis.reasoning.recommendations') }}</div>
+                <ul class="rs-fix-reco-list">
                   <li v-for="r in stageData[3].secure_coding.recommendations" :key="r">{{ r }}</li>
                 </ul>
               </div>
             </div>
 
             <!-- Detection Points -->
-            <div v-if="stageData[3].detection_points?.length" class="rs-section">
+            <div v-if="stageData[3].detection_points?.length" class="rs-section rs-section--detect">
               <div class="rs-section-header">
+                <span class="rs-section-num">04</span>
                 <span class="rs-section-title">{{ t('analysis.reasoning.detectionPoints') }}</span>
                 <span class="rs-section-badge">{{ stageData[3].detection_points.length }} POINTS</span>
               </div>
@@ -696,7 +707,7 @@ const renderMarkdown = (md: string) => {
 
         <!-- Artifacts / Education Lab -->
         <div v-else-if="selectedStage === 4">
-          <div v-if="stageData[4] && (stageData[4].status === 'generated' || stageData[4].status === 'paused')">
+          <div v-if="stageData[4] && (stageData[4].status === 'generated' || stageData[4].status === 'paused')" class="jv-stage4-sections">
 
             <!-- Paused banner -->
             <div v-if="stageData[4].status === 'paused'" class="jv-paused-banner">
@@ -717,7 +728,7 @@ const renderMarkdown = (md: string) => {
               <span v-if="stageData[4].javaProfile">{{ t('analysis.artifacts.javaProfile') }}: {{ stageData[4].javaProfile.name }} (Java {{ stageData[4].javaProfile.javaVersion }}, Spring Boot {{ stageData[4].javaProfile.springBootVersion }})</span>
             </div>
 
-            <div v-if="stageData[4].validation" class="jv-reasoning-section">
+            <div v-if="stageData[4].validation" class="jv-reasoning-section s4-c1">
               <div class="jv-section-label">{{ t('analysis.artifacts.backendValidation') }}</div>
               <div class="jv-stage4-validation-grid">
                 <div class="jv-stage4-plan-card">
@@ -765,7 +776,7 @@ const renderMarkdown = (md: string) => {
               </div>
             </div>
 
-            <div v-if="stageData[4].failureReason || stageData[4].verification?.reason || stageData[4].poc?.reason" class="jv-reasoning-section">
+            <div v-if="stageData[4].failureReason || stageData[4].verification?.reason || stageData[4].poc?.reason" class="jv-reasoning-section s4-c2">
               <div class="jv-section-label">{{ t('analysis.artifacts.verificationReview') }}</div>
               <div class="jv-artifacts-review">
                 <div v-if="stageData[4].verification?.verdict" class="jv-artifacts-review-verdict">
@@ -805,7 +816,7 @@ const renderMarkdown = (md: string) => {
             </div>
 
             <!-- File list -->
-            <div class="jv-reasoning-section">
+            <div class="jv-reasoning-section s4-c3">
               <div class="jv-section-label">{{ t('analysis.artifacts.fileList') }}</div>
               <div class="jv-artifacts-files">
                 <div v-for="f in stageData[4].files" :key="f.path" class="jv-artifact-file">
@@ -816,17 +827,17 @@ const renderMarkdown = (md: string) => {
             </div>
 
             <!-- Report preview -->
-            <div v-if="reportMarkdown" class="jv-reasoning-section">
+            <div v-if="reportMarkdown" class="jv-reasoning-section s4-c4">
               <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
               <div class="jv-report-preview" v-html="renderMarkdown(reportMarkdown)"></div>
             </div>
-            <div v-else-if="stageData[4].report?.status === 'generated'" class="jv-reasoning-section">
+            <div v-else-if="stageData[4].report?.status === 'generated'" class="jv-reasoning-section s4-c4">
               <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
               <div style="color:var(--text-disabled); font-size:13px">{{ t('analysis.artifacts.noReport') }}</div>
             </div>
 
             <!-- PoC files -->
-            <div v-if="stageData[4].poc?.files?.length" class="jv-reasoning-section">
+            <div v-if="stageData[4].poc?.files?.length" class="jv-reasoning-section s4-c5">
               <div class="jv-section-label">{{ t('analysis.artifacts.pocPreview') }}</div>
               <div v-for="f in stage4PocFiles" :key="f.path" class="jv-poc-block">
                 <div class="jv-file-header">
@@ -836,7 +847,7 @@ const renderMarkdown = (md: string) => {
             </div>
 
             <!-- Reproduction Steps -->
-            <div v-if="stageData[4].reproductionSteps?.length" class="jv-reasoning-section">
+            <div v-if="stageData[4].reproductionSteps?.length" class="jv-reasoning-section s4-c6">
               <div class="jv-section-label">{{ t('analysis.artifacts.reproductionSteps') }}</div>
               <div class="jv-reproduction-steps">
                 <div v-for="s in stageData[4].reproductionSteps" :key="s.step" class="jv-repro-step">
@@ -851,7 +862,7 @@ const renderMarkdown = (md: string) => {
             </div>
 
             <!-- Agent Transcript -->
-            <div v-if="transcriptEvents.length" class="jv-reasoning-section">
+            <div v-if="transcriptEvents.length" class="jv-reasoning-section s4-c7">
               <div class="jv-section-label" style="cursor:pointer; user-select:none" @click="transcriptExpanded = !transcriptExpanded">
                 Agent Transcript ({{ transcriptEvents.length }} events)
                 <span style="font-size:11px; margin-left:8px; color:var(--text-muted)">{{ transcriptExpanded ? '▼' : '▶' }}</span>
@@ -1053,15 +1064,64 @@ const renderMarkdown = (md: string) => {
 }
 /* Section label */
 .jv-section-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  position: relative;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: .5px;
+  padding: 0 0 12px 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(15,98,254,.3);
 }
+.jv-section-label::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 1px;
+  width: 4px; height: 17px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+/* Stage 4 — numbered section headers (like stage 3) */
+.jv-stage4-sections { counter-reset: s4section; }
+.jv-stage4-sections .jv-reasoning-section { counter-increment: s4section; }
+.jv-stage4-sections .jv-section-label {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 0 12px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.jv-stage4-sections .jv-section-label::before {
+  content: counter(s4section, decimal-leading-zero);
+  position: static;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px; height: 34px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-light);
+  background: rgba(15,98,254,.12);
+  border: 1px solid rgba(15,98,254,.35);
+  border-radius: 8px;
+  transform: none;
+}
+.jv-stage4-sections .s4-c1 .jv-section-label::before { color: var(--accent-light); background: rgba(15,98,254,.12); border-color: rgba(15,98,254,.35); }
+.jv-stage4-sections .s4-c2 .jv-section-label::before { color: var(--critical); background: rgba(250,77,86,.12); border-color: rgba(250,77,86,.35); }
+.jv-stage4-sections .s4-c3 .jv-section-label::before { color: var(--success); background: rgba(66,190,101,.12); border-color: rgba(66,190,101,.35); }
+.jv-stage4-sections .s4-c4 .jv-section-label::before { color: var(--medium); background: rgba(241,194,27,.12); border-color: rgba(241,194,27,.35); }
+.jv-stage4-sections .s4-c5 .jv-section-label::before { color: #a06eff; background: rgba(160,110,255,.12); border-color: rgba(160,110,255,.35); }
+.jv-stage4-sections .s4-c6 .jv-section-label::before { color: #33b1ff; background: rgba(51,177,255,.12); border-color: rgba(51,177,255,.35); }
+.jv-stage4-sections .s4-c7 .jv-section-label::before { color: #ff7eb6; background: rgba(255,126,182,.12); border-color: rgba(255,126,182,.35); }
 
 .jv-stage3-section {
   margin-bottom: 28px;
+}
+.jv-diff-section {
+  margin-top: 28px;
 }
 .jv-stage3-summary-meta {
   margin-bottom: 12px;
@@ -1191,17 +1251,33 @@ const renderMarkdown = (md: string) => {
 .rs-section-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.rs-section-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px; height: 34px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-light);
+  background: rgba(15,98,254,.12);
+  border: 1px solid rgba(15,98,254,.35);
+  border-radius: 8px;
 }
 .rs-section-title {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-disabled);
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: .5px;
 }
 .rs-section-badge {
+  margin-left: auto;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--accent-light);
@@ -1209,6 +1285,15 @@ const renderMarkdown = (md: string) => {
   border: 1px solid rgba(15,98,254,.25);
   padding: 2px 8px;
 }
+/* per-section accent colors */
+.rs-section--trigger .rs-section-num { color: var(--accent-light); background: rgba(15,98,254,.12); border-color: rgba(15,98,254,.35); }
+.rs-section--trigger .rs-section-header { border-bottom-color: rgba(15,98,254,.3); }
+.rs-section--impact .rs-section-num { color: var(--critical); background: rgba(250,77,86,.12); border-color: rgba(250,77,86,.35); }
+.rs-section--impact .rs-section-header { border-bottom-color: rgba(250,77,86,.3); }
+.rs-section--fix .rs-section-num { color: var(--success); background: rgba(66,190,101,.12); border-color: rgba(66,190,101,.35); }
+.rs-section--fix .rs-section-header { border-bottom-color: rgba(66,190,101,.3); }
+.rs-section--detect .rs-section-num { color: var(--medium); background: rgba(241,194,27,.12); border-color: rgba(241,194,27,.35); }
+.rs-section--detect .rs-section-header { border-bottom-color: rgba(241,194,27,.3); }
 .rs-trigger-summary {
   color: var(--text-secondary);
   font-size: 13px;
@@ -1262,29 +1347,6 @@ const renderMarkdown = (md: string) => {
   color: var(--text-secondary);
   line-height: 1.5;
 }
-.rs-root-cause-text {
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.8;
-  padding: 16px;
-  background: var(--bg-surface);
-}
-.rs-impact-header {
-  display: flex;
-  gap: 20px;
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-}
-.rs-impact-kv .label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: .5px;
-}
-.rs-impact-kv .value { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
-.rs-list-section { margin-bottom: 14px; }
 .rs-list-label {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1292,20 +1354,156 @@ const renderMarkdown = (md: string) => {
   letter-spacing: .5px;
   margin-bottom: 8px;
 }
-.rs-list-items { list-style: none; padding: 0; }
-.rs-list-items li {
-  position: relative;
-  padding: 6px 0 6px 16px;
+
+/* Impact Assessment — attack vector banner */
+.rs-impact-vector {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid rgba(250,77,86,.5);
+}
+.rs-impact-vector-icon {
+  font-size: 16px;
+  line-height: 1.4;
+  flex-shrink: 0;
+  opacity: .8;
+}
+.rs-impact-vector-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.rs-impact-vector-value {
   font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.5;
+  line-height: 1.6;
 }
-.rs-list-items li::before {
+
+/* Impact Assessment — card grid */
+.rs-impact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.rs-impact-card {
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-top: 2px solid var(--border);
+  transition: border-color .15s, transform .15s;
+}
+.rs-impact-card:hover {
+  transform: translateY(-2px);
+}
+.rs-impact-card--prereq { border-top-color: var(--accent); }
+.rs-impact-card--prereq:hover { border-color: rgba(120,169,255,.4); }
+.rs-impact-card--conseq { border-top-color: var(--critical); }
+.rs-impact-card--conseq:hover { border-color: rgba(250,77,86,.4); }
+.rs-impact-card--scenario { border-top-color: var(--medium); }
+.rs-impact-card--scenario:hover { border-color: rgba(241,194,27,.4); }
+.rs-impact-card-head {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.rs-impact-list { list-style: none; padding: 0; margin: 0; }
+.rs-impact-list li {
+  position: relative;
+  padding: 5px 0 5px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+.rs-impact-list li::before {
   content: '›';
   position: absolute;
   left: 0;
   color: var(--text-disabled);
   font-family: var(--font-mono);
+}
+
+/* Vulnerability Fix — description */
+.rs-fix-desc {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid rgba(66,190,101,.5);
+}
+.rs-fix-desc-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px; height: 20px;
+  color: var(--success);
+  font-size: 13px;
+  flex-shrink: 0;
+  opacity: .8;
+}
+.rs-fix-desc-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.rs-fix-desc-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+/* Vulnerability Fix — recommendations */
+.rs-fix-recos {
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+.rs-fix-recos-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-disabled);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.rs-fix-reco-list { list-style: none; padding: 0; margin: 0; counter-reset: reco; }
+.rs-fix-reco-list li {
+  position: relative;
+  padding: 7px 0 7px 28px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  counter-increment: reco;
+}
+.rs-fix-reco-list li::before {
+  content: counter(reco);
+  position: absolute;
+  left: 0; top: 7px;
+  width: 18px; height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--success);
+  background: rgba(66,190,101,.12);
+  border: 1px solid rgba(66,190,101,.35);
+  border-radius: 50%;
 }
 .rs-dp-filters {
   display: flex;
@@ -1422,7 +1620,6 @@ const renderMarkdown = (md: string) => {
   margin-bottom: 20px;
   padding: 10px 14px;
   background: var(--bg-base);
-  border-left: 3px solid #42be65;
 }
 .jv-stage4-plan-grid,
 .jv-stage4-validation-grid,

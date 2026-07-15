@@ -276,6 +276,8 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(15,98,254,.3);
 }
 .jv-diff-toolbar-left {
   display: flex;
@@ -289,11 +291,21 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
   gap: 8px;
 }
 .jv-section-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  position: relative;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: .5px;
+  padding-left: 14px;
+}
+.jv-section-label::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 4px; height: 17px;
+  background: var(--accent);
+  border-radius: 2px;
 }
 .jv-diff-file-count {
   font-family: var(--font-mono);
