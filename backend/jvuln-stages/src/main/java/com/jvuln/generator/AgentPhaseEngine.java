@@ -1,12 +1,6 @@
 package com.jvuln.generator;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jvuln.llm.LlmRequest;
-import com.jvuln.llm.LlmResponse;
-import com.jvuln.llm.LlmPromptStage;
-import com.jvuln.llm.PromptRegistry;
-import com.jvuln.pipeline.model.PipelineContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -15,7 +9,6 @@ import java.nio.file.Files;
 import java.util.*;
 
 import static com.jvuln.generator.ArtifactGenUtils.joinItems;
-import static com.jvuln.generator.ArtifactGenUtils.singleLine;
 
 @Component
 class AgentPhaseEngine {
@@ -24,13 +17,9 @@ class AgentPhaseEngine {
     private static final int REPORT_FALLBACK_TURNS = 5;
     private static final int MAX_NO_PROGRESS_TURNS = 6;
 
-    private final PromptRegistry promptRegistry;
-    private final ObjectMapper mapper;
     private final LlmHelper llmHelper;
 
-    AgentPhaseEngine(PromptRegistry promptRegistry, ObjectMapper mapper, LlmHelper llmHelper) {
-        this.promptRegistry = promptRegistry;
-        this.mapper = mapper;
+    AgentPhaseEngine(LlmHelper llmHelper) {
         this.llmHelper = llmHelper;
     }
 
@@ -163,23 +152,23 @@ class AgentPhaseEngine {
     boolean isToolAllowed(AgentPhase phase, String toolName) {
         if (phase == null) {
             return "submit_plan".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName)
-                    || "write_file".equals(toolName) || "write_files".equals(toolName);
+                    || "write_files".equals(toolName);
         }
         switch (phase) {
             case PLAN:
                 return "submit_plan".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName)
-                        || "write_file".equals(toolName) || "write_files".equals(toolName);
+                        || "write_files".equals(toolName);
             case GENERATE_MINIMAL:
-                return "write_file".equals(toolName) || "write_files".equals(toolName)
+                return "write_files".equals(toolName)
                         || "read_file".equals(toolName) || "read_log".equals(toolName);
             case COMPILE_FIX:
             case STARTUP_FIX:
             case POC_FIX:
-                return "write_file".equals(toolName) || "write_files".equals(toolName)
+                return "write_files".equals(toolName)
                         || "read_file".equals(toolName) || "read_log".equals(toolName) || "inspect_runtime".equals(toolName)
                         || "validate_artifacts".equals(toolName) || "finish".equals(toolName);
             case REPORT:
-                return "write_file".equals(toolName) || "write_files".equals(toolName)
+                return "write_files".equals(toolName)
                         || "read_file".equals(toolName) || "read_log".equals(toolName) || "inspect_runtime".equals(toolName)
                         || "finish".equals(toolName);
             case FINISHED:
@@ -262,10 +251,6 @@ class AgentPhaseEngine {
 
     WriteScope inspectWriteScope(String toolName, JsonNode input) {
         WriteScope scope = new WriteScope();
-        if ("write_file".equals(toolName)) {
-            markWriteScope(scope, input.path("path").asText(""));
-            return scope;
-        }
         if ("write_files".equals(toolName)) {
             JsonNode files = input.path("files");
             if (files.isArray()) {
@@ -329,15 +314,15 @@ class AgentPhaseEngine {
     private List<String> allowedActions(AgentPhase phase) {
         switch (phase) {
             case PLAN:
-                return Arrays.asList("submit_plan", "write_files", "write_file", "read_file", "read_log");
+                return Arrays.asList("submit_plan", "write_files", "read_file", "read_log");
             case GENERATE_MINIMAL:
-                return Arrays.asList("write_files", "write_file", "read_file", "read_log");
+                return Arrays.asList("write_files", "read_file", "read_log");
             case COMPILE_FIX:
             case STARTUP_FIX:
             case POC_FIX:
-                return Arrays.asList("write_files", "write_file", "read_file", "read_log", "inspect_runtime", "validate_artifacts", "finish");
+                return Arrays.asList("write_files", "read_file", "read_log", "inspect_runtime", "validate_artifacts", "finish");
             case REPORT:
-                return Arrays.asList("write_files", "write_file", "read_file", "read_log", "inspect_runtime", "finish");
+                return Arrays.asList("write_files", "read_file", "read_log", "inspect_runtime", "finish");
             default:
                 return Collections.singletonList("finish");
         }
@@ -347,40 +332,19 @@ class AgentPhaseEngine {
         if (result == null || result.compileMessage == null) {
             return "Analyze the compilation error and fix it.";
         }
-
-        String diagnosis = diagnoseFailure(ctx, "COMPILE", result.compileMessage,
-            ctx.buildHistory.isEmpty() ? null : ctx.buildHistory.get(ctx.buildHistory.size() - 1).output);
-
-        return diagnosis.isEmpty()
-            ? "Read the compilation error, identify the root cause, then fix it."
-            : diagnosis;
+        return "Read the compilation error, identify the root cause, then fix it.";
     }
 
     private String deriveStartupFixHint(AgentContext ctx, ValidationResult result) {
         if (result == null || result.startupMessage == null) {
             return "Analyze why the application failed to start and fix it.";
         }
-
-        String diagnosis = diagnoseFailure(ctx, "STARTUP", result.startupMessage,
-            ctx.startupHistory.isEmpty() ? null : ctx.startupHistory.get(ctx.startupHistory.size() - 1).output);
-
-        return diagnosis.isEmpty()
-            ? "Read the startup logs, identify the root cause, then fix configuration or code issues."
-            : diagnosis;
+        return "Read the startup logs, identify the root cause, then fix configuration or code issues.";
     }
 
     private String derivePocFixHint(AgentContext ctx, ValidationResult result) {
         if (ctx != null && ctx.verificationPlan != null) {
             StringBuilder sb = new StringBuilder();
-
-            String diagnosis = diagnoseFailure(ctx, "POC",
-                result == null ? "PoC not verified" : result.pocMessage,
-                ctx.commandHistory.isEmpty() ? null : ctx.commandHistory.get(ctx.commandHistory.size() - 1).output);
-
-            if (!diagnosis.isEmpty()) {
-                sb.append(diagnosis).append("\n\n");
-            }
-
             if (!ctx.verificationPlan.successSignals.isEmpty()) {
                 sb.append("Success signals: ")
                         .append(joinItems(ctx.verificationPlan.successSignals, "; "))
@@ -403,35 +367,6 @@ class AgentPhaseEngine {
         return "Analyze why the PoC failed and fix it to satisfy the verification signals.";
     }
 
-    private String diagnoseFailure(AgentContext ctx, String failureType, String errorMessage, String fullLog) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("You are analyzing a ").append(failureType).append(" failure in CVE reproduction lab generation.\n\n");
-        prompt.append("ERROR MESSAGE:\n").append(errorMessage).append("\n\n");
-
-        if (fullLog != null && !fullLog.trim().isEmpty() && fullLog.length() < 8000) {
-            prompt.append("FULL LOG:\n").append(fullLog).append("\n\n");
-        }
-
-        prompt.append("RECENT BUILD HISTORY:\n").append(llmHelper.renderJson(llmHelper.recentHistory(ctx.buildHistory))).append("\n\n");
-        prompt.append("RECENT STARTUP HISTORY:\n").append(llmHelper.renderJson(llmHelper.recentHistory(ctx.startupHistory))).append("\n\n");
-        prompt.append("RECENT COMMAND HISTORY:\n").append(llmHelper.renderJson(llmHelper.recentHistory(ctx.commandHistory))).append("\n\n");
-
-        prompt.append("Analyze the root cause in 2-3 sentences. What specifically failed and why? ");
-        prompt.append("Suggest concrete next steps to fix it. Be specific about file names and line numbers if applicable.");
-
-        try {
-            LlmRequest req = LlmRequest.reasoning(
-                LlmPromptStage.ARTIFACT_GENERATION,
-                promptRegistry.getPrompt("current/artifact-failure-analysis"),
-                prompt.toString()
-            );
-            LlmResponse response = llmHelper.chatWithRetry(ctx.pipeCtx, req, 1);
-            return response == null ? "" : response.getContent().trim();
-        } catch (Exception e) {
-            log.warn("Failure diagnosis failed: {}", e.getMessage());
-            return "";
-        }
-    }
 
     private String derivePocGap(ValidationResult result) {
         if (result == null || result.pocMessage == null || result.pocMessage.trim().isEmpty()) {

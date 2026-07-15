@@ -499,7 +499,6 @@ public class ArtifactGenStage implements Stage {
         try {
             switch (toolName) {
                 case "submit_plan": return doSubmitPlan(ctx, input);
-                case "write_file":  return toolExecutor.doWriteFile(ctx, input);
                 case "write_files": return toolExecutor.doWriteFiles(ctx, input);
                 case "read_file":   return toolExecutor.doReadFile(ctx, input);
                 case "read_log":    return toolExecutor.doReadLog(ctx, input);

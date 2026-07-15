@@ -48,9 +48,9 @@ public final class PipelineConstants {
 
     /**
      * SSE 连接超时时间（毫秒）
-     * 默认 10 分钟
+     * 默认 30 分钟
      */
-    public static final long SSE_TIMEOUT_MS = 600_000L;
+    public static final long SSE_TIMEOUT_MS = 1_800_000L;
 
     /**
      * 第一个阶段的编号

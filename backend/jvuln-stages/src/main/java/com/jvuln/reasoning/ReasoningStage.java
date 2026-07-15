@@ -14,9 +14,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,9 +36,6 @@ public class ReasoningStage implements Stage {
     @Override
     public String name() { return "Vulnerability Reasoning"; }
 
-    // Diff size caps for each attempt: shrink on retries to reduce load
-    private static final int[] DIFF_CAPS = {6000, 3000, 1000};
-
     @Override
     public StageResult execute(PipelineContext ctx) throws Exception {
         ctx.reportProgress("Starting AI vulnerability reasoning");
@@ -50,28 +44,22 @@ public class ReasoningStage implements Stage {
         String userTemplate = promptRegistry.getPrompt("current/reasoning-user");
 
         String intelligence = trimIntelligence(ctx.getCompletedStages().get(1).getData());
-        Object rawDiffData  = ctx.getCompletedStages().get(2).getData();
         StageResult stage2  = ctx.getCompletedStages().get(2);
         String codeAnalysis = trimCodeAnalysis(stage2 != null ? stage2.getData() : null);
         String vulnerabilityFacts = extractVulnerabilityFacts(stage2 != null ? stage2.getData() : null);
 
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             if (attempt > 0) {
-                // Brief backoff before retry
                 try { Thread.sleep(2000L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             }
 
-            int diffCap = DIFF_CAPS[Math.min(attempt, DIFF_CAPS.length - 1)];
-            String patchDiff = extractDiff(ctx, rawDiffData, diffCap);
-
-            log.info("Reasoning attempt {}: intel={}c facts={}c diff={}c (cap={}) code={}c",
+            log.info("Reasoning attempt {}: intel={}c facts={}c code={}c",
                     attempt + 1, intelligence.length(), vulnerabilityFacts.length(),
-                    patchDiff.length(), diffCap, codeAnalysis.length());
+                    codeAnalysis.length());
 
             Map<String, String> vars = new HashMap<>();
             vars.put("intelligence", intelligence);
             vars.put("vulnerability_facts", vulnerabilityFacts);
-            vars.put("patch_diff", patchDiff);
             vars.put("code_analysis", codeAnalysis);
             String userPrompt = promptRegistry.render(userTemplate, vars);
             LlmRequest request = LlmRequest.reasoning(LlmPromptStage.REASONING, taskPrompt, userPrompt);
@@ -118,23 +106,6 @@ public class ReasoningStage implements Stage {
         return mapper.writeValueAsString(out);
     }
 
-    /** Extract just the raw diff text from the patch stage result. */
-    private String extractDiff(PipelineContext ctx, Object data, int cap) throws Exception {
-        JsonNode root = mapper.valueToTree(data);
-        JsonNode rawDiff = root.path("rawDiff");
-        if (!rawDiff.isMissingNode() && rawDiff.isTextual()) {
-            String d = rawDiff.asText();
-            return d.length() > cap ? d.substring(0, cap) + "\n...[truncated]" : d;
-        }
-        Path diffFile = ctx.getWorkspacePath().resolve("patches/fix.diff");
-        if (Files.exists(diffFile)) {
-            String d = new String(Files.readAllBytes(diffFile), StandardCharsets.UTF_8);
-            return d.length() > cap ? d.substring(0, cap) + "\n...[truncated]" : d;
-        }
-        // fallback: full JSON but capped
-        String full = mapper.writeValueAsString(data);
-        return full.length() > cap ? full.substring(0, cap) + "\n...[truncated]" : full;
-    }
 
     /** Keep Stage 3's reconciled facts as the authoritative vulnerability identity. */
     private String extractVulnerabilityFacts(Object data) throws Exception {

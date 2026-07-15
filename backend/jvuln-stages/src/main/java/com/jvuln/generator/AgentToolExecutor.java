@@ -18,16 +18,6 @@ class AgentToolExecutor {
     private static final int OUTPUT_TRUNCATE = 4000;
     private static final int PROCESS_OUTPUT_BUFFER = 64 * 1024;
 
-    String doWriteFile(AgentContext ctx, JsonNode input) throws IOException {
-        String path = input.path("path").asText("");
-        String content = input.path("content").asText("");
-
-        if (path.isEmpty() || content.isEmpty()) return "Error: path and content are required";
-
-        writeWorkspaceFile(ctx, path, content);
-        return "ok";
-    }
-
     String doWriteFiles(AgentContext ctx, JsonNode input) throws IOException {
         JsonNode files = input.path("files");
         if (!files.isArray() || files.size() == 0) {

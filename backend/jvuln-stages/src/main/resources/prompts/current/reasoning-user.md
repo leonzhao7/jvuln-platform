@@ -4,9 +4,6 @@
 ## Stage 3 漏洞事实校验（优先采用）
 {{vulnerability_facts}}
 
-## 补丁 Diff
-{{patch_diff}}
-
 ## 代码结构化分析
 {{code_analysis}}
 

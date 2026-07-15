@@ -33,17 +33,6 @@ class ToolDefinitionBuilder {
                 "Submit the execution plan before build/start/write/validate actions. You may call submit_plan first and then continue with write_files in the same turn.",
                 planSchema));
 
-        Map<String, Object> writeSchema = new LinkedHashMap<>();
-        writeSchema.put("type", "object");
-        Map<String, Object> writeProps = new LinkedHashMap<>();
-        writeProps.put("path", prop("string", "File path relative to workspace (e.g. vuln-demo/pom.xml, poc/exploit.sh, report/report.md)"));
-        writeProps.put("content", prop("string", "Full file content"));
-        writeSchema.put("properties", writeProps);
-        writeSchema.put("required", Arrays.asList("path", "content"));
-        allTools.add(new LlmRequest.ToolDef("write_file",
-                "Write a file to the workspace. Path must start with vuln-demo/, poc/, or report/.",
-                writeSchema));
-
         Map<String, Object> batchWriteSchema = new LinkedHashMap<>();
         batchWriteSchema.put("type", "object");
         Map<String, Object> batchWriteProps = new LinkedHashMap<>();
@@ -61,7 +50,7 @@ class ToolDefinitionBuilder {
         batchWriteSchema.put("properties", batchWriteProps);
         batchWriteSchema.put("required", Collections.singletonList("files"));
         allTools.add(new LlmRequest.ToolDef("write_files",
-                "Write multiple files in one call. Every path must start with vuln-demo/, poc/, or report/.",
+                "Write one or more files in a single call. Every path must start with vuln-demo/, poc/, or report/.",
                 batchWriteSchema));
 
         Map<String, Object> readSchema = new LinkedHashMap<>();
