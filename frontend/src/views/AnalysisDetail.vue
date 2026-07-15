@@ -71,18 +71,6 @@ const stage4ValidationArtifacts = computed(() => {
   if (!artifacts || typeof artifacts !== 'object') return []
   return Object.entries(artifacts).map(([key, value]) => ({ key, value }))
 })
-const stage4PlanSections = computed(() => {
-  const plan = stage4Data.value?.executionPlan
-  if (!plan) return []
-  return [
-    { key: 'firstBatchFiles', label: t('analysis.artifacts.planFirstBatchFiles'), items: plan.firstBatchFiles ?? [] },
-    { key: 'minimalDeliverables', label: t('analysis.artifacts.planMinimalDeliverables'), items: plan.minimalDeliverables ?? [] },
-    { key: 'validationSequence', label: t('analysis.artifacts.planValidationSequence'), items: plan.validationSequence ?? [] },
-    { key: 'deferredUntilVerified', label: t('analysis.artifacts.planDeferredUntilVerified'), items: plan.deferredUntilVerified ?? [] },
-    { key: 'risks', label: t('analysis.artifacts.planRisks'), items: plan.risks ?? [] },
-  ].filter(section => Array.isArray(section.items) && section.items.length)
-})
-
 const stageClass = (status?: string) => {
   const map: Record<string, string> = {
     COMPLETED: 'jv-stage jv-stage-completed',
@@ -253,53 +241,6 @@ onMounted(async () => {
 })
 
 onUnmounted(() => evtSource?.close())
-
-const vstClass = (status?: string) => {
-  if (!status) return 'jv-vstatus-unknown'
-  if (status.includes('ok') || status === 'verified' || status === 'generated') return 'jv-vstatus-ok'
-  if (status.includes('failed') || status === 'error') return 'jv-vstatus-fail'
-  if (status === 'skipped' || status === 'unverified') return 'jv-vstatus-skip'
-  return 'jv-vstatus-unknown'
-}
-
-const artifactCompileStatus = (artifacts?: any) => {
-  const explicit = artifacts?.vulnDemo?.compileStatus
-  if (explicit) return explicit
-  const status = artifacts?.vulnDemo?.status
-  if (status === 'startup_ok' || status === 'compile_ok' || status === 'startup_failed') return 'compile_ok'
-  if (status === 'compile_failed') return 'compile_failed'
-  if (status === 'not_started') return 'not_started'
-  return undefined
-}
-
-const artifactStartupStatus = (artifacts?: any) => {
-  const explicit = artifacts?.vulnDemo?.startupStatus
-  if (explicit) return explicit
-  const status = artifacts?.vulnDemo?.status
-  if (status === 'startup_ok') return 'startup_ok'
-  if (status === 'startup_failed') return 'startup_failed'
-  if (status === 'compile_ok' || status === 'compile_failed') return 'skipped'
-  if (status === 'not_started') return 'not_started'
-  return undefined
-}
-
-const vstLabel = (status?: string) => {
-  if (!status) return '-'
-  const map: Record<string, string> = {
-    compile_ok: t('analysis.artifacts.verified'),
-    startup_ok: t('analysis.artifacts.verified'),
-    compile_failed: t('analysis.artifacts.failed'),
-    startup_failed: t('analysis.artifacts.failed'),
-    verified: t('analysis.artifacts.verified'),
-    unverified: t('analysis.artifacts.unverified'),
-    skipped: t('analysis.artifacts.skipped'),
-    not_started: t('analysis.artifacts.notStarted'),
-    unknown: t('analysis.artifacts.notStarted'),
-    generated: t('analysis.artifacts.verified'),
-    error: t('analysis.artifacts.failed'),
-  }
-  return map[status] ?? status
-}
 
 const severityClass = (s: string) => {
   const v = (s || '').toUpperCase()
@@ -858,46 +799,11 @@ const renderMarkdown = (md: string) => {
               </el-button>
             </div>
 
-            <!-- Verification Status -->
-            <div class="jv-artifacts-status">
-              <span class="jv-vstatus" :class="vstClass(artifactCompileStatus(stageData[4]))">
-                {{ t('analysis.artifacts.compileStatus') }}: {{ vstLabel(artifactCompileStatus(stageData[4])) }}
-              </span>
-              <span class="jv-vstatus" :class="vstClass(artifactStartupStatus(stageData[4]))">
-                {{ t('analysis.artifacts.startupStatus') }}: {{ vstLabel(artifactStartupStatus(stageData[4])) }}
-              </span>
-              <span class="jv-vstatus" :class="vstClass(stageData[4].poc?.status)">
-                {{ t('analysis.artifacts.pocStatus') }}: {{ vstLabel(stageData[4].poc?.status) }}
-              </span>
-            </div>
-
             <div class="jv-artifacts-summary">
               <span>{{ t('analysis.artifacts.fileCount', { count: stageData[4].fileCount ?? 0 }) }}</span>
               <span v-if="stageData[4].agentTurns != null">{{ t('analysis.artifacts.agentTurns') }}: {{ stageData[4].agentTurns }}</span>
               <span v-if="stageData[4].reviewRevisions != null">{{ t('analysis.artifacts.reviewRevisions') }}: {{ stageData[4].reviewRevisions }}</span>
               <span v-if="stageData[4].javaProfile">{{ t('analysis.artifacts.javaProfile') }}: {{ stageData[4].javaProfile.name }} (Java {{ stageData[4].javaProfile.javaVersion }}, Spring Boot {{ stageData[4].javaProfile.springBootVersion }})</span>
-            </div>
-
-            <div v-if="stageData[4].executionPlan" class="jv-reasoning-section">
-              <div class="jv-section-label">{{ t('analysis.artifacts.executionPlan') }}</div>
-              <div class="jv-stage4-plan-grid">
-                <div class="jv-stage4-plan-card">
-                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.planGoal') }}</div>
-                  <div class="jv-stage4-card-text">{{ stageData[4].executionPlan.goal }}</div>
-                </div>
-                <div class="jv-stage4-plan-card">
-                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.planReportStrategy') }}</div>
-                  <div class="jv-stage4-card-text">{{ stageData[4].executionPlan.reportStrategy }}</div>
-                </div>
-              </div>
-              <div v-if="stage4PlanSections.length" class="jv-stage4-plan-lists">
-                <div v-for="section in stage4PlanSections" :key="section.key" class="jv-stage4-plan-list">
-                  <div class="jv-stage4-card-label">{{ section.label }}</div>
-                  <ul class="jv-stage4-list">
-                    <li v-for="item in section.items" :key="`${section.key}-${item}`">{{ item }}</li>
-                  </ul>
-                </div>
-              </div>
             </div>
 
             <div v-if="stageData[4].validation" class="jv-reasoning-section">
@@ -909,15 +815,15 @@ const renderMarkdown = (md: string) => {
                 </div>
                 <div class="jv-stage4-plan-card">
                   <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationCompile') }}</div>
-                  <div class="jv-stage4-card-text">{{ stageData[4].validation.compileOk ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
+                  <div class="jv-stage4-card-text" :class="stageData[4].validation.compileOk ? 'jv-stage4-verdict-ok' : 'jv-stage4-verdict-fail'">{{ stageData[4].validation.compileOk ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
                 </div>
                 <div class="jv-stage4-plan-card">
                   <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationStartup') }}</div>
-                  <div class="jv-stage4-card-text">{{ stageData[4].validation.startupOk ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
+                  <div class="jv-stage4-card-text" :class="stageData[4].validation.startupOk ? 'jv-stage4-verdict-ok' : 'jv-stage4-verdict-fail'">{{ stageData[4].validation.startupOk ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
                 </div>
                 <div class="jv-stage4-plan-card">
                   <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationPoc') }}</div>
-                  <div class="jv-stage4-card-text">{{ stageData[4].validation.pocVerified ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
+                  <div class="jv-stage4-card-text" :class="stageData[4].validation.pocVerified ? 'jv-stage4-verdict-ok' : 'jv-stage4-verdict-fail'">{{ stageData[4].validation.pocVerified ? t('analysis.artifacts.verified') : t('analysis.artifacts.failed') }}</div>
                 </div>
               </div>
               <div class="jv-stage4-validation-messages">
@@ -1719,6 +1625,8 @@ const renderMarkdown = (md: string) => {
   line-height: 1.6;
   white-space: pre-wrap;
 }
+.jv-stage4-verdict-ok   { color: #42be65; }
+.jv-stage4-verdict-fail { color: #fa4d56; }
 .jv-stage4-list {
   margin: 0;
   padding-left: 18px;
@@ -1807,22 +1715,6 @@ const renderMarkdown = (md: string) => {
 .jv-artifact-type-poc           { background: rgba(250,77,86,.12);  color: #fa4d56; border: 1px solid rgba(250,77,86,.3); }
 .jv-artifact-type-report        { background: rgba(66,190,101,.12); color: #42be65; border: 1px solid rgba(66,190,101,.3); }
 .jv-artifact-type-docker-compose { background: rgba(241,194,27,.12); color: #f1c21b; border: 1px solid rgba(241,194,27,.3); }
-.jv-artifacts-status {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-.jv-vstatus {
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-}
-.jv-vstatus-ok   { background: rgba(66,190,101,.12); color: #42be65; border: 1px solid rgba(66,190,101,.3); }
-.jv-vstatus-fail { background: rgba(250,77,86,.12);  color: #fa4d56; border: 1px solid rgba(250,77,86,.3); }
-.jv-vstatus-skip { background: rgba(141,141,141,.12); color: #8d8d8d; border: 1px solid rgba(141,141,141,.3); }
-.jv-vstatus-unknown { background: rgba(141,141,141,.08); color: #6f6f6f; border: 1px solid rgba(141,141,141,.2); }
 .jv-report-preview {
   color: var(--text-secondary);
   font-size: 13px;
