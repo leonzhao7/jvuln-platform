@@ -266,7 +266,8 @@ onMounted(async () => {
       sseMessages.value = log.map(e => formatSseEntry(e.type, e.stageNum, e.message))
     } catch {}
   }
-  startStream()
+  const status = task.value?.status
+  if (status === 'RUNNING' || status === 'PENDING') startStream()
 })
 
 onUnmounted(() => evtSource?.close())
