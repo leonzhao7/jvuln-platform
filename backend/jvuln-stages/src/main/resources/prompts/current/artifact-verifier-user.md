@@ -1,4 +1,4 @@
-Review whether the generated Stage 5 artifacts satisfy the CVE verification plan.
+Review whether the generated Stage 4 artifacts satisfy the CVE verification plan.
 
 ## CVE Intelligence
 {{intelligence}}

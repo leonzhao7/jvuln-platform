@@ -64,7 +64,7 @@ Marker syntax (one per line, at column 0):
 - `phase=startup` — confirmation the server is up (e.g. curl the health endpoint, tail the boot log).
 - `phase=request` — a request being sent. Echo the full command (the `curl`/protocol call) and payload so the reader sees exactly what was sent.
 - `phase=response` — the response returned by the server for the preceding request. Always `side=server`.
-- `phase=verify` — server-side proof the exploit worked (e.g. `ls -l`, `cat` a written file, grep a log line).
+- `phase=verify` — server-side proof the exploit worked (e.g. `ls -l`, `cat` a written file, grep a log line). Echo the full command you run before running it, so the reader sees exactly what was checked.
 - `label=` is free text to the end of the line; keep it short.
 
 Rules for the timeline:
@@ -94,6 +94,7 @@ echo "##JV-STEP side=server phase=response label=Trigger response"
 echo "$RESP"
 
 echo "##JV-STEP side=server phase=verify label=Confirm payload executed"
+echo "ls -l /tmp/pwned"
 ls -l /tmp/pwned 2>&1 || echo "not found"
 
 # ... explicit success check, then exit 0 / non-zero

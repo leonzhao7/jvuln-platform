@@ -66,9 +66,6 @@ const isMavenSourceDiff = computed(() => {
   const p = stageData.value[2]?.patchInfo
   return (p?.strategy || p?.strategyName) === 'maven-source-diff'
 })
-const stage4PocFiles = computed<any[]>(() =>
-  (stage4Data.value?.files ?? []).filter((item: any) => item.type === 'poc')
-)
 const stage4ValidationArtifacts = computed(() => {
   const artifacts = stage4Data.value?.validation?.artifacts
   if (!artifacts || typeof artifacts !== 'object') return []
@@ -831,45 +828,6 @@ const renderMarkdown = (md: string) => {
               </div>
             </div>
 
-            <div v-if="stageData[4].failureReason || stageData[4].verification?.reason || stageData[4].poc?.reason" class="jv-reasoning-section s4-c2">
-              <div class="jv-section-label">{{ t('analysis.artifacts.verificationReview') }}</div>
-              <div class="jv-artifacts-review">
-                <div v-if="stageData[4].verification?.verdict" class="jv-artifacts-review-verdict">
-                  {{ t('analysis.artifacts.reviewVerdict') }}: {{ stageData[4].verification?.verdict }}
-                </div>
-                <div class="jv-artifacts-review-reason">
-                  {{ stageData[4].verification?.reason || stageData[4].poc?.reason || stageData[4].failureReason }}
-                </div>
-                <div v-if="stageData[4].verification?.matchedSignals?.length" class="jv-artifacts-review-actions">
-                  <div class="jv-artifacts-review-actions-title">{{ t('analysis.artifacts.matchedSignals') }}</div>
-                  <ul>
-                    <li v-for="signal in stageData[4].verification.matchedSignals" :key="signal">{{ signal }}</li>
-                  </ul>
-                </div>
-                <div v-if="stageData[4].verification?.missingEvidence?.length" class="jv-artifacts-review-actions">
-                  <div class="jv-artifacts-review-actions-title">{{ t('analysis.artifacts.missingEvidence') }}</div>
-                  <ul>
-                    <li v-for="item in stageData[4].verification.missingEvidence" :key="item">{{ item }}</li>
-                  </ul>
-                </div>
-                <div v-if="stageData[4].verification?.falsePositiveRisks?.length" class="jv-artifacts-review-actions">
-                  <div class="jv-artifacts-review-actions-title">{{ t('analysis.artifacts.falsePositiveRisks') }}</div>
-                  <ul>
-                    <li v-for="risk in stageData[4].verification.falsePositiveRisks" :key="risk">{{ risk }}</li>
-                  </ul>
-                </div>
-                <div v-if="stageData[4].verification?.nextActions?.length" class="jv-artifacts-review-actions">
-                  <div class="jv-artifacts-review-actions-title">{{ t('analysis.artifacts.nextActions') }}</div>
-                  <ul>
-                    <li v-for="action in stageData[4].verification.nextActions" :key="action">{{ action }}</li>
-                  </ul>
-                </div>
-                <el-button v-if="stages.find(s => s.stageNum === 4 && s.status === 'FAILED')" style="margin-top:12px" @click="rerun(4)">
-                  {{ t('analysis.retryArtifacts') }}
-                </el-button>
-              </div>
-            </div>
-
             <!-- File list -->
             <div class="jv-reasoning-section s4-c3">
               <div class="jv-section-label">{{ t('analysis.artifacts.fileList') }}</div>
@@ -889,16 +847,6 @@ const renderMarkdown = (md: string) => {
             <div v-else-if="stageData[4].report?.status === 'generated'" class="jv-reasoning-section s4-c4">
               <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
               <div style="color:var(--text-disabled); font-size:13px">{{ t('analysis.artifacts.noReport') }}</div>
-            </div>
-
-            <!-- PoC files -->
-            <div v-if="stageData[4].poc?.files?.length" class="jv-reasoning-section s4-c5">
-              <div class="jv-section-label">{{ t('analysis.artifacts.pocPreview') }}</div>
-              <div v-for="f in stage4PocFiles" :key="f.path" class="jv-poc-block">
-                <div class="jv-file-header">
-                  <span style="font-family:var(--font-mono); font-size:13px; color:var(--accent-light)">{{ f.path }}</span>
-                </div>
-              </div>
             </div>
 
             <!-- Reproduction Steps -->
