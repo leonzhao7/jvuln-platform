@@ -208,16 +208,6 @@ const saveJpForm = async () => {
   }
 }
 
-const setDefaultProfile = async (p: JavaProfile) => {
-  try {
-    await api.setDefaultJavaProfile(p.id!)
-    ElMessage.success(t('javaProfiles.setDefaultSuccess', { name: p.name }))
-    await loadJavaProfiles()
-  } catch {
-    ElMessage.error(t('javaProfiles.setDefaultFailed'))
-  }
-}
-
 const deleteProfile = async (p: JavaProfile) => {
   try {
     await ElMessageBox.confirm(
@@ -240,7 +230,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div style="max-width:900px; margin:0 auto">
+  <div style="max-width:1200px; margin:0 auto">
     <div class="jv-settings-header">
       <span class="jv-back-btn" @click="router.back()">{{ t('common.back') }}</span>
       <h2 style="margin:0; font-family:var(--font-mono); font-size:18px">{{ t('settings.title') }}</h2>
@@ -260,12 +250,20 @@ onMounted(() => {
       <el-table :data="configs" v-loading="loading" style="width:100%"
         :row-class-name="(row: any) => row.row.active ? 'active-row' : ''">
 
+        <el-table-column label="" width="64" align="center">
+          <template #default="{ row }">
+            <el-radio
+              :model-value="row.active"
+              :value="true"
+              :disabled="activatingId === row.id"
+              @change="!row.active && activate(row)"
+            ><span></span></el-radio>
+          </template>
+        </el-table-column>
+
         <el-table-column :label="t('settings.name')" min-width="140">
           <template #default="{ row }">
-            <div style="display:flex; align-items:center; gap:8px">
-              <span>{{ row.name || t('settings.unnamed') }}</span>
-              <span v-if="row.active" class="jv-tag jv-tag-completed">{{ t('common.active') }}</span>
-            </div>
+            <span>{{ row.name || t('settings.unnamed') }}</span>
           </template>
         </el-table-column>
 
@@ -293,13 +291,9 @@ onMounted(() => {
           </template>
         </el-table-column>
 
-        <el-table-column label="" width="280" align="right">
+        <el-table-column label="" width="200" align="right">
           <template #default="{ row }">
             <div style="display:flex; gap:6px; justify-content:flex-end">
-              <el-button v-if="!row.active" size="small" type="success"
-                :loading="activatingId === row.id" @click="activate(row)">
-                {{ t('common.activate') }}
-              </el-button>
               <el-button size="small" :loading="testingId === row.id" @click="testConfig(row)">{{ t('common.test') }}</el-button>
               <el-button size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
               <el-button size="small" type="danger" plain @click="deleteConfig(row)">{{ t('common.delete') }}</el-button>
@@ -331,7 +325,7 @@ onMounted(() => {
     <!-- Add / Edit Dialog -->
     <el-dialog v-model="dialogVisible"
       :title="dialogMode === 'add' ? t('settings.addTitle') : t('settings.editTitle')"
-      width="540px">
+      width="680px">
 
       <el-form :model="form" label-position="top">
         <el-form-item :label="t('settings.configName')">
@@ -398,14 +392,6 @@ onMounted(() => {
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('javaProfiles.springBootVersion')" width="130">
-          <template #default="{ row }">
-            <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-muted)">
-              {{ row.springBootVersion || '—' }}
-            </span>
-          </template>
-        </el-table-column>
-
         <el-table-column :label="t('javaProfiles.javaHome')" min-width="220">
           <template #default="{ row }">
             <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled)">
@@ -414,12 +400,9 @@ onMounted(() => {
           </template>
         </el-table-column>
 
-        <el-table-column label="" width="240" align="right">
+        <el-table-column label="" width="160" align="right">
           <template #default="{ row }">
             <div style="display:flex; gap:6px; justify-content:flex-end">
-              <el-button v-if="!row.isDefault" size="small" type="success" @click="setDefaultProfile(row)">
-                {{ t('common.activate') }}
-              </el-button>
               <el-button size="small" @click="openJpEdit(row)">{{ t('common.edit') }}</el-button>
               <el-button size="small" type="danger" plain @click="deleteProfile(row)">{{ t('common.delete') }}</el-button>
             </div>
@@ -435,7 +418,7 @@ onMounted(() => {
     <!-- Java Profile Add / Edit Dialog -->
     <el-dialog v-model="jpDialogVisible"
       :title="jpDialogMode === 'add' ? t('javaProfiles.addTitle') : t('javaProfiles.editTitle')"
-      width="540px">
+      width="680px">
 
       <el-form :model="jpForm" label-position="top">
         <el-form-item :label="t('javaProfiles.name')">
