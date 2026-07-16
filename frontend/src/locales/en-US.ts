@@ -163,6 +163,7 @@ const enUS = {
     },
     artifacts: {
       fileList: 'Generated Files',
+      downloadAll: 'Download All',
       reportPreview: 'Report Preview',
       pocPreview: 'PoC Scripts',
       reproductionSteps: 'Reproduction Steps',

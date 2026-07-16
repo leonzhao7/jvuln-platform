@@ -20,6 +20,9 @@ const reportMarkdown = ref('')
 const sseActive = ref(false)
 const transcriptEvents = ref<TranscriptEvent[]>([])
 const transcriptExpanded = ref(false)
+const expandedFiles = ref<Set<string>>(new Set())
+const fileContents = ref<Record<string, string>>({})
+const fileLoading = ref<Set<string>>(new Set())
 interface TerminalEntry {
   type: string
   stageNum: number
@@ -253,6 +256,43 @@ const rerun = async (fromStage?: number) => {
   await api.rerunTask(cveId, fromStage)
   ElMessage.success(t('analysis.rerunStarted'))
   startStream()
+}
+
+const toggleFile = async (path: string) => {
+  const set = new Set(expandedFiles.value)
+  if (set.has(path)) {
+    set.delete(path)
+    expandedFiles.value = set
+    return
+  }
+  set.add(path)
+  expandedFiles.value = set
+  if (fileContents.value[path] != null) return
+  fileLoading.value = new Set([...fileLoading.value, path])
+  try {
+    const { content } = await api.getArtifactFile(cveId, path)
+    fileContents.value = { ...fileContents.value, [path]: content }
+  } catch {
+    fileContents.value = { ...fileContents.value, [path]: '(failed to load)' }
+  } finally {
+    const next = new Set(fileLoading.value)
+    next.delete(path)
+    fileLoading.value = next
+  }
+}
+
+const downloadAllArtifacts = async () => {
+  try {
+    const blob = await api.downloadArtifacts(cveId)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${cveId}-artifacts.zip`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    ElMessage.error('Download failed')
+  }
 }
 
 onMounted(async () => {
@@ -830,11 +870,21 @@ const renderMarkdown = (md: string) => {
 
             <!-- File list -->
             <div class="jv-reasoning-section s4-c3">
-              <div class="jv-section-label">{{ t('analysis.artifacts.fileList') }}</div>
+              <div class="jv-section-label" style="display:flex; align-items:center; justify-content:space-between">
+                <span>{{ t('analysis.artifacts.fileList') }}</span>
+                <el-button size="small" @click="downloadAllArtifacts" style="margin-left:auto">
+                  {{ t('analysis.artifacts.downloadAll') }}
+                </el-button>
+              </div>
               <div class="jv-artifacts-files">
-                <div v-for="f in stageData[4].files" :key="f.path" class="jv-artifact-file">
-                  <span :class="'jv-artifact-type jv-artifact-type-' + f.type">{{ f.type }}</span>
-                  <code>{{ f.path }}</code>
+                <div v-for="f in stageData[4].files" :key="f.path" class="jv-artifact-file-row">
+                  <div class="jv-artifact-file" @click="toggleFile(f.path)" style="cursor:pointer">
+                    <span class="jv-artifact-expand">{{ expandedFiles.has(f.path) ? '▼' : '▶' }}</span>
+                    <span :class="'jv-artifact-type jv-artifact-type-' + f.type">{{ f.type }}</span>
+                    <code>{{ f.path }}</code>
+                    <span v-if="fileLoading.has(f.path)" class="jv-artifact-loading">…</span>
+                  </div>
+                  <pre v-if="expandedFiles.has(f.path) && fileContents[f.path] != null" class="jv-artifact-content">{{ fileContents[f.path] }}</pre>
                 </div>
               </div>
             </div>
@@ -1113,12 +1163,19 @@ const renderMarkdown = (md: string) => {
   transform: none;
 }
 .jv-stage4-sections .s4-c1 .jv-section-label::before { color: var(--accent-light); background: rgba(15,98,254,.12); border-color: rgba(15,98,254,.35); }
+.jv-stage4-sections .s4-c1 .jv-section-label { border-bottom-color: rgba(15,98,254,.35); }
 .jv-stage4-sections .s4-c2 .jv-section-label::before { color: var(--critical); background: rgba(250,77,86,.12); border-color: rgba(250,77,86,.35); }
+.jv-stage4-sections .s4-c2 .jv-section-label { border-bottom-color: rgba(250,77,86,.35); }
 .jv-stage4-sections .s4-c3 .jv-section-label::before { color: var(--success); background: rgba(66,190,101,.12); border-color: rgba(66,190,101,.35); }
+.jv-stage4-sections .s4-c3 .jv-section-label { border-bottom-color: rgba(66,190,101,.35); }
 .jv-stage4-sections .s4-c4 .jv-section-label::before { color: var(--medium); background: rgba(241,194,27,.12); border-color: rgba(241,194,27,.35); }
+.jv-stage4-sections .s4-c4 .jv-section-label { border-bottom-color: rgba(241,194,27,.35); }
 .jv-stage4-sections .s4-c5 .jv-section-label::before { color: #a06eff; background: rgba(160,110,255,.12); border-color: rgba(160,110,255,.35); }
+.jv-stage4-sections .s4-c5 .jv-section-label { border-bottom-color: rgba(160,110,255,.35); }
 .jv-stage4-sections .s4-c6 .jv-section-label::before { color: #33b1ff; background: rgba(51,177,255,.12); border-color: rgba(51,177,255,.35); }
+.jv-stage4-sections .s4-c6 .jv-section-label { border-bottom-color: rgba(51,177,255,.35); }
 .jv-stage4-sections .s4-c7 .jv-section-label::before { color: #ff7eb6; background: rgba(255,126,182,.12); border-color: rgba(255,126,182,.35); }
+.jv-stage4-sections .s4-c7 .jv-section-label { border-bottom-color: rgba(255,126,182,.35); }
 
 .jv-stage3-section {
   margin-bottom: 28px;
@@ -1870,10 +1927,36 @@ const renderMarkdown = (md: string) => {
   background: var(--bg-base);
   font-size: 13px;
 }
+.jv-artifact-file:hover { background: var(--bg-hover); }
 .jv-artifact-file code {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-secondary);
+}
+.jv-artifact-expand {
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 12px;
+  flex-shrink: 0;
+}
+.jv-artifact-loading {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+.jv-artifact-content {
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--bg-base);
+  border-top: 1px solid var(--border-color, rgba(255,255,255,.06));
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 500px;
+  overflow-y: auto;
 }
 .jv-artifact-type {
   font-family: var(--font-mono);

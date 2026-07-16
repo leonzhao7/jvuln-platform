@@ -6,6 +6,7 @@ import com.jvuln.pipeline.PipelineConstants;
 import com.jvuln.store.WorkspaceManager;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -19,6 +20,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 @Service
 public class AnalysisQueryService {
@@ -86,6 +89,64 @@ public class AnalysisQueryService {
             }
         }
         return events;
+    }
+
+    /** File paths declared in the stage-4 artifacts JSON, relative to the CVE workspace root. */
+    private List<String> loadArtifactPaths(String cveId) throws IOException {
+        Path stage4 = workspaceManager.getStageFile(cveId, PipelineConstants.STAGE_ARTIFACTS);
+        if (!Files.exists(stage4)) {
+            return Collections.emptyList();
+        }
+        JsonNode root = objectMapper.readTree(stage4.toFile());
+        JsonNode files = root.path("files");
+        if (!files.isArray()) {
+            return Collections.emptyList();
+        }
+        List<String> paths = new ArrayList<>();
+        for (JsonNode fileNode : files) {
+            String path = fileNode.path("path").asText("");
+            if (!path.isEmpty()) {
+                paths.add(path);
+            }
+        }
+        return paths;
+    }
+
+    private Path resolveArtifactFile(String cveId, String relPath) throws IOException {
+        Path cveRoot = workspaceManager.getCvePath(cveId).normalize();
+        Path resolved = cveRoot.resolve(relPath).normalize();
+        if (!resolved.startsWith(cveRoot)) {
+            throw new SecurityException("Path traversal attempt detected: " + relPath);
+        }
+        if (!loadArtifactPaths(cveId).contains(relPath)) {
+            throw new IllegalArgumentException("File is not a declared artifact: " + relPath);
+        }
+        return resolved;
+    }
+
+    public String loadArtifactFile(String cveId, String relPath) throws IOException {
+        Path file = resolveArtifactFile(cveId, relPath);
+        if (!Files.exists(file) || Files.isDirectory(file)) {
+            return null;
+        }
+        return new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+    }
+
+    public byte[] zipArtifacts(String cveId) throws IOException {
+        Path cveRoot = workspaceManager.getCvePath(cveId).normalize();
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(buffer)) {
+            for (String relPath : loadArtifactPaths(cveId)) {
+                Path file = cveRoot.resolve(relPath).normalize();
+                if (!file.startsWith(cveRoot) || !Files.exists(file) || Files.isDirectory(file)) {
+                    continue;
+                }
+                zip.putNextEntry(new ZipEntry(relPath));
+                zip.write(Files.readAllBytes(file));
+                zip.closeEntry();
+            }
+        }
+        return buffer.toByteArray();
     }
 
     public boolean reportExists(String cveId) {

@@ -69,6 +69,12 @@ export const api = {
   getArtifacts: (cveId: string) =>
     http.get(`/analysis/${cveId}/artifacts`).then(r => r.data),
 
+  getArtifactFile: (cveId: string, path: string) =>
+    http.get<{ path: string; content: string }>(`/analysis/${cveId}/artifacts/file`, { params: { path } }).then(r => r.data),
+
+  downloadArtifacts: (cveId: string) =>
+    http.get(`/analysis/${cveId}/artifacts/download`, { responseType: 'blob' }).then(r => r.data as Blob),
+
   getTranscript: (cveId: string) =>
     http.get<TranscriptEvent[]>(`/analysis/${cveId}/transcript`).then(r => r.data),
 

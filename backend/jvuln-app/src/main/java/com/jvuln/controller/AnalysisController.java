@@ -11,11 +11,14 @@ import com.jvuln.store.StageRecordRepository;
 import com.jvuln.store.WorkspaceManager;
 import com.jvuln.store.entity.CveTask;
 import com.jvuln.store.entity.StageRecord;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -158,6 +161,37 @@ public class AnalysisController {
     @GetMapping("/{cveId}/artifacts")
     public ResponseEntity<?> getArtifacts(@PathVariable String cveId) {
         return readStageJson(cveId, 4);
+    }
+
+    @GetMapping("/{cveId}/artifacts/file")
+    public ResponseEntity<?> getArtifactFile(@PathVariable String cveId,
+                                             @RequestParam String path) {
+        try {
+            String content = analysisQueryService.loadArtifactFile(cveId, path);
+            if (content == null) return ResponseEntity.notFound().build();
+            Map<String, String> result = new LinkedHashMap<>();
+            result.put("path", path);
+            result.put("content", content);
+            return ResponseEntity.ok(result);
+        } catch (SecurityException | IllegalArgumentException e) {
+            return ApiResponseFactory.badRequest(e.getMessage());
+        } catch (IOException e) {
+            return ApiResponseFactory.internalServerError(e.getMessage());
+        }
+    }
+
+    @GetMapping("/{cveId}/artifacts/download")
+    public ResponseEntity<byte[]> downloadArtifacts(@PathVariable String cveId) {
+        try {
+            byte[] zip = analysisQueryService.zipArtifacts(cveId);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename=\"" + cveId + "-artifacts.zip\"")
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(zip);
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     @GetMapping("/{cveId}/stages/{stageNum}/json")

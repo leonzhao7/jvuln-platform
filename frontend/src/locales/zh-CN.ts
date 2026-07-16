@@ -163,6 +163,7 @@ const zhCN = {
     },
     artifacts: {
       fileList: '生成文件列表',
+      downloadAll: '下载全部文件',
       reportPreview: '报告预览',
       pocPreview: 'PoC 脚本',
       reproductionSteps: '复现步骤',
