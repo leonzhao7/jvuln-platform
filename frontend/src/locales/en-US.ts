@@ -38,6 +38,7 @@ const enUS = {
     cvss: 'CVSS',
     cwe: 'CWE',
     artifact: 'Artifact',
+    description: 'Description',
     updated: 'Updated',
     startedAt: 'Started',
     duration: 'Duration',

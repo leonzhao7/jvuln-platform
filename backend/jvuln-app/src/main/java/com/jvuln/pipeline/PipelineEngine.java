@@ -286,6 +286,9 @@ public class PipelineEngine {
         CveIntelligence intel = (CveIntelligence) result.getData();
         if (intel.getCvss() != null) task.setCvssScore(intel.getCvss().getScore());
         if (intel.getCweId() != null) task.setCweId(intel.getCweId());
+        if (intel.getDescription() != null && !intel.getDescription().isEmpty()) {
+            task.setDescription(intel.getDescription());
+        }
         if (intel.getArtifact() != null) {
             task.setArtifact(intel.getArtifact().getGroupId()
                     + ":" + intel.getArtifact().getArtifactId());

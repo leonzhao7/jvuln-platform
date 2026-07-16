@@ -10,6 +10,7 @@ export interface CveTask {
   artifact: string | null
   cvssScore: number | null
   cweId: string | null
+  description: string | null
   workspacePath: string
   createdAt: string
   updatedAt: string

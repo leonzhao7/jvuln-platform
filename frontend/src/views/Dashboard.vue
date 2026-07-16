@@ -108,13 +108,13 @@ const formatDuration = (start: string | null, end: string | null, status?: strin
         </template>
       </el-table-column>
 
-      <el-table-column :label="t('common.status')" width="130">
+      <el-table-column :label="t('common.status')" width="100">
         <template #default="{ row }">
           <span :class="statusClass(row.status)">{{ t(`status.${row.status}`) }}</span>
         </template>
       </el-table-column>
 
-      <el-table-column :label="t('dashboard.cvss')" width="110">
+      <el-table-column :label="t('dashboard.cvss')" width="80">
         <template #default="{ row }">
           <span v-if="row.cvssScore" :class="cvssClass(row.cvssScore)">
             {{ row.cvssScore }}
@@ -131,10 +131,18 @@ const formatDuration = (start: string | null, end: string | null, status?: strin
         </template>
       </el-table-column>
 
-      <el-table-column :label="t('dashboard.artifact')">
+      <el-table-column :label="t('dashboard.artifact')" width="200">
         <template #default="{ row }">
           <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-secondary)">
             {{ row.artifact ?? '—' }}
+          </span>
+        </template>
+      </el-table-column>
+
+      <el-table-column :label="t('dashboard.description')" min-width="240" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span style="font-size:12px; color:var(--text-secondary)">
+            {{ row.description ?? '—' }}
           </span>
         </template>
       </el-table-column>

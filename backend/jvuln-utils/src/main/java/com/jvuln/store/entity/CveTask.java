@@ -31,6 +31,9 @@ public class CveTask {
     @Column(name = "cwe_id", length = 20)
     private String cweId;
 
+    @Column(name = "description", length = 2000)
+    private String description;
+
     @Column(name = "workspace_path", length = 500)
     private String workspacePath;
 
@@ -69,6 +72,8 @@ public class CveTask {
     public void setCvssScore(BigDecimal cvssScore) { this.cvssScore = cvssScore; }
     public String getCweId() { return cweId; }
     public void setCweId(String cweId) { this.cweId = cweId; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
     public String getWorkspacePath() { return workspacePath; }
     public void setWorkspacePath(String workspacePath) { this.workspacePath = workspacePath; }
     public LocalDateTime getCreatedAt() { return createdAt; }

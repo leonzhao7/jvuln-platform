@@ -38,6 +38,7 @@ const zhCN = {
     cvss: 'CVSS',
     cwe: 'CWE',
     artifact: '组件坐标',
+    description: '漏洞描述',
     updated: '更新时间',
     startedAt: '开始时间',
     duration: '用时',
