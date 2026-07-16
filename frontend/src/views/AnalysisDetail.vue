@@ -74,6 +74,32 @@ const stage4ValidationArtifacts = computed(() => {
   if (!artifacts || typeof artifacts !== 'object') return []
   return Object.entries(artifacts).map(([key, value]) => ({ key, value }))
 })
+
+interface PocStep {
+  side: string
+  phase: string
+  label: string
+  body: string
+}
+const stage4PocSteps = computed<PocStep[]>(() => {
+  const steps = stage4Data.value?.validation?.pocSteps
+  return Array.isArray(steps) ? steps.filter((s: PocStep) => s && (s.body?.trim() || s.label?.trim())) : []
+})
+const pocStepSide = (step: PocStep) => {
+  // Response/startup/verify are produced on the server; only requests are client-side.
+  if (step.phase === 'request') return 'client'
+  if (step.phase === 'response' || step.phase === 'startup' || step.phase === 'verify') return 'server'
+  return step.side === 'server' ? 'server' : 'client'
+}
+const pocPhaseLabel = (phase: string) => {
+  const map: Record<string, string> = {
+    startup: t('analysis.artifacts.pocPhaseStartup'),
+    request: t('analysis.artifacts.pocPhaseRequest'),
+    response: t('analysis.artifacts.pocPhaseResponse'),
+    verify: t('analysis.artifacts.pocPhaseVerify'),
+  }
+  return map[phase] ?? phase
+}
 const stageClass = (status?: string) => {
   const map: Record<string, string> = {
     COMPLETED: 'jv-stage jv-stage-completed',
@@ -757,9 +783,37 @@ const renderMarkdown = (md: string) => {
                   <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationStartupMessage') }}</div>
                   <pre class="jv-stage4-pre">{{ stageData[4].validation.startupMessage }}</pre>
                 </div>
-                <div v-if="stageData[4].validation.pocMessage" class="jv-stage4-plan-card">
+                <div v-if="stageData[4].validation.pocMessage && !stage4PocSteps.length" class="jv-stage4-plan-card">
                   <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationPocMessage') }}</div>
                   <pre class="jv-stage4-pre">{{ stageData[4].validation.pocMessage }}</pre>
+                </div>
+              </div>
+              <div v-if="stage4PocSteps.length" class="jv-poc-timeline">
+                <div class="jv-poc-timeline-head">
+                  <span class="jv-poc-timeline-title">{{ t('analysis.artifacts.pocTimeline') }}</span>
+                  <span class="jv-poc-timeline-legend">
+                    <span class="jv-poc-legend-item is-client">{{ t('analysis.artifacts.pocClient') }}</span>
+                    <span class="jv-poc-legend-item is-server">{{ t('analysis.artifacts.pocServer') }}</span>
+                  </span>
+                </div>
+                <div class="jv-poc-track">
+                  <div
+                    v-for="(step, si) in stage4PocSteps"
+                    :key="si"
+                    class="jv-poc-step"
+                    :class="pocStepSide(step) === 'server' ? 'is-server' : 'is-client'"
+                  >
+                    <div class="jv-poc-step-rail">
+                      <span class="jv-poc-step-dot" :class="`phase-${step.phase}`"></span>
+                    </div>
+                    <div class="jv-poc-step-card">
+                      <div class="jv-poc-step-meta">
+                        <span class="jv-poc-step-phase" :class="`phase-${step.phase}`">{{ pocPhaseLabel(step.phase) }}</span>
+                        <span v-if="step.label" class="jv-poc-step-label">{{ step.label }}</span>
+                      </div>
+                      <pre v-if="step.body" class="jv-stage4-pre jv-poc-step-body">{{ step.body }}</pre>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div v-if="stage4ValidationArtifacts.length" class="jv-stage4-validation-artifacts">
@@ -1674,6 +1728,144 @@ const renderMarkdown = (md: string) => {
   font-family: var(--font-mono);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* PoC client/server timeline */
+.jv-poc-timeline {
+  margin-top: 18px;
+  padding: 16px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.jv-poc-timeline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.jv-poc-timeline-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: .3px;
+}
+.jv-poc-timeline-legend {
+  display: flex;
+  gap: 14px;
+}
+.jv-poc-legend-item {
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding-left: 16px;
+  color: var(--text-secondary);
+}
+.jv-poc-legend-item::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 9px; height: 9px;
+  border-radius: 50%;
+}
+.jv-poc-legend-item.is-client::before { background: var(--accent, #4589ff); }
+.jv-poc-legend-item.is-server::before { background: #08bdba; }
+
+.jv-poc-track {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.jv-poc-track::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 4px; bottom: 4px;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--border-subtle);
+}
+.jv-poc-step {
+  position: relative;
+  display: flex;
+  width: 100%;
+}
+.jv-poc-step.is-client { justify-content: flex-start; }
+.jv-poc-step.is-server { justify-content: flex-end; }
+.jv-poc-step-rail {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  z-index: 1;
+}
+.jv-poc-step-dot {
+  display: block;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--text-disabled);
+  border: 2px solid var(--bg-base);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+}
+.jv-poc-step-dot.phase-startup  { background: #08bdba; }
+.jv-poc-step-dot.phase-request  { background: var(--accent, #4589ff); }
+.jv-poc-step-dot.phase-response { background: #a06eff; }
+.jv-poc-step-dot.phase-verify   { background: #42be65; }
+.jv-poc-step-card {
+  width: calc(50% - 26px);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.jv-poc-step.is-client .jv-poc-step-card {
+  border-left: 3px solid var(--accent, #4589ff);
+}
+.jv-poc-step.is-server .jv-poc-step-card {
+  border-right: 3px solid #08bdba;
+  text-align: left;
+}
+.jv-poc-step-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.jv-poc-step-phase {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 3px;
+  color: var(--text-secondary);
+  background: rgba(130,130,130,.12);
+}
+.jv-poc-step-phase.phase-startup  { color: #08bdba; background: rgba(8,189,186,.12); }
+.jv-poc-step-phase.phase-request  { color: var(--accent-light, #78a9ff); background: rgba(69,137,255,.14); }
+.jv-poc-step-phase.phase-response { color: #a06eff; background: rgba(160,110,255,.14); }
+.jv-poc-step-phase.phase-verify   { color: #42be65; background: rgba(66,190,101,.14); }
+.jv-poc-step-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.jv-poc-step-body {
+  margin: 0;
+  font-size: 11px;
+  max-height: 220px;
+  overflow: auto;
+}
+@media (max-width: 720px) {
+  .jv-poc-track::before { left: 6px; }
+  .jv-poc-step.is-client,
+  .jv-poc-step.is-server { justify-content: flex-end; }
+  .jv-poc-step-rail { left: 6px; }
+  .jv-poc-step-card { width: calc(100% - 26px); }
 }
 .jv-artifacts-review {
   border: 1px solid rgba(250,77,86,.22);

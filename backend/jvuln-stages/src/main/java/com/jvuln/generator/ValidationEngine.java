@@ -223,6 +223,7 @@ class ValidationEngine {
         ctx.commandHistory.add(ToolRun.command("bash poc/exploit.sh", pr.exitCode, pr.output));
         result.pocVerified = pr.exitCode == 0;
         result.pocMessage = truncate(pr.output, OUTPUT_TRUNCATE);
+        result.pocSteps.addAll(PocStep.parse(pr.output));
         return result;
     }
 

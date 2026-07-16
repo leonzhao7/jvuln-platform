@@ -2,8 +2,10 @@ package com.jvuln.generator;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 class ValidationResult {
@@ -14,6 +16,7 @@ class ValidationResult {
         String compileMessage = "";
         String startupMessage = "";
         String pocMessage = "";
+        final List<PocStep> pocSteps = new ArrayList<>();
         final Map<String, Object> artifacts = new LinkedHashMap<>();
 
         ValidationResult(String focus) {
@@ -30,6 +33,7 @@ class ValidationResult {
             if (this.compileMessage.isEmpty()) this.compileMessage = other.compileMessage;
             if (this.startupMessage.isEmpty()) this.startupMessage = other.startupMessage;
             if (this.pocMessage.isEmpty()) this.pocMessage = other.pocMessage;
+            if (this.pocSteps.isEmpty()) this.pocSteps.addAll(other.pocSteps);
             this.artifacts.putAll(other.artifacts);
         }
 
@@ -47,6 +51,7 @@ class ValidationResult {
             out.put("compileMessage", compileMessage);
             out.put("startupMessage", startupMessage);
             out.put("pocMessage", pocMessage);
+            out.put("pocSteps", PocStep.toMaps(pocSteps));
             out.put("artifacts", artifacts);
             return out;
         }
@@ -59,6 +64,7 @@ class ValidationResult {
             result.compileMessage = node.path("compileMessage").asText("");
             result.startupMessage = node.path("startupMessage").asText("");
             result.pocMessage = node.path("pocMessage").asText("");
+            result.pocSteps.addAll(PocStep.fromJson(node.path("pocSteps")));
             JsonNode artifactsNode = node.path("artifacts");
             if (artifactsNode.isObject()) {
                 Iterator<Map.Entry<String, JsonNode>> fields = artifactsNode.fields();
