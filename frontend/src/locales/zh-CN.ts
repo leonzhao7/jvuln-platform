@@ -71,7 +71,7 @@ const zhCN = {
       stagePrefix: '阶段 {num}',
       start: '开始',
     },
-    stageNames: ['情报采集', '补丁分析', 'AI 推理', '产物生成'],
+    stageNames: ['情报采集', '补丁分析', 'AI 推理', '产物生成', '报告生成'],
     loadFailed: '加载任务失败',
     rerunStarted: '重跑任务已启动',
     tabs: {

@@ -71,7 +71,7 @@ const enUS = {
       stagePrefix: 'Stage {num}',
       start: 'started',
     },
-    stageNames: ['Intelligence', 'Patch Analysis', 'AI Reasoning', 'Artifacts'],
+    stageNames: ['Intelligence', 'Patch Analysis', 'AI Reasoning', 'Artifacts', 'Report'],
     loadFailed: 'Failed to load task',
     rerunStarted: 'Rerun started',
     tabs: {
