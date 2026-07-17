@@ -101,8 +101,8 @@ class ChatCallerTest {
     }
 
     private void assertRequestDefaults(JsonNode body, String maxTokensField) {
-        assertEquals(0.0, body.path("temperature").asDouble());
-        assertEquals(65536, body.path(maxTokensField).asInt());
+        assertEquals(0.1, body.path("temperature").asDouble());
+        assertEquals(131072, body.path(maxTokensField).asInt());
         assertFalse(body.has("reasoning"));
     }
 

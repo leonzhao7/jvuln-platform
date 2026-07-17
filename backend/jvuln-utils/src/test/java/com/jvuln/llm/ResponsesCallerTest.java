@@ -44,8 +44,8 @@ class ResponsesCallerTest {
         assertEquals("/v1/responses", server.getLastPath());
         JsonNode body = mapper.readTree(server.getLastBody());
         assertEquals("global", body.path("instructions").asText());
-        assertEquals(0.0, body.path("temperature").asDouble());
-        assertEquals(65536, body.path("max_output_tokens").asInt());
+        assertEquals(0.1, body.path("temperature").asDouble());
+        assertEquals(131072, body.path("max_output_tokens").asInt());
         assertFalse(body.has("reasoning"));
         assertInputMessage(body, 0, "developer", "input_text", "stage");
         assertInputMessage(body, 1, "user", "input_text", "task");
