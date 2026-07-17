@@ -139,9 +139,9 @@ const formatDuration = (start: string | null, end: string | null, status?: strin
         </template>
       </el-table-column>
 
-      <el-table-column :label="t('dashboard.description')" min-width="240" show-overflow-tooltip>
+      <el-table-column :label="t('dashboard.description')" min-width="240">
         <template #default="{ row }">
-          <span style="font-size:12px; color:var(--text-secondary)">
+          <span style="font-size:12px; color:var(--text-secondary); white-space:normal; word-break:break-word; line-height:1.4">
             {{ row.description ?? '—' }}
           </span>
         </template>
