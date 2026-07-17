@@ -109,6 +109,28 @@ public class DataExtractor {
     }
 
     /**
+     * 精简情报信息（仅保留报告所需字段）
+     *
+     * @param data Stage 1 输出数据
+     * @return 精简后的情报 JSON 字符串
+     */
+    public String trimIntelligence(Object data) throws Exception {
+        ObjectNode out = mapper.createObjectNode();
+        if (data == null) {
+            return mapper.writeValueAsString(out);
+        }
+        JsonNode root = mapper.valueToTree(data);
+        copyField(root, out, "cveId");
+        copyField(root, out, "cweId");
+        copyField(root, out, "description");
+        copyField(root, out, "cvss");
+        copyField(root, out, "fixedVersion");
+        copyField(root, out, "artifact");
+        copyField(root, out, "affectedVersions");
+        return mapper.writeValueAsString(out);
+    }
+
+    /**
      * 从 JSON 字符串中提取指定字段
      *
      * @param raw JSON 字符串
