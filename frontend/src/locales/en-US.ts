@@ -166,6 +166,7 @@ const enUS = {
       fileList: 'Generated Files',
       downloadAll: 'Download All',
       reportPreview: 'Report Preview',
+      downloadReport: 'Download Report',
       pocPreview: 'PoC Scripts',
       reproductionSteps: 'Reproduction Steps',
       vulnDemo: 'Vuln Demo Project',

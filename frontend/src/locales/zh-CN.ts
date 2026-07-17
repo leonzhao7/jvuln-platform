@@ -166,6 +166,7 @@ const zhCN = {
       fileList: '生成文件列表',
       downloadAll: '下载全部文件',
       reportPreview: '报告预览',
+      downloadReport: '下载报告',
       pocPreview: 'PoC 脚本',
       reproductionSteps: '复现步骤',
       vulnDemo: '漏洞复现项目',

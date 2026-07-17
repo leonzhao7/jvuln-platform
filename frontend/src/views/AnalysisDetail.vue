@@ -53,7 +53,7 @@ interface StageGroup {
   hasError: boolean
 }
 const sseMessages = ref<TerminalEntry[]>([])
-const terminalVisible = ref(true)
+const terminalVisible = ref(false)
 const collapsedStages = ref(new Set<number>())
 let evtSource: EventSource | null = null
 
@@ -310,6 +310,16 @@ const downloadAllArtifacts = async () => {
   } catch {
     ElMessage.error('Download failed')
   }
+}
+
+const downloadReport = () => {
+  const blob = new Blob([reportMarkdown.value], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${cveId}-report.md`
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 onMounted(async () => {
@@ -952,7 +962,12 @@ const renderMarkdown = (md: string) => {
 
         <div v-else-if="selectedStage === 5">
           <div v-if="reportMarkdown" class="jv-reasoning-section">
-            <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
+            <div class="jv-section-label" style="display:flex; align-items:center; justify-content:space-between">
+              <span>{{ t('analysis.artifacts.reportPreview') }}</span>
+              <el-button size="small" @click="downloadReport" style="margin-left:auto">
+                {{ t('analysis.artifacts.downloadReport') }}
+              </el-button>
+            </div>
             <div class="jv-report-preview" v-html="renderMarkdown(reportMarkdown)"></div>
           </div>
           <div v-else style="text-align:center; padding:40px">
