@@ -14,7 +14,7 @@ public final class PipelineConstants {
     /**
      * Pipeline 总阶段数
      */
-    public static final int TOTAL_STAGES = 4;
+    public static final int TOTAL_STAGES = 5;
 
     /**
      * Stage 编号：情报收集
@@ -37,13 +37,19 @@ public final class PipelineConstants {
     public static final int STAGE_ARTIFACTS = 4;
 
     /**
+     * Stage 编号：报告生成
+     */
+    public static final int STAGE_REPORT = 5;
+
+    /**
      * 各阶段名称（用于显示）
      */
     public static final String[] STAGE_NAMES = {
         "Intelligence Collection",
         "Patch Analysis",
         "AI Reasoning",
-        "Artifacts Generation"
+        "Artifacts Generation",
+        "Report Generation"
     };
 
     /**
