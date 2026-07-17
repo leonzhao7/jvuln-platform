@@ -1,5 +1,6 @@
 package com.jvuln.pipeline;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.jvuln.llm.LlmAuditLogger;
 import com.jvuln.llm.LlmClient;
 import com.jvuln.pipeline.model.PipelineContext;
@@ -279,8 +280,14 @@ public class PipelineEngine {
     }
 
     private void updateTaskMetadata(Stage stage, StageResult result, CveTask task) {
-        if (stage.number() != 1 || !result.isSuccess()
-                || !(result.getData() instanceof CveIntelligence)) {
+        if (!result.isSuccess()) {
+            return;
+        }
+        if (stage.number() == 5) {
+            applyReportDescription(result, task);
+            return;
+        }
+        if (stage.number() != 1 || !(result.getData() instanceof CveIntelligence)) {
             return;
         }
         CveIntelligence intel = (CveIntelligence) result.getData();
@@ -294,6 +301,17 @@ public class PipelineEngine {
                     + ":" + intel.getArtifact().getArtifactId());
         }
         taskRepo.save(task);
+    }
+
+    private void applyReportDescription(StageResult result, CveTask task) {
+        if (!(result.getData() instanceof JsonNode)) {
+            return;
+        }
+        String description = ((JsonNode) result.getData()).path("description").asText("").trim();
+        if (!description.isEmpty()) {
+            task.setDescription(description);
+            taskRepo.save(task);
+        }
     }
 
     private StageRecord getOrCreateRecord(String cveId, Stage stage) {

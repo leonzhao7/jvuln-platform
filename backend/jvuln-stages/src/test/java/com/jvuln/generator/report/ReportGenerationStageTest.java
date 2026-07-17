@@ -83,6 +83,24 @@ class ReportGenerationStageTest {
     }
 
     @Test
+    void extractsIntroParagraphAsDescription() throws Exception {
+        WorkspaceManager workspace = seededWorkspace();
+        String report = "# " + CVE + " 漏洞分析\n\n## 1. 漏洞介绍\n\n"
+                + "这是一个位于示例组件的远程代码执行漏洞，攻击者可借此执行任意代码。\n\n"
+                + "| 项目 | 内容 |\n| --- | --- |\n| CVE 编号 | " + CVE + " |\n";
+        LlmClient llm = fixedLlm(report);
+        PipelineContext ctx = new PipelineContext(CVE, workspace.getCvePath(CVE), llm, workspace);
+
+        StageResult result = stage().execute(ctx);
+
+        assertTrue(result.isSuccess());
+        com.fasterxml.jackson.databind.JsonNode data =
+                (com.fasterxml.jackson.databind.JsonNode) result.getData();
+        assertEquals("这是一个位于示例组件的远程代码执行漏洞，攻击者可借此执行任意代码。",
+                data.path("description").asText());
+    }
+
+    @Test
     void emptyLlmOutputFailsStage() throws Exception {
         WorkspaceManager workspace = seededWorkspace();
         LlmClient llm = fixedLlm("   ");

@@ -89,6 +89,10 @@ public class ReportGenerationStage implements Stage {
             ObjectNode summary = mapper.createObjectNode();
             summary.put("reportPath", "report/report.md");
             summary.put("charCount", report.length());
+            String intro = extractIntroParagraph(report);
+            if (!intro.isEmpty()) {
+                summary.put("description", intro);
+            }
             workspace.writeStageData(cveId, 5, summary);
 
             ctx.reportProgress("Report generated (" + report.length() + " chars).");
@@ -137,6 +141,43 @@ public class ReportGenerationStage implements Stage {
             throw last;
         }
         return null;
+    }
+
+    /**
+     * Extract the "## 1. 漏洞介绍" opening paragraph — the first non-empty text line
+     * after that heading, stopping before the info table (lines starting with '|') or
+     * the next heading. This Chinese summary is richer than the Stage 1 description.
+     */
+    private String extractIntroParagraph(String report) {
+        if (report == null) {
+            return "";
+        }
+        String[] lines = report.split("\n", -1);
+        boolean inIntro = false;
+        StringBuilder sb = new StringBuilder();
+        for (String raw : lines) {
+            String line = raw.trim();
+            if (!inIntro) {
+                if (line.startsWith("#") && line.contains("漏洞介绍")) {
+                    inIntro = true;
+                }
+                continue;
+            }
+            if (line.isEmpty()) {
+                if (sb.length() > 0) {
+                    break;
+                }
+                continue;
+            }
+            if (line.startsWith("#") || line.startsWith("|")) {
+                break;
+            }
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(line);
+        }
+        return sb.toString().trim();
     }
 
     private String stripMarkdownFence(String content) {
