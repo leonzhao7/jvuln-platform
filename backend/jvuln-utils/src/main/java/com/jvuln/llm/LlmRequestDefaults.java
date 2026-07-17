@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 public final class LlmRequestDefaults {
 
     public static final double TEMPERATURE = 0.1;
-    public static final int MAX_TOKENS = 262144;
+    public static final int MAX_TOKENS = 131072;
 
     private LlmRequestDefaults() {}
 
