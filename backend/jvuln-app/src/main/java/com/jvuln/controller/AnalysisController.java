@@ -197,8 +197,8 @@ public class AnalysisController {
     @GetMapping("/{cveId}/stages/{stageNum}/json")
     public ResponseEntity<?> getStageJson(@PathVariable String cveId,
                                           @PathVariable int stageNum) {
-        if (stageNum < 1 || stageNum > 4) {
-            return ApiResponseFactory.badRequest("stageNum must be between 1 and 4");
+        if (stageNum < 1 || stageNum > 5) {
+            return ApiResponseFactory.badRequest("stageNum must be between 1 and 5");
         }
         return readStageJson(cveId, stageNum);
     }
