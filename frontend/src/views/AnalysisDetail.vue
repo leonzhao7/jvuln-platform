@@ -5,6 +5,23 @@ import { api, type TaskDetail, type TranscriptEvent } from '../api'
 import { ElMessage } from 'element-plus'
 import DiffViewer from '../components/DiffViewer.vue'
 import { useI18n } from '../i18n'
+import { marked, Renderer } from 'marked'
+import hljs from 'highlight.js/lib/core'
+import java from 'highlight.js/lib/languages/java'
+import xml from 'highlight.js/lib/languages/xml'
+import json from 'highlight.js/lib/languages/json'
+import bash from 'highlight.js/lib/languages/bash'
+import diff from 'highlight.js/lib/languages/diff'
+import yaml from 'highlight.js/lib/languages/yaml'
+import sql from 'highlight.js/lib/languages/sql'
+import javascript from 'highlight.js/lib/languages/javascript'
+import typescript from 'highlight.js/lib/languages/typescript'
+import python from 'highlight.js/lib/languages/python'
+import properties from 'highlight.js/lib/languages/properties'
+
+const langs: Record<string, any> = { java, xml, html: xml, json, bash, sh: bash, shell: bash,
+  diff, yaml, yml: yaml, sql, javascript, js: javascript, typescript, ts: typescript, python, py: python, properties }
+Object.entries(langs).forEach(([name, def]) => hljs.registerLanguage(name, def))
 
 const route = useRoute()
 const router = useRouter()
@@ -327,17 +344,16 @@ const cvssTag = (score: number) => {
   return 'jv-tag jv-tag-low'
 }
 
+const mdRenderer = new Renderer()
+mdRenderer.code = ({ text, lang }: { text: string; lang?: string }) => {
+  const language = (lang || '').trim().split(/\s+/)[0]
+  const highlighted = language && hljs.getLanguage(language)
+    ? hljs.highlight(text, { language }).value
+    : text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return `<pre><code class="hljs">${highlighted}</code></pre>`
+}
 const renderMarkdown = (md: string) => {
-  return md
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/^### (.+)$/gm, '<h4 style="color:var(--text-primary);margin:16px 0 8px">$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3 style="color:var(--text-primary);margin:20px 0 10px">$1</h3>')
-    .replace(/^# (.+)$/gm, '<h2 style="color:var(--text-primary);margin:24px 0 12px">$1</h2>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code style="font-family:var(--font-mono);font-size:12px;background:var(--bg-code);padding:1px 5px">$1</code>')
-    .replace(/^- (.+)$/gm, '<li style="margin-left:20px;color:var(--text-secondary)">$1</li>')
-    .replace(/\n\n/g, '<br/><br/>')
-    .replace(/\n/g, '<br/>')
+  return marked.parse(md, { async: false, gfm: true, renderer: mdRenderer }) as string
 }
 </script>
 
@@ -1977,19 +1993,6 @@ const renderMarkdown = (md: string) => {
 .jv-artifact-type-poc           { background: rgba(250,77,86,.12);  color: #fa4d56; border: 1px solid rgba(250,77,86,.3); }
 .jv-artifact-type-report        { background: rgba(66,190,101,.12); color: #42be65; border: 1px solid rgba(66,190,101,.3); }
 .jv-artifact-type-docker-compose { background: rgba(241,194,27,.12); color: #f1c21b; border: 1px solid rgba(241,194,27,.3); }
-.jv-report-preview {
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
-  max-height: 600px;
-  overflow-y: auto;
-  padding: 16px;
-  background: var(--bg-base);
-  border-left: 3px solid var(--border);
-}
-.jv-report-preview h2, .jv-report-preview h3, .jv-report-preview h4 {
-  font-family: var(--font-mono);
-}
 .jv-poc-block {
   margin-bottom: 10px;
 }
@@ -2181,4 +2184,101 @@ const renderMarkdown = (md: string) => {
   color: var(--text-disabled);
   flex-shrink: 0;
 }
+</style>
+
+<style>
+/* Non-scoped: styles v-html markdown output injected into .jv-report-preview */
+.jv-report-preview {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 20px 24px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  word-wrap: break-word;
+}
+.jv-report-preview > *:first-child { margin-top: 0; }
+.jv-report-preview > *:last-child { margin-bottom: 0; }
+.jv-report-preview h1, .jv-report-preview h2, .jv-report-preview h3,
+.jv-report-preview h4, .jv-report-preview h5, .jv-report-preview h6 {
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 24px 0 16px;
+}
+.jv-report-preview h1 { font-size: 24px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
+.jv-report-preview h2 { font-size: 20px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
+.jv-report-preview h3 { font-size: 17px; }
+.jv-report-preview h4 { font-size: 15px; }
+.jv-report-preview h5, .jv-report-preview h6 { font-size: 13px; }
+.jv-report-preview p { margin: 0 0 16px; }
+.jv-report-preview ul, .jv-report-preview ol { margin: 0 0 16px; padding-left: 28px; }
+.jv-report-preview li { margin: 4px 0; }
+.jv-report-preview li > ul, .jv-report-preview li > ol { margin: 4px 0; }
+.jv-report-preview strong { font-weight: 600; color: var(--text-primary); }
+.jv-report-preview a { color: var(--accent, #4589ff); text-decoration: none; word-break: break-all; }
+.jv-report-preview a:hover { text-decoration: underline; }
+.jv-report-preview hr { height: 1px; border: none; background: var(--border-subtle); margin: 24px 0; }
+.jv-report-preview code {
+  font-family: var(--font-mono);
+  font-size: 85%;
+  background: rgba(110,118,129,.25);
+  padding: .2em .4em;
+  border-radius: 4px;
+}
+.jv-report-preview pre {
+  background: var(--bg-code, #1c1c1c);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+.jv-report-preview pre code {
+  background: none;
+  padding: 0;
+  font-size: 85%;
+  color: var(--text-primary);
+  white-space: pre;
+}
+.jv-report-preview blockquote {
+  margin: 0 0 16px;
+  padding: 0 16px;
+  color: var(--text-muted);
+  border-left: 4px solid var(--border);
+}
+.jv-report-preview blockquote > *:last-child { margin-bottom: 0; }
+.jv-report-preview table {
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  width: 100%;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+.jv-report-preview th, .jv-report-preview td {
+  border: 1px solid var(--border-subtle);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.jv-report-preview th { background: var(--bg-surface, #262626); font-weight: 600; }
+.jv-report-preview tr:nth-child(2n) td { background: rgba(255,255,255,.03); }
+.jv-report-preview img { max-width: 100%; }
+/* highlight.js token colors (GitHub-dark palette) */
+.jv-report-preview .hljs-comment, .jv-report-preview .hljs-quote { color: #8b949e; }
+.jv-report-preview .hljs-keyword, .jv-report-preview .hljs-selector-tag, .jv-report-preview .hljs-literal, .jv-report-preview .hljs-meta .hljs-keyword { color: #ff7b72; }
+.jv-report-preview .hljs-string, .jv-report-preview .hljs-addition, .jv-report-preview .hljs-meta .hljs-string { color: #a5d6ff; }
+.jv-report-preview .hljs-number, .jv-report-preview .hljs-symbol, .jv-report-preview .hljs-bullet { color: #79c0ff; }
+.jv-report-preview .hljs-title, .jv-report-preview .hljs-title.function_, .jv-report-preview .hljs-section { color: #d2a8ff; }
+.jv-report-preview .hljs-type, .jv-report-preview .hljs-class .hljs-title, .jv-report-preview .hljs-built_in, .jv-report-preview .hljs-title.class_ { color: #ffa657; }
+.jv-report-preview .hljs-variable, .jv-report-preview .hljs-template-variable, .jv-report-preview .hljs-attr, .jv-report-preview .hljs-attribute, .jv-report-preview .hljs-name { color: #79c0ff; }
+.jv-report-preview .hljs-tag { color: #7ee787; }
+.jv-report-preview .hljs-deletion { color: #ffa198; }
+.jv-report-preview .hljs-emphasis { font-style: italic; }
+.jv-report-preview .hljs-strong { font-weight: 600; }
 </style>
