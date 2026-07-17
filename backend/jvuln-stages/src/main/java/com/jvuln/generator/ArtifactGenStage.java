@@ -236,21 +236,6 @@ public class ArtifactGenStage implements Stage {
                             "NOTICE: 20 turns remain. Keep the turn count low anyway: prefer one broad file batch, "
                             + "backend validation, then the smallest repair needed to satisfy the verification plan."));
                     contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, "NOTICE: 20 turns remain.");
-                } else if (remaining == REPORT_FALLBACK_TURNS) {
-                    if (agentCtx.phase != AgentPhase.REPORT) {
-                        if (agentCtx.lastValidation == null) {
-                            agentCtx.lastValidation = validationEngine.validateArtifacts(agentCtx, "full");
-                        }
-                        agentCtx.phase = AgentPhase.REPORT;
-                        agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation, true);
-                        String directive = "BACKEND PHASE SWITCH: REPORT\n" + phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
-                        messages.add(LlmRequest.Message.user(directive));
-                        contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, directive);
-                    }
-                    String warning = "FINAL WARNING: 5 turns remain. Stop debugging. Write the report with the current evidence "
-                            + "and remaining gap, then call finish().";
-                    messages.add(LlmRequest.Message.user(warning));
-                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, warning);
                 }
 
                 contextBuilder.compactMessagesIfNeeded(messages, agentCtx, "before_turn_" + (turn + 1));
@@ -296,7 +281,7 @@ public class ArtifactGenStage implements Stage {
                     if (emptyResponses >= MAX_EMPTY_AGENT_RESPONSES) {
                         ValidationResult forcedValidation = validationEngine.validateArtifacts(agentCtx, "full");
                         agentCtx.lastValidation = forcedValidation;
-                        agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, forcedValidation, false);
+                        agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, forcedValidation);
                         String directive = "The backend validator was triggered because you stopped using tools.\n"
                                 + phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                         messages.add(LlmRequest.Message.user(directive));
@@ -319,7 +304,6 @@ public class ArtifactGenStage implements Stage {
                 boolean finished = false;
                 boolean wroteVulnDemo = false;
                 boolean wrotePoc = false;
-                boolean wroteReport = false;
                 boolean ranValidation = false;
                 AgentPhase phaseBeforeTurn = agentCtx.phase;
 
@@ -377,7 +361,6 @@ public class ArtifactGenStage implements Stage {
                         WriteScope scope = phaseEngine.inspectWriteScope(toolName, block.getToolInput());
                         wroteVulnDemo = wroteVulnDemo || scope.vulnDemo;
                         wrotePoc = wrotePoc || scope.poc;
-                        wroteReport = wroteReport || scope.report;
                     }
                 }
 
@@ -393,20 +376,15 @@ public class ArtifactGenStage implements Stage {
                     ValidationResult autoValidation = validationEngine.validateArtifacts(agentCtx, focus);
                     agentCtx.lastValidation = autoValidation;
                     agentCtx.phase = phaseEngine.nextPhaseAfterValidation(agentCtx, autoValidation, remaining - 1);
-                    agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, autoValidation, false);
+                    agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, autoValidation);
                     log.info("Agent auto-validation done: turn={} nextPhase={} result={}",
                             turn + 1, agentCtx.phase, autoValidation.summary());
                     String directive = phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
                     messages.add(LlmRequest.Message.user(directive));
                     contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, directive);
-                } else if (!finished && wroteReport && agentCtx.phase == AgentPhase.REPORT) {
-                    agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
-                    String directive = phaseEngine.renderPhaseDirective(agentCtx.lastDirective);
-                    messages.add(LlmRequest.Message.user(directive));
-                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, directive);
                 } else if (!finished && ranValidation) {
                     agentCtx.phase = phaseEngine.nextPhaseAfterValidation(agentCtx, agentCtx.lastValidation, remaining - 1);
-                    agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation, false);
+                    agentCtx.lastDirective = phaseEngine.buildPhaseDirective(agentCtx, agentCtx.lastValidation);
                     log.info("Agent manual validation directive: turn={} nextPhase={} result={}",
                             turn + 1, agentCtx.phase,
                             agentCtx.lastValidation == null ? "none" : agentCtx.lastValidation.summary());
@@ -416,7 +394,7 @@ public class ArtifactGenStage implements Stage {
                 }
 
                 if (!finished) {
-                    phaseEngine.updateProgressGuard(agentCtx, wroteVulnDemo || wrotePoc || wroteReport);
+                    phaseEngine.updateProgressGuard(agentCtx, wroteVulnDemo || wrotePoc);
                     if (agentCtx.abortReason != null) {
                         log.warn("Agent stopped by progress guard at turn {}: {}", turn + 1, agentCtx.abortReason);
                         ctx.reportProgress(agentCtx.abortReason);
@@ -437,7 +415,6 @@ public class ArtifactGenStage implements Stage {
                         agentCtx.lastValidation != null && agentCtx.lastValidation.startupOk ? "startup_ok"
                                 : (agentCtx.lastValidation != null && agentCtx.lastValidation.compileOk ? "compile_ok" : "compile_failed"));
                 forcedSummary.put("poc_status", agentCtx.verificationReview == null ? "unverified" : agentCtx.verificationReview.pocStatus);
-                forcedSummary.put("report_status", Files.exists(cvePath.resolve("report/report.md")) ? "generated" : "skipped");
                 forcedSummary.put("verification_evidence",
                         agentCtx.lastValidation == null ? "" : agentCtx.lastValidation.summary());
                 forcedSummary.put("remaining_gap",
@@ -515,11 +492,11 @@ public class ArtifactGenStage implements Stage {
     private String doSubmitPlan(AgentContext ctx, JsonNode input) {
         ExecutionPlan plan = ExecutionPlan.fromJson(input);
         if (!plan.isUsable()) {
-            return "Error: submit_plan requires goal, firstBatchFiles, validationSequence, and reportStrategy";
+            return "Error: submit_plan requires goal, firstBatchFiles, and validationSequence";
         }
         ctx.executionPlan = plan;
         ctx.phase = AgentPhase.GENERATE_MINIMAL;
-        ctx.lastDirective = phaseEngine.buildPhaseDirective(ctx, ctx.lastValidation, false);
+        ctx.lastDirective = phaseEngine.buildPhaseDirective(ctx, ctx.lastValidation);
         return "Plan accepted. Phase switched to " + ctx.phase.name() + ".\n"
                 + phaseEngine.renderPhaseDirective(ctx.lastDirective);
     }

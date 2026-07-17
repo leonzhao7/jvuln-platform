@@ -25,9 +25,6 @@ public final class GeneratorConstants {
     /** 无进展最大轮次数 */
     public static final int MAX_NO_PROGRESS_TURNS = 6;
 
-    /** 报告生成回退轮次数 */
-    public static final int REPORT_FALLBACK_TURNS = 5;
-
     // ==================== 端口和网络 ====================
 
     /** vuln-demo 应用默认端口 */

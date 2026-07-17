@@ -26,9 +26,8 @@ class ToolDefinitionBuilder {
         planProps.put("validationSequence", stringArrayProp("Planned validation order, for example build -> startup -> poc"));
         planProps.put("deferredUntilVerified", stringArrayProp("Files or tasks intentionally deferred until validation is green"));
         planProps.put("risks", stringArrayProp("Main failure risks or likely repair targets"));
-        planProps.put("reportStrategy", prop("string", "When you will write report/report.md"));
         planSchema.put("properties", planProps);
-        planSchema.put("required", Arrays.asList("goal", "firstBatchFiles", "validationSequence", "reportStrategy"));
+        planSchema.put("required", Arrays.asList("goal", "firstBatchFiles", "validationSequence"));
         allTools.add(new LlmRequest.ToolDef("submit_plan",
                 "Submit the execution plan before build/start/write/validate actions. You may call submit_plan first and then continue with write_files in the same turn.",
                 planSchema));
@@ -50,7 +49,7 @@ class ToolDefinitionBuilder {
         batchWriteSchema.put("properties", batchWriteProps);
         batchWriteSchema.put("required", Collections.singletonList("files"));
         allTools.add(new LlmRequest.ToolDef("write_files",
-                "Write one or more files in a single call. Every path must start with vuln-demo/, poc/, or report/.",
+                "Write one or more files in a single call. Every path must start with vuln-demo/ or poc/.",
                 batchWriteSchema));
 
         Map<String, Object> readSchema = new LinkedHashMap<>();
@@ -95,7 +94,6 @@ class ToolDefinitionBuilder {
         Map<String, Object> finishProps = new LinkedHashMap<>();
         finishProps.put("vuln_demo_status", prop("string", "Status: startup_ok, compile_ok, compile_failed"));
         finishProps.put("poc_status", prop("string", "Status: verified, unverified, skipped"));
-        finishProps.put("report_status", prop("string", "Status: generated, skipped"));
         finishProps.put("verification_evidence", prop("string", "Concrete evidence showing why the PoC is verified or still missing a signal"));
         finishProps.put("remaining_gap", prop("string", "If unverified, the exact missing condition or blocker"));
         finishProps.put("notes", prop("string", "Any notes about the generation"));

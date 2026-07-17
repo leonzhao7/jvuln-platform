@@ -6,6 +6,5 @@ enum AgentPhase {
     COMPILE_FIX,
     STARTUP_FIX,
     POC_FIX,
-    REPORT,
     FINISHED
 }

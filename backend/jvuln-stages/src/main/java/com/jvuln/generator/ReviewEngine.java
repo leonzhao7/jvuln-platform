@@ -105,7 +105,6 @@ class ReviewEngine {
         candidates.add("vuln-demo/pom.xml");
         candidates.add("vuln-demo/src/main/resources/application.properties");
         candidates.add("poc/exploit.sh");
-        candidates.add("report/report.md");
         for (String path : ctx.writtenFiles) {
             if (path.startsWith("vuln-demo/src/main/resources/")) {
                 candidates.add(path);

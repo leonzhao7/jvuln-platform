@@ -14,7 +14,6 @@ import static com.jvuln.generator.ArtifactGenUtils.joinItems;
 class AgentPhaseEngine {
 
     private static final Logger log = LoggerFactory.getLogger(AgentPhaseEngine.class);
-    private static final int REPORT_FALLBACK_TURNS = 5;
     private static final int MAX_NO_PROGRESS_TURNS = 6;
 
     private final LlmHelper llmHelper;
@@ -33,9 +32,6 @@ class AgentPhaseEngine {
         if (ctx.summary != null) {
             return AgentPhase.FINISHED;
         }
-        if (Files.exists(ctx.cvePath.resolve("report/report.md"))) {
-            return AgentPhase.REPORT;
-        }
         String compileStatus = ctx.deriveCompileStatus();
         if (!"compile_ok".equals(compileStatus)) {
             return ctx.writtenFiles.size() <= 3 ? AgentPhase.GENERATE_MINIMAL : AgentPhase.COMPILE_FIX;
@@ -51,11 +47,11 @@ class AgentPhaseEngine {
         if (ctx.lastDirective != null && ctx.lastDirective.phase == ctx.phase) {
             return ctx.lastDirective;
         }
-        return buildPhaseDirective(ctx, ctx.lastValidation, false);
+        return buildPhaseDirective(ctx, ctx.lastValidation);
     }
 
-    PhaseDirective buildPhaseDirective(AgentContext ctx, ValidationResult result, boolean forceReport) {
-        AgentPhase phase = forceReport ? AgentPhase.REPORT : (ctx.phase == null ? inferPhase(ctx) : ctx.phase);
+    PhaseDirective buildPhaseDirective(AgentContext ctx, ValidationResult result) {
+        AgentPhase phase = ctx.phase == null ? inferPhase(ctx) : ctx.phase;
         List<String> allowed = allowedActions(phase);
         String gap;
         String expected;
@@ -93,14 +89,6 @@ class AgentPhaseEngine {
                 actual = result == null ? "No PoC validation evidence yet." : result.pocMessage;
                 fixHint = derivePocFixHint(ctx, result);
                 break;
-            case REPORT:
-                gap = result != null && result.compileOk && result.startupOk && result.pocVerified ? "ready_to_finish" : "report_and_finish";
-                expected = result != null && result.compileOk && result.startupOk && result.pocVerified
-                        ? "Summarize the verified evidence and call finish."
-                        : "Write report/report.md describing the verified evidence or exact remaining gap, then call finish.";
-                actual = result == null ? "Validation state unavailable." : result.summary();
-                fixHint = "Do not continue debugging. Produce the report from current evidence and finish.";
-                break;
             default:
                 gap = "unknown";
                 expected = "Finish the current stage safely.";
@@ -131,9 +119,6 @@ class AgentPhaseEngine {
     }
 
     AgentPhase nextPhaseAfterValidation(AgentContext ctx, ValidationResult result, int remainingTurns) {
-        if (remainingTurns <= REPORT_FALLBACK_TURNS) {
-            return AgentPhase.REPORT;
-        }
         if (result == null) {
             return inferPhase(ctx);
         }
@@ -146,7 +131,7 @@ class AgentPhaseEngine {
         if (!result.pocVerified) {
             return AgentPhase.POC_FIX;
         }
-        return AgentPhase.REPORT;
+        return AgentPhase.FINISHED;
     }
 
     boolean isToolAllowed(AgentPhase phase, String toolName) {
@@ -167,10 +152,6 @@ class AgentPhaseEngine {
                 return "write_files".equals(toolName)
                         || "read_file".equals(toolName) || "read_log".equals(toolName) || "inspect_runtime".equals(toolName)
                         || "validate_artifacts".equals(toolName) || "finish".equals(toolName);
-            case REPORT:
-                return "write_files".equals(toolName)
-                        || "read_file".equals(toolName) || "read_log".equals(toolName) || "inspect_runtime".equals(toolName)
-                        || "finish".equals(toolName);
             case FINISHED:
                 return "finish".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName);
             default:
@@ -275,17 +256,13 @@ class AgentPhaseEngine {
         return "full";
     }
 
-    String buildAutoValidationFeedback(AgentContext ctx, ValidationResult result, String focus, boolean wroteReport) {
+    String buildAutoValidationFeedback(AgentContext ctx, ValidationResult result, String focus) {
         StringBuilder sb = new StringBuilder();
         sb.append("AUTO VALIDATION after your latest file batch (focus=").append(focus).append("):\n");
         sb.append(llmHelper.renderJson(result.toMap())).append("\n");
 
         if (result.compileOk && result.startupOk && result.pocVerified) {
-            if (Files.exists(ctx.cvePath.resolve("report/report.md")) || wroteReport) {
-                sb.append("Validation passed. Call finish() now with the concrete evidence above.");
-            } else {
-                sb.append("Validation passed. Write report/report.md now, then call finish().");
-            }
+            sb.append("Validation passed. Call finish() now with the concrete evidence above.");
             return sb.toString();
         }
 
@@ -321,8 +298,6 @@ class AgentPhaseEngine {
             case STARTUP_FIX:
             case POC_FIX:
                 return Arrays.asList("write_files", "read_file", "read_log", "inspect_runtime", "validate_artifacts", "finish");
-            case REPORT:
-                return Arrays.asList("write_files", "read_file", "read_log", "inspect_runtime", "finish");
             default:
                 return Collections.singletonList("finish");
         }
@@ -413,8 +388,6 @@ class AgentPhaseEngine {
             scope.vulnDemo = true;
         } else if (path.startsWith("poc/")) {
             scope.poc = true;
-        } else if (path.startsWith("report/")) {
-            scope.report = true;
         }
     }
 }

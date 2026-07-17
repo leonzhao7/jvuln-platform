@@ -16,18 +16,16 @@ class ExecutionPlan {
     final List<String> validationSequence;
     final List<String> deferredUntilVerified;
     final List<String> risks;
-    final String reportStrategy;
 
     private ExecutionPlan(String goal, List<String> firstBatchFiles, List<String> minimalDeliverables,
                       List<String> validationSequence, List<String> deferredUntilVerified,
-                      List<String> risks, String reportStrategy) {
+                      List<String> risks) {
         this.goal = goal == null ? "" : goal.trim();
         this.firstBatchFiles = normalizeList(firstBatchFiles);
         this.minimalDeliverables = normalizeList(minimalDeliverables);
         this.validationSequence = normalizeList(validationSequence);
         this.deferredUntilVerified = normalizeList(deferredUntilVerified);
         this.risks = normalizeList(risks);
-        this.reportStrategy = reportStrategy == null ? "" : reportStrategy.trim();
         }
 
     static ExecutionPlan fromJson(JsonNode node) {
@@ -37,13 +35,12 @@ class ExecutionPlan {
                 readList(node.path("minimalDeliverables")),
                 readList(node.path("validationSequence")),
                 readList(node.path("deferredUntilVerified")),
-                readList(node.path("risks")),
-                node.path("reportStrategy").asText("")
+                readList(node.path("risks"))
         );
         }
 
         boolean isUsable() {
-        return !goal.isEmpty() && !firstBatchFiles.isEmpty() && !validationSequence.isEmpty() && !reportStrategy.isEmpty();
+        return !goal.isEmpty() && !firstBatchFiles.isEmpty() && !validationSequence.isEmpty();
         }
 
     Map<String, Object> toMap() {
@@ -54,7 +51,6 @@ class ExecutionPlan {
         out.put("validationSequence", validationSequence);
         out.put("deferredUntilVerified", deferredUntilVerified);
         out.put("risks", risks);
-        out.put("reportStrategy", reportStrategy);
         return out;
         }
     }
