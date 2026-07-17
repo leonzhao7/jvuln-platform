@@ -5,6 +5,7 @@ import { api, type TaskDetail, type TranscriptEvent } from '../api'
 import { ElMessage } from 'element-plus'
 import DiffViewer from '../components/DiffViewer.vue'
 import { useI18n } from '../i18n'
+import { cweName } from '../cwe'
 import { marked, Renderer } from 'marked'
 import hljs from 'highlight.js/lib/core'
 import java from 'highlight.js/lib/languages/java'
@@ -25,7 +26,7 @@ Object.entries(langs).forEach(([name, def]) => hljs.registerLanguage(name, def))
 
 const route = useRoute()
 const router = useRouter()
-const { t, array } = useI18n()
+const { t, array, locale } = useI18n()
 const cveId = route.params.cveId as string
 
 const detail = ref<TaskDetail | null>(null)
@@ -469,7 +470,13 @@ const renderMarkdown = (md: string) => {
                 <span v-else style="color:var(--text-disabled)">—</span>
               </el-descriptions-item>
               <el-descriptions-item label="CWE">
-                <span style="font-family:var(--font-mono)">{{ stageData[1].cweId ?? '—' }}</span>
+                <template v-if="stageData[1].cweId">
+                  <span style="font-family:var(--font-mono)">{{ stageData[1].cweId }}</span>
+                  <span v-if="cweName(stageData[1].cweId, locale)" style="color:var(--text-muted); margin-left:8px">
+                    {{ cweName(stageData[1].cweId, locale) }}
+                  </span>
+                </template>
+                <span v-else style="color:var(--text-disabled)">—</span>
               </el-descriptions-item>
               <el-descriptions-item :label="t('analysis.fields.fixedVersion')">
                 <span style="font-family:var(--font-mono)">{{ stageData[1].fixedVersion || '—' }}</span>

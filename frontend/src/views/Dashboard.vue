@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, type CveTask } from '../api'
 import { useI18n } from '../i18n'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -20,7 +20,17 @@ onMounted(load)
 
 const deleteTask = async (cveId: string) => {
   try {
+    await ElMessageBox.confirm(
+      t('dashboard.deleteConfirm', { name: cveId }),
+      t('dashboard.confirmDelete'),
+      { confirmButtonText: t('common.delete'), cancelButtonText: t('common.cancel'), type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
     await api.deleteTask(cveId)
+    ElMessage.success(t('dashboard.deleteSuccess'))
     await load()
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error ?? t('dashboard.deleteFailed'))
@@ -123,14 +133,6 @@ const formatDuration = (start: string | null, end: string | null, status?: strin
         </template>
       </el-table-column>
 
-      <el-table-column prop="cweId" :label="t('dashboard.cwe')" width="100">
-        <template #default="{ row }">
-          <span style="font-family:var(--font-mono); color:var(--text-muted); font-size:12px">
-            {{ row.cweId || '—' }}
-          </span>
-        </template>
-      </el-table-column>
-
       <el-table-column :label="t('dashboard.artifact')" width="200">
         <template #default="{ row }">
           <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-secondary)">
@@ -163,18 +165,11 @@ const formatDuration = (start: string | null, end: string | null, status?: strin
         </template>
       </el-table-column>
 
-      <el-table-column label="" width="100" align="right">
+      <el-table-column label="" width="72" align="center">
         <template #default="{ row }">
-          <el-popconfirm
-            :title="t('dashboard.deleteConfirm')"
-            :confirm-button-text="t('common.delete')"
-            :cancel-button-text="t('common.cancel')"
-            @confirm="deleteTask(row.cveId)"
-          >
-            <template #reference>
-              <el-button size="small" type="danger">{{ t('common.delete') }}</el-button>
-            </template>
-          </el-popconfirm>
+          <el-button size="small" type="danger" @click="deleteTask(row.cveId)">
+            {{ t('common.delete') }}
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
