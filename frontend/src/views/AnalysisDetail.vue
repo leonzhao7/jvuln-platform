@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type TaskDetail, type TranscriptEvent } from '../api'
+import { api, type TaskDetail } from '../api'
 import { ElMessage } from 'element-plus'
 import DiffViewer from '../components/DiffViewer.vue'
 import { useI18n } from '../i18n'
@@ -36,8 +36,6 @@ const diffContent = ref('')
 const diffLoading = ref(false)
 const reportMarkdown = ref('')
 const sseActive = ref(false)
-const transcriptEvents = ref<TranscriptEvent[]>([])
-const transcriptExpanded = ref(false)
 const expandedFiles = ref<Set<string>>(new Set())
 const fileContents = ref<Record<string, string>>({})
 const fileLoading = ref<Set<string>>(new Set())
@@ -162,10 +160,7 @@ const loadStageData = async () => {
   try { stageData.value[1] = await api.getIntelligence(cveId) } catch {}
   try { stageData.value[2] = await api.getPatch(cveId) } catch {}
   try { stageData.value[3] = await api.getReasoning(cveId) } catch {}
-  try {
-    stageData.value[4] = await api.getArtifacts(cveId)
-    try { transcriptEvents.value = await api.getTranscript(cveId) } catch { transcriptEvents.value = [] }
-  } catch {}
+  try { stageData.value[4] = await api.getArtifacts(cveId) } catch {}
   try { const r = await api.getReport(cveId); reportMarkdown.value = r.markdown } catch {}
 
   diffLoading.value = true
@@ -365,6 +360,21 @@ mdRenderer.code = ({ text, lang }: { text: string; lang?: string }) => {
 }
 const renderMarkdown = (md: string) => {
   return marked.parse(md, { async: false, gfm: true, renderer: mdRenderer }) as string
+}
+
+const extToLang: Record<string, string> = {
+  java: 'java', xml: 'xml', html: 'html', json: 'json', sh: 'bash', bash: 'bash',
+  yml: 'yaml', yaml: 'yaml', sql: 'sql', js: 'javascript', ts: 'typescript',
+  py: 'python', properties: 'properties', diff: 'diff', md: 'xml',
+}
+
+const highlightFile = (path: string, code: string): string => {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  const lang = extToLang[ext]
+  if (lang && hljs.getLanguage(lang)) {
+    return hljs.highlight(code, { language: lang }).value
+  }
+  return hljs.highlightAuto(code).value
 }
 </script>
 
@@ -850,10 +860,6 @@ const renderMarkdown = (md: string) => {
                   <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationCompileMessage') }}</div>
                   <pre class="jv-stage4-pre">{{ stageData[4].validation.compileMessage }}</pre>
                 </div>
-                <div v-if="stageData[4].validation.startupMessage" class="jv-stage4-plan-card">
-                  <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationStartupMessage') }}</div>
-                  <pre class="jv-stage4-pre">{{ stageData[4].validation.startupMessage }}</pre>
-                </div>
                 <div v-if="stageData[4].validation.pocMessage && !stage4PocSteps.length" class="jv-stage4-plan-card">
                   <div class="jv-stage4-card-label">{{ t('analysis.artifacts.validationPocMessage') }}</div>
                   <pre class="jv-stage4-pre">{{ stageData[4].validation.pocMessage }}</pre>
@@ -917,40 +923,7 @@ const renderMarkdown = (md: string) => {
                     <code>{{ f.path }}</code>
                     <span v-if="fileLoading.has(f.path)" class="jv-artifact-loading">…</span>
                   </div>
-                  <pre v-if="expandedFiles.has(f.path) && fileContents[f.path] != null" class="jv-artifact-content">{{ fileContents[f.path] }}</pre>
-                </div>
-              </div>
-            </div>
-
-            <!-- Reproduction Steps -->
-            <div v-if="stageData[4].reproductionSteps?.length" class="jv-reasoning-section s4-c6">
-              <div class="jv-section-label">{{ t('analysis.artifacts.reproductionSteps') }}</div>
-              <div class="jv-reproduction-steps">
-                <div v-for="s in stageData[4].reproductionSteps" :key="s.step" class="jv-repro-step">
-                  <div class="jv-repro-step-header">
-                    <span class="jv-repro-step-num">{{ s.step }}</span>
-                    <span class="jv-repro-step-title">{{ s.title }}</span>
-                  </div>
-                  <code class="jv-repro-step-cmd">{{ s.command }}</code>
-                  <div class="jv-repro-step-desc">{{ s.description }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Agent Transcript -->
-            <div v-if="transcriptEvents.length" class="jv-reasoning-section s4-c7">
-              <div class="jv-section-label" style="cursor:pointer; user-select:none" @click="transcriptExpanded = !transcriptExpanded">
-                Agent Transcript ({{ transcriptEvents.length }} events)
-                <span style="font-size:11px; margin-left:8px; color:var(--text-muted)">{{ transcriptExpanded ? '▼' : '▶' }}</span>
-              </div>
-              <div v-if="transcriptExpanded" class="jv-transcript-list">
-                <div v-for="(evt, idx) in transcriptEvents" :key="idx" class="jv-transcript-event">
-                  <div class="jv-transcript-header">
-                    <span class="jv-transcript-turn">Turn {{ evt.turn }}</span>
-                    <span class="jv-transcript-type" :class="'jv-type-' + evt.type">{{ evt.type }}</span>
-                    <span class="jv-transcript-phase">{{ evt.phase }}</span>
-                  </div>
-                  <pre class="jv-transcript-payload">{{ JSON.stringify(evt.payload, null, 2) }}</pre>
+                  <pre v-if="expandedFiles.has(f.path) && fileContents[f.path] != null" class="jv-artifact-content hljs"><code v-html="highlightFile(f.path, fileContents[f.path])"></code></pre>
                 </div>
               </div>
             </div>
@@ -2019,122 +1992,6 @@ const renderMarkdown = (md: string) => {
   margin-bottom: 10px;
 }
 
-.jv-reproduction-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.jv-repro-step {
-  background: rgba(0,0,0,.15);
-  border: 1px solid rgba(255,255,255,.06);
-  border-radius: 8px;
-  padding: 14px 16px;
-}
-.jv-repro-step-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.jv-repro-step-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.jv-repro-step-title {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-.jv-repro-step-cmd {
-  display: block;
-  background: rgba(0,0,0,.3);
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 6px;
-  padding: 10px 14px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--accent-light);
-  margin-bottom: 6px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  user-select: all;
-}
-.jv-repro-step-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.jv-transcript-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: 600px;
-  overflow-y: auto;
-}
-.jv-transcript-event {
-  background: rgba(0,0,0,.2);
-  border: 1px solid rgba(255,255,255,.06);
-  border-radius: 8px;
-  padding: 12px;
-}
-.jv-transcript-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-  font-size: 12px;
-}
-.jv-transcript-turn {
-  font-weight: 600;
-  color: var(--accent);
-}
-.jv-transcript-type {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-family: var(--font-mono);
-}
-.jv-type-assistant {
-  background: rgba(16,185,129,.15);
-  color: #10b981;
-}
-.jv-type-directive {
-  background: rgba(59,130,246,.15);
-  color: #3b82f6;
-}
-.jv-type-tool_results {
-  background: rgba(168,85,247,.15);
-  color: #a855f7;
-}
-.jv-type-compact {
-  background: rgba(234,179,8,.15);
-  color: #eab308;
-}
-.jv-transcript-phase {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-.jv-transcript-payload {
-  background: rgba(0,0,0,.3);
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 6px;
-  padding: 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-  max-height: 400px;
-  overflow: auto;
-  margin: 0;
-}
 .jv-paused-banner {
   background: rgba(250,77,86,.08);
   border: 1px solid rgba(250,77,86,.3);
@@ -2303,4 +2160,16 @@ const renderMarkdown = (md: string) => {
 .jv-report-preview .hljs-deletion { color: #ffa198; }
 .jv-report-preview .hljs-emphasis { font-style: italic; }
 .jv-report-preview .hljs-strong { font-weight: 600; }
+/* highlight.js token colors for expanded artifact files (GitHub-dark palette) */
+.jv-artifact-content .hljs-comment, .jv-artifact-content .hljs-quote { color: #8b949e; }
+.jv-artifact-content .hljs-keyword, .jv-artifact-content .hljs-selector-tag, .jv-artifact-content .hljs-literal, .jv-artifact-content .hljs-meta .hljs-keyword { color: #ff7b72; }
+.jv-artifact-content .hljs-string, .jv-artifact-content .hljs-addition, .jv-artifact-content .hljs-meta .hljs-string { color: #a5d6ff; }
+.jv-artifact-content .hljs-number, .jv-artifact-content .hljs-symbol, .jv-artifact-content .hljs-bullet { color: #79c0ff; }
+.jv-artifact-content .hljs-title, .jv-artifact-content .hljs-title.function_, .jv-artifact-content .hljs-section { color: #d2a8ff; }
+.jv-artifact-content .hljs-type, .jv-artifact-content .hljs-class .hljs-title, .jv-artifact-content .hljs-built_in, .jv-artifact-content .hljs-title.class_ { color: #ffa657; }
+.jv-artifact-content .hljs-variable, .jv-artifact-content .hljs-template-variable, .jv-artifact-content .hljs-attr, .jv-artifact-content .hljs-attribute, .jv-artifact-content .hljs-name { color: #79c0ff; }
+.jv-artifact-content .hljs-tag { color: #7ee787; }
+.jv-artifact-content .hljs-deletion { color: #ffa198; }
+.jv-artifact-content .hljs-emphasis { font-style: italic; }
+.jv-artifact-content .hljs-strong { font-weight: 600; }
 </style>
