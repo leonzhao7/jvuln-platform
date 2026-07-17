@@ -146,9 +146,9 @@ const loadStageData = async () => {
   try { stageData.value[3] = await api.getReasoning(cveId) } catch {}
   try {
     stageData.value[4] = await api.getArtifacts(cveId)
-    try { const r = await api.getReport(cveId); reportMarkdown.value = r.markdown } catch {}
     try { transcriptEvents.value = await api.getTranscript(cveId) } catch { transcriptEvents.value = [] }
   } catch {}
+  try { const r = await api.getReport(cveId); reportMarkdown.value = r.markdown } catch {}
 
   diffLoading.value = true
   try {
@@ -889,16 +889,6 @@ const renderMarkdown = (md: string) => {
               </div>
             </div>
 
-            <!-- Report preview -->
-            <div v-if="reportMarkdown" class="jv-reasoning-section s4-c4">
-              <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
-              <div class="jv-report-preview" v-html="renderMarkdown(reportMarkdown)"></div>
-            </div>
-            <div v-else-if="stageData[4].report?.status === 'generated'" class="jv-reasoning-section s4-c4">
-              <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
-              <div style="color:var(--text-disabled); font-size:13px">{{ t('analysis.artifacts.noReport') }}</div>
-            </div>
-
             <!-- Reproduction Steps -->
             <div v-if="stageData[4].reproductionSteps?.length" class="jv-reasoning-section s4-c6">
               <div class="jv-section-label">{{ t('analysis.artifacts.reproductionSteps') }}</div>
@@ -941,6 +931,22 @@ const renderMarkdown = (md: string) => {
               <el-button style="margin-top:12px" @click="rerun(4)">{{ t('analysis.retryArtifacts') }}</el-button>
             </div>
             <div v-else style="color:var(--text-disabled)">{{ t('analysis.artifactsUnavailable') }}</div>
+          </div>
+        </div>
+
+        <div v-else-if="selectedStage === 5">
+          <div v-if="reportMarkdown" class="jv-reasoning-section">
+            <div class="jv-section-label">{{ t('analysis.artifacts.reportPreview') }}</div>
+            <div class="jv-report-preview" v-html="renderMarkdown(reportMarkdown)"></div>
+          </div>
+          <div v-else style="text-align:center; padding:40px">
+            <div v-if="stages.find(s => s.stageNum === 5 && s.status === 'FAILED')"
+              style="color:var(--critical)">
+              {{ stages.find(s => s.stageNum === 5)?.errorMsg ?? '' }}
+              <br/>
+              <el-button style="margin-top:12px" @click="rerun(5)">{{ t('analysis.rerunStage') }}</el-button>
+            </div>
+            <div v-else style="color:var(--text-disabled)">{{ t('analysis.artifacts.noReport') }}</div>
           </div>
         </div>
       </div>
