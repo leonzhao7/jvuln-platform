@@ -6,6 +6,7 @@ import com.jvuln.llm.LlmClient;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageProgress;
 import com.jvuln.pipeline.model.StageResult;
+import com.jvuln.generator.ManualVulnDemoValidator;
 import com.jvuln.pipeline.stage.Stage;
 import com.jvuln.store.CveTaskRepository;
 import com.jvuln.store.StageRecordRepository;
@@ -13,6 +14,7 @@ import com.jvuln.store.WorkspaceManager;
 import com.jvuln.store.entity.CveTask;
 import com.jvuln.store.entity.StageRecord;
 import com.jvuln.store.model.CveIntelligence;
+import com.jvuln.generator.ManualVulnDemoValidator;
 import com.jvuln.llm.LlmConversationContext;
 import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
@@ -44,6 +46,7 @@ public class PipelineEngine {
     private final CveTaskRepository taskRepo;
     private final StageRecordRepository stageRepo;
     private final Executor pipelineExecutor;
+    private final ManualVulnDemoValidator manualVulnDemoValidator;
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
     private final Map<String, AtomicBoolean> runningTasks = new ConcurrentHashMap<>();
     private final Map<String, List<StageProgress>> progressHistory = new ConcurrentHashMap<>();
@@ -52,13 +55,15 @@ public class PipelineEngine {
     public PipelineEngine(List<Stage> stages, WorkspaceManager workspaceManager,
                           LlmClient llmClient, CveTaskRepository taskRepo,
                           StageRecordRepository stageRepo,
-                          @Qualifier("pipelineExecutor") Executor pipelineExecutor) {
+                          @Qualifier("pipelineExecutor") Executor pipelineExecutor,
+                          ManualVulnDemoValidator manualVulnDemoValidator) {
         this.stages = stages.stream().sorted((a, b) -> a.number() - b.number()).collect(Collectors.toList());
         this.workspaceManager = workspaceManager;
         this.llmClient = llmClient;
         this.taskRepo = taskRepo;
         this.stageRepo = stageRepo;
         this.pipelineExecutor = pipelineExecutor;
+        this.manualVulnDemoValidator = manualVulnDemoValidator;
     }
 
     public SseEmitter subscribe(String cveId) {
@@ -91,6 +96,10 @@ public class PipelineEngine {
     }
 
     public boolean execute(final String cveId, final int fromStage) {
+        return execute(cveId, fromStage, null);
+    }
+
+    public boolean execute(final String cveId, final int fromStage, final String userHint) {
         // 使用 putIfAbsent 替代 computeIfAbsent，避免死锁风险
         AtomicBoolean newFlag = new AtomicBoolean(false);
         AtomicBoolean running = runningTasks.putIfAbsent(cveId, newFlag);
@@ -113,13 +122,47 @@ public class PipelineEngine {
             pipelineExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
-                    runPipeline(cveId, fromStage);
+                    runPipeline(cveId, fromStage, userHint);
                 }
             });
             return true;
         } catch (RuntimeException e) {
             running.set(false);
             runningTasks.remove(cveId, running);
+            throw e;
+        }
+    }
+
+    /**
+     * 处理人工上传的 vuln-demo 压缩包：解压、验证。验证通过后从 Stage 5 继续执行流程。
+     */
+    public boolean uploadVulnDemo(final String cveId, final byte[] zipData) {
+        AtomicBoolean newFlag = new AtomicBoolean(false);
+        AtomicBoolean running = runningTasks.putIfAbsent(cveId, newFlag);
+        if (running == null) {
+            running = newFlag;
+        }
+        if (!running.compareAndSet(false, true)) {
+            String message = "Pipeline already running for " + cveId;
+            log.warn(message);
+            sendEvent(cveId, new StageProgress("error", 0, message));
+            return false;
+        }
+
+        progressHistory.put(cveId, new ArrayList<>());
+
+        final AtomicBoolean lock = running;
+        try {
+            pipelineExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    runManualUpload(cveId, zipData, lock);
+                }
+            });
+            return true;
+        } catch (RuntimeException e) {
+            lock.set(false);
+            runningTasks.remove(cveId, lock);
             throw e;
         }
     }
@@ -137,7 +180,7 @@ public class PipelineEngine {
         }
     }
 
-    private void runPipeline(String cveId, int fromStage) {
+    private void runPipeline(String cveId, int fromStage, String userHint) {
         log.info("Pipeline started: cveId={}, fromStage={}", cveId, fromStage);
 
         try {
@@ -150,6 +193,7 @@ public class PipelineEngine {
 
             PipelineContext ctx = new PipelineContext(cveId, workspace, llmClient, workspaceManager);
             ctx.setFromStage(fromStage);
+            ctx.setUserHint(userHint);
             ctx.setProgressCallback(buildSseCallback(cveId));
 
             boolean succeeded;
@@ -312,6 +356,107 @@ public class PipelineEngine {
             task.setDescription(description);
             taskRepo.save(task);
         }
+    }
+
+    private void runManualUpload(String cveId, byte[] zipData, AtomicBoolean lock) {
+        log.info("Manual vuln-demo upload started: cveId={}", cveId);
+
+        try {
+            Path workspace = workspaceManager.initCveWorkspace(cveId);
+
+            CveTask task = taskRepo.findByCveId(cveId).orElseThrow(
+                    () -> new RuntimeException("Task not found: " + cveId));
+            task.setStatus(CveTask.TaskStatus.RUNNING);
+            task.setCurrentStage(4);
+            taskRepo.save(task);
+
+            StageRecord stage4 = getOrCreateRecord(cveId, findStage(4));
+            stage4.setStatus(StageRecord.StageStatus.RUNNING);
+            stage4.setStartedAt(LocalDateTime.now());
+            stage4.setErrorMsg(null);
+            stageRepo.save(stage4);
+
+            PipelineContext ctx = new PipelineContext(cveId, workspace, llmClient, workspaceManager);
+            ctx.setFromStage(5);
+            ctx.setProgressCallback(buildSseCallback(cveId));
+
+            sendEvent(cveId, new StageProgress("stage_start", 4, "Manual vuln-demo upload"));
+
+            ManualVulnDemoValidator.Result result;
+            LlmAuditLogger.setContextDir(workspace);
+            LlmConversationContext.init();
+            try (RequestLogContext.Scope ignored =
+                         RequestLogContext.bind(ctx::reportProgress)) {
+                Path cvePath = workspaceManager.getCvePath(cveId);
+                result = manualVulnDemoValidator.validateUploadedZip(ctx, cvePath, zipData);
+                if (result.output != null) {
+                    workspaceManager.writeStageData(cveId, 4, result.output);
+                }
+
+                stage4.setStatus(result.success
+                        ? StageRecord.StageStatus.COMPLETED
+                        : StageRecord.StageStatus.FAILED);
+                stage4.setFinishedAt(LocalDateTime.now());
+                stage4.setErrorMsg(result.success ? null : result.failureReason);
+                stageRepo.save(stage4);
+
+                sendEvent(cveId, new StageProgress("stage_done", 4,
+                        result.success ? "completed" : "failed: " + result.failureReason));
+
+                if (!result.success) {
+                    task.setStatus(CveTask.TaskStatus.FAILED);
+                    taskRepo.save(task);
+                    sendEvent(cveId, new StageProgress("error", 4, result.failureReason));
+                    return;
+                }
+
+                ctx.getCompletedStages().put(4,
+                        StageResult.success(4, findStage(4).name(), result.output));
+                boolean succeeded = runStages(cveId, 5, task, ctx);
+                if (!succeeded) {
+                    return;
+                }
+            } finally {
+                LlmConversationContext.clear();
+                LlmAuditLogger.clearContextDir();
+            }
+
+            task.setStatus(CveTask.TaskStatus.COMPLETED);
+            taskRepo.save(task);
+            sendEvent(cveId, new StageProgress("pipeline_done", 0, "All stages completed"));
+
+        } catch (Exception e) {
+            log.error("Manual upload failed for {}", cveId, e);
+            taskRepo.findByCveId(cveId).ifPresent(t -> {
+                t.setStatus(CveTask.TaskStatus.FAILED);
+                taskRepo.save(t);
+            });
+            sendEvent(cveId, new StageProgress("error", 4, e.getMessage()));
+        } finally {
+            List<StageProgress> history = progressHistory.remove(cveId);
+            if (history != null && !history.isEmpty()) {
+                try {
+                    workspaceManager.writePipelineLog(cveId, history);
+                } catch (Exception ex) {
+                    log.warn("Failed to write pipeline log for {}: {}", cveId, ex.getMessage());
+                }
+            }
+            lock.set(false);
+            runningTasks.remove(cveId, lock);
+            SseEmitter emitter = emitters.remove(cveId);
+            if (emitter != null) {
+                emitter.complete();
+            }
+        }
+    }
+
+    private Stage findStage(int number) {
+        for (Stage stage : stages) {
+            if (stage.number() == number) {
+                return stage;
+            }
+        }
+        throw new IllegalStateException("Stage " + number + " not registered");
     }
 
     private StageRecord getOrCreateRecord(String cveId, Stage stage) {

@@ -210,6 +210,15 @@ public class ArtifactGenStage implements Stage {
                 userPrompt = baseUserPrompt;
             }
 
+            String userHint = ctx.getUserHint();
+            if (userHint != null && !userHint.trim().isEmpty()) {
+                userPrompt = userPrompt
+                        + "\n\n## USER HINT\n"
+                        + "A human operator provided the following guidance for this attempt. "
+                        + "Treat it as high-priority direction:\n"
+                        + userHint.trim() + "\n";
+            }
+
             // Agent loop
             agentCtx.baseUserPrompt = userPrompt;
             agentCtx.transcriptFile = cvePath.resolve("stages/4_transcript.jsonl");

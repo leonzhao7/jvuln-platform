@@ -56,6 +56,10 @@ const terminalVisible = ref(false)
 const collapsedStages = ref(new Set<number>())
 let evtSource: EventSource | null = null
 
+const stage4Hint = ref('')
+const stage4Uploading = ref(false)
+const stage4UploadFile = ref<File | null>(null)
+
 const dpFilter = ref('all')
 
 const dpCountByType = (type: string) => {
@@ -73,6 +77,8 @@ const filteredDetectionPoints = computed(() => {
 
 const task = computed(() => detail.value?.task)
 const stages = computed(() => detail.value?.stages ?? [])
+const stage4Failed = computed(() =>
+  stages.value.some(s => s.stageNum === 4 && s.status === 'FAILED'))
 
 const stageIcons = ['01', '02', '03', '04', '05']
 const stageNames = computed(() => array<string>('analysis.stageNames'))
@@ -265,10 +271,43 @@ const startStream = () => {
   }
 }
 
-const rerun = async (fromStage?: number) => {
-  await api.rerunTask(cveId, fromStage)
+const rerun = async (fromStage?: number, hint?: string) => {
+  await api.rerunTask(cveId, fromStage, hint)
   ElMessage.success(t('analysis.rerunStarted'))
   startStream()
+}
+
+const retryStage4WithHint = async () => {
+  const hint = stage4Hint.value.trim()
+  if (!hint) {
+    ElMessage.warning(t('analysis.artifacts.hintRequired'))
+    return
+  }
+  await rerun(4, hint)
+  stage4Hint.value = ''
+}
+
+const onStage4FileChange = (file: any) => {
+  stage4UploadFile.value = file.raw ?? null
+}
+
+const uploadStage4Demo = async () => {
+  const file = stage4UploadFile.value
+  if (!file) {
+    ElMessage.warning(t('analysis.artifacts.uploadRequired'))
+    return
+  }
+  stage4Uploading.value = true
+  try {
+    await api.uploadVulnDemo(cveId, file)
+    ElMessage.success(t('analysis.artifacts.uploadStarted'))
+    stage4UploadFile.value = null
+    startStream()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message ?? t('analysis.artifacts.uploadFailed'))
+  } finally {
+    stage4Uploading.value = false
+  }
 }
 
 const toggleFile = async (path: string) => {
@@ -460,7 +499,7 @@ const highlightFile = (path: string, code: string): string => {
           </el-button>
         </div>
       </div>
-      <div v-if="selectedStageRecord?.errorMsg" class="jv-stage-error">
+      <div v-if="selectedStageRecord?.errorMsg && !stage4Failed" class="jv-stage-error">
         {{ selectedStageRecord.errorMsg }}
       </div>
       <div class="jv-stage-result">
@@ -814,10 +853,58 @@ const highlightFile = (path: string, code: string): string => {
 
         <!-- Artifacts / Education Lab -->
         <div v-else-if="selectedStage === 4">
+
+          <!-- Failure recovery: hint retry + manual upload -->
+          <div v-if="stage4Failed" class="jv-stage4-recovery-wrap">
+            <div style="color:var(--critical); margin-bottom:12px">
+              {{ t('analysis.stage4Failed', { error: stages.find(s => s.stageNum === 4)?.errorMsg ?? '' }) }}
+            </div>
+            <div class="jv-stage4-recovery">
+              <div class="jv-stage4-recovery-card">
+                <div class="jv-stage4-recovery-title">{{ t('analysis.artifacts.hintRetryTitle') }}</div>
+                <div class="jv-stage4-recovery-desc">{{ t('analysis.artifacts.hintRetryDesc') }}</div>
+                <el-input
+                  v-model="stage4Hint"
+                  type="textarea"
+                  :rows="3"
+                  :placeholder="t('analysis.artifacts.hintPlaceholder')"
+                  :disabled="sseActive || stage4Uploading" />
+                <el-button
+                  type="primary" size="small" style="margin-top:10px"
+                  :loading="sseActive" :disabled="stage4Uploading"
+                  @click="retryStage4WithHint">
+                  {{ t('analysis.artifacts.hintRetryButton') }}
+                </el-button>
+              </div>
+
+              <div class="jv-stage4-recovery-card">
+                <div class="jv-stage4-recovery-title">{{ t('analysis.artifacts.uploadTitle') }}</div>
+                <div class="jv-stage4-recovery-desc">{{ t('analysis.artifacts.uploadDesc') }}</div>
+                <el-upload
+                  :auto-upload="false"
+                  :show-file-list="true"
+                  :limit="1"
+                  accept=".zip"
+                  :on-change="onStage4FileChange"
+                  :disabled="sseActive || stage4Uploading">
+                  <el-button size="small" :disabled="sseActive || stage4Uploading">
+                    {{ t('analysis.artifacts.uploadSelect') }}
+                  </el-button>
+                </el-upload>
+                <el-button
+                  type="primary" size="small" style="margin-top:10px"
+                  :loading="stage4Uploading" :disabled="sseActive || !stage4UploadFile"
+                  @click="uploadStage4Demo">
+                  {{ t('analysis.artifacts.uploadButton') }}
+                </el-button>
+              </div>
+            </div>
+          </div>
+
           <div v-if="stageData[4] && (stageData[4].status === 'generated' || stageData[4].status === 'paused')" class="jv-stage4-sections">
 
             <!-- Paused banner -->
-            <div v-if="stageData[4].status === 'paused'" class="jv-paused-banner">
+            <div v-if="stageData[4].status === 'paused' && !stage4Failed" class="jv-paused-banner">
               <div class="jv-paused-title">{{ t('analysis.artifacts.pausedTitle') }}</div>
               <div class="jv-paused-reason">{{ stageData[4].pauseReason }}</div>
               <div style="margin-top:8px; font-size:12px; color:var(--text-secondary)">
@@ -929,14 +1016,8 @@ const highlightFile = (path: string, code: string): string => {
             </div>
 
           </div>
-          <div v-else style="text-align:center; padding:40px">
-            <div v-if="stages.find(s => s.stageNum === 4 && s.status === 'FAILED')"
-              style="color:var(--critical)">
-              {{ t('analysis.stage4Failed', { error: stages.find(s => s.stageNum === 4)?.errorMsg ?? '' }) }}
-              <br/>
-              <el-button style="margin-top:12px" @click="rerun(4)">{{ t('analysis.retryArtifacts') }}</el-button>
-            </div>
-            <div v-else style="color:var(--text-disabled)">{{ t('analysis.artifactsUnavailable') }}</div>
+          <div v-else-if="!stage4Failed" style="text-align:center; padding:40px">
+            <div style="color:var(--text-disabled)">{{ t('analysis.artifactsUnavailable') }}</div>
           </div>
         </div>
 
@@ -2010,6 +2091,41 @@ const highlightFile = (path: string, code: string): string => {
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* Stage 4 failure recovery */
+.jv-stage4-recovery-wrap {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.jv-stage4-recovery {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 20px;
+  text-align: left;
+}
+@media (max-width: 900px) {
+  .jv-stage4-recovery { grid-template-columns: 1fr; }
+}
+.jv-stage4-recovery-card {
+  background: rgba(0,0,0,.2);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 8px;
+  padding: 16px;
+}
+.jv-stage4-recovery-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent-light);
+  margin-bottom: 6px;
+}
+.jv-stage4-recovery-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  line-height: 1.5;
 }
 
 /* References by Category */

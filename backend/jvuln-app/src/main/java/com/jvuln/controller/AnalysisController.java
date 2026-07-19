@@ -15,6 +15,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -112,16 +113,18 @@ public class AnalysisController {
 
     @PostMapping("/{cveId}/rerun")
     public ResponseEntity<?> rerun(@PathVariable String cveId,
-                                   @RequestParam(defaultValue = "1") int fromStage) {
+                                   @RequestParam(defaultValue = "1") int fromStage,
+                                   @RequestBody(required = false) Map<String, String> body) {
         CveTask task = taskRepo.findByCveId(cveId).orElse(null);
         if (task == null) return ResponseEntity.notFound().build();
         if (task.getStatus() == CveTask.TaskStatus.RUNNING && pipelineEngine.isRunning(cveId)) {
             return ApiResponseFactory.conflict("Analysis already running for " + cveId);
         }
 
+        String hint = body == null ? null : body.get("hint");
         task.setStatus(CveTask.TaskStatus.PENDING);
         taskRepo.save(task);
-        if (!pipelineEngine.execute(cveId, fromStage)) {
+        if (!pipelineEngine.execute(cveId, fromStage, hint)) {
             task.setStatus(CveTask.TaskStatus.RUNNING);
             taskRepo.save(task);
             return ApiResponseFactory.conflict("Analysis already running for " + cveId);
@@ -130,6 +133,36 @@ public class AnalysisController {
         Map<String, Object> resp = new java.util.LinkedHashMap<>();
         resp.put("cveId", cveId);
         resp.put("fromStage", fromStage);
+        return ResponseEntity.accepted().body(resp);
+    }
+
+    @PostMapping("/{cveId}/upload-vulndemo")
+    public ResponseEntity<?> uploadVulnDemo(@PathVariable String cveId,
+                                            @RequestParam("file") MultipartFile file) {
+        CveTask task = taskRepo.findByCveId(cveId).orElse(null);
+        if (task == null) return ResponseEntity.notFound().build();
+        if (task.getStatus() == CveTask.TaskStatus.RUNNING && pipelineEngine.isRunning(cveId)) {
+            return ApiResponseFactory.conflict("Analysis already running for " + cveId);
+        }
+        if (file == null || file.isEmpty()) {
+            return ApiResponseFactory.badRequest("Uploaded file is empty");
+        }
+
+        byte[] zipData;
+        try {
+            zipData = file.getBytes();
+        } catch (IOException e) {
+            return ApiResponseFactory.internalServerError("Failed to read uploaded file: " + e.getMessage());
+        }
+
+        task.setStatus(CveTask.TaskStatus.RUNNING);
+        taskRepo.save(task);
+        if (!pipelineEngine.uploadVulnDemo(cveId, zipData)) {
+            return ApiResponseFactory.conflict("Analysis already running for " + cveId);
+        }
+
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("cveId", cveId);
         return ResponseEntity.accepted().body(resp);
     }
 

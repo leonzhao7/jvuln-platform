@@ -43,8 +43,14 @@ export const api = {
 
   deleteTask: (cveId: string) => http.delete(`/analysis/${cveId}`),
 
-  rerunTask: (cveId: string, fromStage?: number) =>
-    http.post(`/analysis/${cveId}/rerun`, null, { params: { fromStage } }).then(r => r.data),
+  rerunTask: (cveId: string, fromStage?: number, hint?: string) =>
+    http.post(`/analysis/${cveId}/rerun`, hint ? { hint } : null, { params: { fromStage } }).then(r => r.data),
+
+  uploadVulnDemo: (cveId: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post(`/analysis/${cveId}/upload-vulndemo`, form).then(r => r.data)
+  },
 
   getIntelligence: (cveId: string) =>
     http.get(`/analysis/${cveId}/intelligence`).then(r => r.data),

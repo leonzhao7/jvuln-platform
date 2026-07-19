@@ -18,6 +18,7 @@ public class PipelineContext {
     private Consumer<StageProgress> progressCallback;
     private int fromStage = 1;
     private int currentStage;
+    private String userHint;
 
     public PipelineContext(String cveId, Path workspacePath, LlmClient llmClient,
                            WorkspaceManager workspaceManager) {
@@ -46,4 +47,6 @@ public class PipelineContext {
     public int getFromStage() { return fromStage; }
     public void setFromStage(int fromStage) { this.fromStage = fromStage; }
     public void setCurrentStage(int currentStage) { this.currentStage = currentStage; }
+    public String getUserHint() { return userHint; }
+    public void setUserHint(String userHint) { this.userHint = userHint; }
 }
