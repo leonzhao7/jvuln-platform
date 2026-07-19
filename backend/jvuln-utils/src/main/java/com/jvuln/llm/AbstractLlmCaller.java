@@ -45,7 +45,7 @@ abstract class AbstractLlmCaller implements LlmProtocolCaller {
         this.model = config.getModel();
         this.endpointPath = expectedEndpoint.getPath();
         this.endpointUri = expectedEndpoint.resolveUri(config.getBaseUrl());
-        this.webClient = buildWebClient(config.getApiKey(), messagesHeaders);
+        this.webClient = buildWebClient(config.getApiKey(), messagesHeaders, config.getUserAgent());
         this.auditLogger = auditLogger;
     }
 
@@ -133,12 +133,15 @@ abstract class AbstractLlmCaller implements LlmProtocolCaller {
         return new RuntimeException("LLM streaming error from " + endpointPath + ": " + message);
     }
 
-    private WebClient buildWebClient(String apiKey, boolean messagesHeaders) {
+    private WebClient buildWebClient(String apiKey, boolean messagesHeaders, String userAgent) {
         HttpClient httpClient = HttpClient.create().responseTimeout(Duration.ofSeconds(300));
         WebClient.Builder builder = WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .filter(RequestLogContext.llmRequestFilter(model, endpointPath))
                 .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(10 * 1024 * 1024));
+        if (userAgent != null && !userAgent.trim().isEmpty()) {
+            builder.defaultHeader("User-Agent", userAgent);
+        }
         if (messagesHeaders) {
             builder.defaultHeader("anthropic-version", "2023-06-01");
         }

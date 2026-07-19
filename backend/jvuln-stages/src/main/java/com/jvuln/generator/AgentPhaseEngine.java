@@ -14,7 +14,7 @@ import static com.jvuln.generator.ArtifactGenUtils.joinItems;
 class AgentPhaseEngine {
 
     private static final Logger log = LoggerFactory.getLogger(AgentPhaseEngine.class);
-    private static final int MAX_NO_PROGRESS_TURNS = 6;
+    private static final int MAX_NO_PROGRESS_TURNS = GeneratorConstants.MAX_NO_PROGRESS_TURNS;
 
     private final LlmHelper llmHelper;
 
@@ -109,8 +109,9 @@ class AgentPhaseEngine {
 
         AgentPhase phase = directive.phase;
         if (phase == AgentPhase.COMPILE_FIX || phase == AgentPhase.STARTUP_FIX || phase == AgentPhase.POC_FIX) {
-            sb.append("Diagnose the failure first: use read_file, read_log, inspect_runtime to understand the root cause. ");
-            sb.append("Once you understand why it failed, make targeted changes to fix it. ");
+            sb.append("The error details and current file contents are already in the context packet above. ");
+            sb.append("Fix the issue directly with write_files — do not waste a turn on read_file or read_log ");
+            sb.append("unless the needed file is marked truncated or missing from the packet. ");
             sb.append("Available actions: ").append(String.join(", ", directive.allowedNextActions)).append(".");
         } else {
             sb.append("Available actions: ").append(String.join(", ", directive.allowedNextActions)).append(".");
@@ -150,8 +151,9 @@ class AgentPhaseEngine {
             case STARTUP_FIX:
             case POC_FIX:
                 return "write_files".equals(toolName)
-                        || "read_file".equals(toolName) || "read_log".equals(toolName) || "inspect_runtime".equals(toolName)
-                        || "validate_artifacts".equals(toolName) || "finish".equals(toolName);
+                        || "validate_artifacts".equals(toolName) || "finish".equals(toolName)
+                        || "read_file".equals(toolName) || "read_log".equals(toolName)
+                        || "inspect_runtime".equals(toolName);
             case FINISHED:
                 return "finish".equals(toolName) || "read_file".equals(toolName) || "read_log".equals(toolName);
             default:

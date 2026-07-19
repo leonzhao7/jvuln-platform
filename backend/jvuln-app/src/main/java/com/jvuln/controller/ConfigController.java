@@ -105,7 +105,7 @@ public class ConfigController {
                     "Reply with just the word: PONG");
 
             LlmConfigProvider.ActiveConfig activeConfig = new LlmConfigProvider.ActiveConfig(
-                    cfg.getBaseUrl(), cfg.getApiKey(), cfg.getModel(), endpoint);
+                    cfg.getBaseUrl(), cfg.getApiKey(), cfg.getModel(), endpoint, cfg.getUserAgent());
             LlmResponse resp = llmClient.chat(activeConfig, req);
 
             result.put("ok", true);
@@ -184,6 +184,7 @@ public class ConfigController {
         cfg.setBaseUrl(incoming.getBaseUrl());
         cfg.setModel(incoming.getModel());
         cfg.setEndpoint(endpoint);
+        cfg.setUserAgent(incoming.getUserAgent());
         if (incoming.getApiKey() != null && !incoming.getApiKey().equals("••••••••")) {
             cfg.setApiKey(incoming.getApiKey());
         }
@@ -196,6 +197,7 @@ public class ConfigController {
         copy.setBaseUrl(src.getBaseUrl());
         copy.setModel(src.getModel());
         copy.setEndpoint(src.getEndpoint());
+        copy.setUserAgent(src.getUserAgent());
         copy.setActive(src.isActive());
         copy.setApiKey(src.getApiKey() != null && !src.getApiKey().isEmpty() ? "••••••••" : "");
         return copy;

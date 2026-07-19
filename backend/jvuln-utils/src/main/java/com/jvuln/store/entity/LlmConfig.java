@@ -26,6 +26,9 @@ public class LlmConfig {
     @Column(name = "endpoint", length = 100)
     private String endpoint;
 
+    @Column(name = "user_agent", length = 500)
+    private String userAgent;
+
     @Column(name = "active")
     private Boolean active = false;
 
@@ -41,6 +44,8 @@ public class LlmConfig {
     public void setModel(String model) { this.model = model; }
     public String getEndpoint() { return endpoint; }
     public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
+    public String getUserAgent() { return userAgent; }
+    public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
     public boolean isActive() { return Boolean.TRUE.equals(active); }
     public void setActive(boolean active) { this.active = active; }
 

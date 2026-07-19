@@ -9,17 +9,24 @@ public interface LlmConfigProvider {
         private final String apiKey;
         private final String model;
         private final String endpoint;
+        private final String userAgent;
 
         public ActiveConfig(String baseUrl, String apiKey, String model, String endpoint) {
+            this(baseUrl, apiKey, model, endpoint, null);
+        }
+
+        public ActiveConfig(String baseUrl, String apiKey, String model, String endpoint, String userAgent) {
             this.baseUrl = baseUrl;
             this.apiKey = apiKey;
             this.model = model;
             this.endpoint = endpoint;
+            this.userAgent = userAgent;
         }
 
         public String getBaseUrl()      { return baseUrl; }
         public String getApiKey()       { return apiKey; }
         public String getModel()        { return model; }
         public String getEndpoint()     { return endpoint; }
+        public String getUserAgent()    { return userAgent; }
     }
 }

@@ -291,6 +291,8 @@ const zhCN = {
     configNamePlaceholder: '例如 new-api claude / local ollama',
     apiKey: 'API Key',
     apiKeyPlaceholder: '留空则保持当前密钥不变',
+    userAgent: 'User-Agent',
+    userAgentPlaceholder: '可选。例如 Mozilla/5.0 ...',
     modelPlaceholder: '模型名称',
     baseUrlModelEndpointRequired: 'Base URL、模型和 Endpoint 不能为空',
     addSuccess: '配置已新增',

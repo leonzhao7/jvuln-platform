@@ -14,7 +14,7 @@ public final class GeneratorConstants {
     // ==================== Agent 循环控制 ====================
 
     /** Agent 最大轮次数 */
-    public static final int MAX_AGENT_TURNS = 80;
+    public static final int MAX_AGENT_TURNS = 40;
 
     /** 最大审查修订次数 */
     public static final int MAX_REVIEW_REVISIONS = 4;
@@ -23,7 +23,7 @@ public final class GeneratorConstants {
     public static final int MAX_EMPTY_AGENT_RESPONSES = 2;
 
     /** 无进展最大轮次数 */
-    public static final int MAX_NO_PROGRESS_TURNS = 6;
+    public static final int MAX_NO_PROGRESS_TURNS = 3;
 
     // ==================== 端口和网络 ====================
 

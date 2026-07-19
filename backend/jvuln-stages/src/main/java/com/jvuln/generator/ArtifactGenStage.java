@@ -231,15 +231,17 @@ public class ArtifactGenStage implements Stage {
 
                 // Inject urgency reminder when nearing the turn limit
                 int remaining = MAX_AGENT_TURNS - turn;
-                if (remaining == 20) {
+                if (remaining == 10) {
                     messages.add(LlmRequest.Message.user(
-                            "NOTICE: 20 turns remain. Keep the turn count low anyway: prefer one broad file batch, "
-                            + "backend validation, then the smallest repair needed to satisfy the verification plan."));
-                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, "NOTICE: 20 turns remain.");
+                            "NOTICE: 10 turns remain. If the PoC is not yet verified, make one final targeted fix "
+                            + "or call finish with the remaining_gap. Do not start new approaches."));
+                    contextBuilder.appendTranscript(agentCtx, "directive", turn + 1, "NOTICE: 10 turns remain.");
                 }
 
+                int prevCompactions = agentCtx.compactionCount;
                 contextBuilder.compactMessagesIfNeeded(messages, agentCtx, "before_turn_" + (turn + 1));
-                String contextPacket = contextBuilder.buildContextPacket(agentCtx, turn + 1, MAX_AGENT_TURNS);
+                boolean freshContext = turn == 0 || agentCtx.compactionCount > prevCompactions;
+                String contextPacket = contextBuilder.buildContextPacket(agentCtx, turn + 1, MAX_AGENT_TURNS, freshContext);
                 messages.add(LlmRequest.Message.user(contextPacket));
                 contextBuilder.appendTranscript(agentCtx, "context_packet", turn + 1, contextPacket);
 

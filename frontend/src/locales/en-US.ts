@@ -291,6 +291,8 @@ const enUS = {
     configNamePlaceholder: 'e.g. new-api claude / local ollama',
     apiKey: 'API Key',
     apiKeyPlaceholder: 'Leave unchanged to keep current key',
+    userAgent: 'User-Agent',
+    userAgentPlaceholder: 'Optional. e.g. Mozilla/5.0 ...',
     modelPlaceholder: 'model name',
     baseUrlModelEndpointRequired: 'Base URL, Model, and Endpoint are required',
     addSuccess: 'Configuration added',

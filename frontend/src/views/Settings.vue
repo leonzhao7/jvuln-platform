@@ -22,6 +22,7 @@ const emptyForm = (): Omit<LlmConfig, 'id' | 'active'> => ({
   apiKey: '',
   model: '',
   endpoint: '/v1/chat/completions',
+  userAgent: '',
 })
 
 const form = ref(emptyForm())
@@ -54,6 +55,7 @@ const openEdit = (cfg: LlmConfig) => {
     apiKey: cfg.apiKey ?? '',
     model: cfg.model ?? '',
     endpoint: cfg.endpoint ?? '/v1/chat/completions',
+    userAgent: cfg.userAgent ?? '',
   }
   dialogVisible.value = true
 }
@@ -332,14 +334,6 @@ onMounted(() => {
           <el-input v-model="form.name" :placeholder="t('settings.configNamePlaceholder')" />
         </el-form-item>
 
-        <el-form-item :label="t('settings.endpoint')">
-          <el-select v-model="form.endpoint" style="width:100%">
-            <el-option label="/v1/chat/completions" value="/v1/chat/completions" />
-            <el-option label="/v1/responses" value="/v1/responses" />
-            <el-option label="/v1/messages" value="/v1/messages" />
-          </el-select>
-        </el-form-item>
-
         <el-form-item :label="t('settings.baseUrl')">
           <el-input v-model="form.baseUrl" placeholder="http://localhost:3000/v1" />
         </el-form-item>
@@ -349,8 +343,21 @@ onMounted(() => {
             :placeholder="t('settings.apiKeyPlaceholder')" />
         </el-form-item>
 
-        <el-form-item :label="t('settings.model')">
-          <el-input v-model="form.model" :placeholder="t('settings.modelPlaceholder')" />
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
+          <el-form-item :label="t('settings.model')">
+            <el-input v-model="form.model" :placeholder="t('settings.modelPlaceholder')" />
+          </el-form-item>
+          <el-form-item :label="t('settings.endpoint')">
+            <el-select v-model="form.endpoint" style="width:100%" :teleported="false">
+              <el-option label="/v1/chat/completions" value="/v1/chat/completions" />
+              <el-option label="/v1/responses" value="/v1/responses" />
+              <el-option label="/v1/messages" value="/v1/messages" />
+            </el-select>
+          </el-form-item>
+        </div>
+
+        <el-form-item :label="t('settings.userAgent')">
+          <el-input v-model="form.userAgent" :placeholder="t('settings.userAgentPlaceholder')" />
         </el-form-item>
 
       </el-form>
@@ -425,28 +432,14 @@ onMounted(() => {
           <el-input v-model="jpForm.name" placeholder="Java 17" />
         </el-form-item>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
-          <el-form-item :label="t('javaProfiles.javaVersion')">
-            <el-select v-model="jpForm.javaVersion" @change="onJavaVersionChange" style="width:100%">
-              <el-option v-for="v in javaVersionOptions" :key="v" :label="'Java ' + v" :value="v" />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-if="jpDialogMode === 'edit'" :label="t('javaProfiles.mavenJavaVersion')">
-            <el-input v-model="jpForm.mavenJavaVersion" placeholder="17" />
-          </el-form-item>
-        </div>
+        <el-form-item :label="t('javaProfiles.javaVersion')">
+          <el-select v-model="jpForm.javaVersion" @change="onJavaVersionChange" style="width:100%" :teleported="false">
+            <el-option v-for="v in javaVersionOptions" :key="v" :label="'Java ' + v" :value="v" />
+          </el-select>
+        </el-form-item>
 
         <el-form-item :label="t('javaProfiles.javaHome')">
           <el-input v-model="jpForm.javaHome" :placeholder="t('javaProfiles.javaHomePlaceholder')" />
-        </el-form-item>
-
-        <el-form-item v-if="jpDialogMode === 'edit'" :label="t('javaProfiles.springBootVersion')">
-          <el-input v-model="jpForm.springBootVersion" :placeholder="t('javaProfiles.springBootPlaceholder')" />
-        </el-form-item>
-
-        <el-form-item v-if="jpDialogMode === 'edit'" :label="t('javaProfiles.syntaxConstraints')">
-          <el-input v-model="jpForm.syntaxConstraints" type="textarea" :rows="3"
-            :placeholder="t('javaProfiles.syntaxPlaceholder')" />
         </el-form-item>
       </el-form>
 

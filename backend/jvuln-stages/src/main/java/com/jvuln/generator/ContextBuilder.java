@@ -54,33 +54,33 @@ class ContextBuilder {
         return event;
     }
 
-    String buildContextPacket(AgentContext ctx, int turn, int maxAgentTurns) {
+    String buildContextPacket(AgentContext ctx, int turn, int maxAgentTurns, boolean freshContext) {
         Map<String, FileSnapshot> current = captureWorkspaceSnapshot(ctx);
-        String diffFromPrevious = fileRenderer.renderSnapshotDiff(ctx.previousSnapshot, current, CONTEXT_DIFF_LIMIT / 2);
-        String diffFromBaseline = fileRenderer.renderSnapshotDiff(ctx.baselineSnapshot, current, CONTEXT_DIFF_LIMIT / 2);
+        String diffFromPrevious = fileRenderer.renderSnapshotDiff(ctx.previousSnapshot, current, CONTEXT_DIFF_LIMIT);
         ctx.previousSnapshot = new LinkedHashMap<>(current);
 
         StringBuilder sb = new StringBuilder();
         sb.append("BACKEND CONTEXT PACKET\n");
-        sb.append("This packet is authoritative for the current workspace state. ");
-        sb.append("Do not rely on memory if it conflicts with this packet.\n");
-        sb.append("Turn: ").append(turn).append("/").append(maxAgentTurns).append("\n");
-        sb.append("Phase: ").append(ctx.phase == null ? "" : ctx.phase.name()).append("\n");
-        if (ctx.lastDirective != null) {
-            sb.append("\n## Current Directive\n");
-            sb.append(llmHelper.renderJson(ctx.lastDirective.toMap())).append("\n");
-        }
-        if (ctx.executionPlan != null) {
-            sb.append("\n## Accepted Execution Plan\n");
-            sb.append(llmHelper.renderJson(ctx.executionPlan.toMap())).append("\n");
-        }
-        if (ctx.lastValidation != null) {
-            sb.append("\n## Latest Backend Validation\n");
-            sb.append(llmHelper.renderJson(ctx.lastValidation.toMap())).append("\n");
-        }
-        if (ctx.verificationReview != null) {
-            sb.append("\n## Latest Reviewer Verdict\n");
-            sb.append(llmHelper.renderJson(ctx.verificationReview.toMap())).append("\n");
+        sb.append("Turn: ").append(turn).append("/").append(maxAgentTurns);
+        sb.append("  Phase: ").append(ctx.phase == null ? "" : ctx.phase.name()).append("\n");
+
+        if (freshContext) {
+            if (ctx.lastDirective != null) {
+                sb.append("\n## Current Directive\n");
+                sb.append(llmHelper.renderJson(ctx.lastDirective.toMap())).append("\n");
+            }
+            if (ctx.executionPlan != null) {
+                sb.append("\n## Accepted Execution Plan\n");
+                sb.append(llmHelper.renderJson(ctx.executionPlan.toMap())).append("\n");
+            }
+            if (ctx.lastValidation != null) {
+                sb.append("\n## Latest Backend Validation\n");
+                sb.append(llmHelper.renderJson(ctx.lastValidation.toMap())).append("\n");
+            }
+            if (ctx.verificationReview != null) {
+                sb.append("\n## Latest Reviewer Verdict\n");
+                sb.append(llmHelper.renderJson(ctx.verificationReview.toMap())).append("\n");
+            }
         }
         if (ctx.sessionSummary != null && !ctx.sessionSummary.trim().isEmpty()) {
             sb.append("\n## Compacted Session Summary\n");
@@ -91,20 +91,36 @@ class ContextBuilder {
             sb.append(memoryManager.renderAttemptMemory(ctx.attemptMemory)).append("\n");
         }
 
-        sb.append("\n## Workspace Manifest\n");
-        sb.append(fileRenderer.renderFileManifest(current)).append("\n");
-
+        Map<String, FileSnapshot> renderable = freshContext ? current : filterSkeletonFiles(current);
         sb.append("\n## Current File Contents\n");
-        sb.append(fileRenderer.renderCurrentFileContents(current)).append("\n");
+        sb.append(fileRenderer.renderCurrentFileContents(renderable)).append("\n");
+        int skipped = current.size() - renderable.size();
+        if (skipped > 0) {
+            sb.append("(").append(skipped).append(" unchanged skeleton files omitted — see system prompt for their content)\n");
+        }
 
-        sb.append("\n## Diff: Previous Turn -> Current Workspace\n");
-        sb.append(diffFromPrevious.isEmpty() ? "(no file changes since previous context packet)" : diffFromPrevious).append("\n");
+        sb.append("\n## Changes Since Last Turn\n");
+        sb.append(diffFromPrevious.isEmpty() ? "(no file changes)" : diffFromPrevious).append("\n");
 
-        sb.append("\n## Diff: Initial Workspace -> Current Workspace\n");
-        sb.append(diffFromBaseline.isEmpty() ? "(no file changes from initial workspace)" : diffFromBaseline).append("\n");
-
-        sb.append("\nUse write_files for the next concrete patch. Use read_file only when a needed file is omitted or marked truncated.");
+        sb.append("\nCall write_files directly to fix issues. Only use read_file if a file is marked truncated or missing.");
         return sb.toString();
+    }
+
+    private static final Set<String> SKELETON_PATHS = new HashSet<>(Arrays.asList(
+            "vuln-demo/build.sh",
+            "vuln-demo/run.sh",
+            "vuln-demo/src/main/java/com/jvuln/demo/Application.java",
+            "vuln-demo/src/main/java/com/jvuln/demo/LabInfoController.java"
+    ));
+
+    private Map<String, FileSnapshot> filterSkeletonFiles(Map<String, FileSnapshot> files) {
+        Map<String, FileSnapshot> filtered = new LinkedHashMap<>();
+        for (Map.Entry<String, FileSnapshot> entry : files.entrySet()) {
+            if (!SKELETON_PATHS.contains(entry.getKey())) {
+                filtered.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return filtered;
     }
 
     void compactMessagesIfNeeded(List<LlmRequest.Message> messages, AgentContext ctx, String reason) {

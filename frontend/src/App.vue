@@ -22,6 +22,7 @@ const { locale, setLocale, t } = useI18n()
           :model-value="locale"
           size="small"
           style="width: 106px"
+          :teleported="false"
           @change="setLocale($event as Locale)"
         >
           <el-option label="中文" value="zh-CN" />
