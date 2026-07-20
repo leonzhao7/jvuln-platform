@@ -36,6 +36,7 @@ const diffContent = ref('')
 const diffLoading = ref(false)
 const reportMarkdown = ref('')
 const sseActive = ref(false)
+const cancelling = ref(false)
 const expandedFiles = ref<Set<string>>(new Set())
 const fileContents = ref<Record<string, string>>({})
 const fileLoading = ref<Set<string>>(new Set())
@@ -253,6 +254,7 @@ const startStream = () => {
     sseMessages.value.push(formatSseEntry(type, stageNum, message))
     if (type === 'pipeline_done' || type === 'error') {
       sseActive.value = false
+      cancelling.value = false
       evtSource?.close()
       load()
     } else if (type.startsWith('stage_')) {
@@ -267,6 +269,7 @@ const startStream = () => {
   evtSource.addEventListener('error', handleEvent('error'))
   evtSource.onerror = () => {
     sseActive.value = false
+    cancelling.value = false
     evtSource?.close()
   }
 }
@@ -275,6 +278,16 @@ const rerun = async (fromStage?: number, hint?: string) => {
   await api.rerunTask(cveId, fromStage, hint)
   ElMessage.success(t('analysis.rerunStarted'))
   startStream()
+}
+
+const cancelTask = async () => {
+  cancelling.value = true
+  try {
+    await api.cancelTask(cveId)
+  } catch (e: any) {
+    cancelling.value = false
+    ElMessage.error(e?.response?.data?.message ?? t('analysis.cancelFailed'))
+  }
 }
 
 const retryStage4WithHint = async () => {
@@ -430,6 +443,7 @@ const highlightFile = (path: string, code: string): string => {
         <el-button size="small" :disabled="!sseMessages.length" @click="terminalVisible = !terminalVisible">
           {{ terminalVisible ? t('analysis.hideLog') : t('analysis.showLog') }}
         </el-button>
+        <el-button v-if="sseActive" size="small" type="danger" :loading="cancelling" @click="cancelTask()">{{ t('analysis.cancelTask') }}</el-button>
         <el-button size="small" :loading="sseActive" @click="rerun()">{{ t('analysis.rerunAll') }}</el-button>
       </div>
     </div>
@@ -904,8 +918,8 @@ const highlightFile = (path: string, code: string): string => {
           <div v-if="stageData[4] && (stageData[4].status === 'generated' || stageData[4].status === 'paused')" class="jv-stage4-sections">
 
             <!-- Paused banner -->
-            <div v-if="stageData[4].status === 'paused' && !stage4Failed" class="jv-paused-banner">
-              <div class="jv-paused-title">{{ t('analysis.artifacts.pausedTitle') }}</div>
+            <div v-if="stageData[4].status === 'paused' && !stage4Failed && !sseActive" class="jv-paused-banner">
+              <div class="jv-paused-title">{{ stageData[4].pauseReason === '用户中止' ? t('analysis.artifacts.pausedByUser') : t('analysis.artifacts.pausedTitle') }}</div>
               <div class="jv-paused-reason">{{ stageData[4].pauseReason }}</div>
               <div style="margin-top:8px; font-size:12px; color:var(--text-secondary)">
                 {{ t('analysis.artifacts.pausedAt', { turn: stageData[4].pausedAtTurn }) }}

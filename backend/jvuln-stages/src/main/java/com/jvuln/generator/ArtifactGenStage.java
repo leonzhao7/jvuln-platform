@@ -232,6 +232,19 @@ public class ArtifactGenStage implements Stage {
             int emptyResponses = 0;
 
             for (int turn = 0; turn < MAX_AGENT_TURNS; turn++) {
+                if (ctx.isCancelled()) {
+                    log.info("Stage 4 cancelled by user at turn {}", turn + 1);
+                    agentCtx.turns = turn + 1;
+                    saveCheckpoint(cvePath, agentCtx, "用户中止");
+                    memoryManager.persistAttemptMemory(memoryFile, agentCtx, "paused", "用户中止");
+                    Map<String, Object> output = agentCtx.buildOutput();
+                    output.put("status", "paused");
+                    output.put("pauseReason", "用户中止");
+                    output.put("pausedAtTurn", turn + 1);
+                    ctx.getWorkspaceManager().writeStageData(ctx.getCveId(), 4, output);
+                    ctx.reportProgress("Agent cancelled by user");
+                    return StageResult.failure(4, name(), "Agent cancelled by user");
+                }
                 ctx.reportProgress("Agent turn " + (turn + 1));
                 log.info("Agent turn {}/{} phase={} plan={} validation={}",
                         turn + 1, MAX_AGENT_TURNS, agentCtx.phase,

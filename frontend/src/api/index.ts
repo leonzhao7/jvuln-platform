@@ -46,6 +46,9 @@ export const api = {
   rerunTask: (cveId: string, fromStage?: number, hint?: string) =>
     http.post(`/analysis/${cveId}/rerun`, hint ? { hint } : null, { params: { fromStage } }).then(r => r.data),
 
+  cancelTask: (cveId: string) =>
+    http.post(`/analysis/${cveId}/cancel`).then(r => r.data),
+
   uploadVulnDemo: (cveId: string, file: File) => {
     const form = new FormData()
     form.append('file', file)

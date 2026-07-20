@@ -49,6 +49,7 @@ public class PipelineEngine {
     private final ManualVulnDemoValidator manualVulnDemoValidator;
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
     private final Map<String, AtomicBoolean> runningTasks = new ConcurrentHashMap<>();
+    private final Map<String, AtomicBoolean> cancellationRequests = new ConcurrentHashMap<>();
     private final Map<String, List<StageProgress>> progressHistory = new ConcurrentHashMap<>();
     private static final int MAX_PROGRESS_EVENTS = 2000;
 
@@ -117,6 +118,7 @@ public class PipelineEngine {
         }
 
         progressHistory.put(cveId, new ArrayList<>());
+        cancellationRequests.put(cveId, new AtomicBoolean(false));
 
         try {
             pipelineExecutor.execute(new Runnable() {
@@ -129,6 +131,7 @@ public class PipelineEngine {
         } catch (RuntimeException e) {
             running.set(false);
             runningTasks.remove(cveId, running);
+            cancellationRequests.remove(cveId);
             throw e;
         }
     }
@@ -172,6 +175,17 @@ public class PipelineEngine {
         return running != null && running.get();
     }
 
+    public boolean cancel(String cveId) {
+        AtomicBoolean running = runningTasks.get(cveId);
+        AtomicBoolean cancellation = cancellationRequests.get(cveId);
+        if (running == null || !running.get() || cancellation == null) {
+            return false;
+        }
+        log.info("Cancel requested for {}", cveId);
+        cancellation.set(true);
+        return true;
+    }
+
     public List<StageProgress> getProgressSnapshot(String cveId) {
         List<StageProgress> history = progressHistory.get(cveId);
         if (history == null) return null;
@@ -195,6 +209,7 @@ public class PipelineEngine {
             ctx.setFromStage(fromStage);
             ctx.setUserHint(userHint);
             ctx.setProgressCallback(buildSseCallback(cveId));
+            ctx.setCancellationSignal(cancellationRequests.get(cveId));
 
             boolean succeeded;
             LlmAuditLogger.setContextDir(workspace);
@@ -235,6 +250,7 @@ public class PipelineEngine {
                 current.set(false);
                 runningTasks.remove(cveId, current);
             }
+            cancellationRequests.remove(cveId);
             SseEmitter emitter = emitters.remove(cveId);
             if (emitter != null) {
                 emitter.complete();
@@ -242,9 +258,20 @@ public class PipelineEngine {
         }
     }
 
+    private boolean handleCancellation(String cveId, CveTask task) {
+        log.info("Pipeline cancelled by user for {}", cveId);
+        task.setStatus(CveTask.TaskStatus.FAILED);
+        taskRepo.save(task);
+        sendEvent(cveId, new StageProgress("pipeline_done", 0, "Cancelled by user"));
+        return false;
+    }
+
     private boolean runStages(String cveId, int fromStage, CveTask task,
                               PipelineContext ctx) {
         for (Stage stage : stages) {
+            if (ctx.isCancelled()) {
+                return handleCancellation(cveId, task);
+            }
             boolean shouldSkip = stage.number() < fromStage
                     && workspaceManager.isStageComplete(cveId, stage.number());
             if (shouldSkip) {
@@ -306,6 +333,10 @@ public class PipelineEngine {
                     task.setStatus(CveTask.TaskStatus.FAILED);
                     taskRepo.save(task);
                     return false;
+                }
+
+                if (ctx.isCancelled()) {
+                    return handleCancellation(cveId, task);
                 }
             } catch (Exception e) {
                 log.error("Stage {} exception", stage.number(), e);

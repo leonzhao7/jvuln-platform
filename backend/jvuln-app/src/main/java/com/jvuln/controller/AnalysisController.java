@@ -136,6 +136,22 @@ public class AnalysisController {
         return ResponseEntity.accepted().body(resp);
     }
 
+    @PostMapping("/{cveId}/cancel")
+    public ResponseEntity<?> cancel(@PathVariable String cveId) {
+        CveTask task = taskRepo.findByCveId(cveId).orElse(null);
+        if (task == null) return ResponseEntity.notFound().build();
+        if (task.getStatus() != CveTask.TaskStatus.RUNNING || !pipelineEngine.isRunning(cveId)) {
+            return ApiResponseFactory.badRequest("Task is not running");
+        }
+        if (!pipelineEngine.cancel(cveId)) {
+            return ApiResponseFactory.badRequest("Failed to cancel task");
+        }
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("cveId", cveId);
+        resp.put("cancelled", true);
+        return ResponseEntity.ok(resp);
+    }
+
     @PostMapping("/{cveId}/upload-vulndemo")
     public ResponseEntity<?> uploadVulnDemo(@PathVariable String cveId,
                                             @RequestParam("file") MultipartFile file) {

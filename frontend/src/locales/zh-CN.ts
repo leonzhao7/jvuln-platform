@@ -60,6 +60,8 @@ const zhCN = {
   },
   analysis: {
     rerunAll: '↺ 全部重跑',
+    cancelTask: '■ 中止',
+    cancelFailed: '中止失败',
     showLog: '显示日志',
     hideLog: '隐藏日志',
     viewDiff: '查看 Diff',
@@ -183,6 +185,7 @@ const zhCN = {
       skipped: '— 跳过',
       notStarted: '— 未开始',
       pausedTitle: 'Agent 因 API 错误暂停',
+      pausedByUser: 'Agent 已被用户中止',
       pausedAt: '已完成 {turn} 轮',
       pausedReason: '错误信息',
       continueAgent: '继续',

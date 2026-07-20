@@ -6,6 +6,7 @@ import com.jvuln.store.WorkspaceManager;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 public class PipelineContext {
@@ -19,6 +20,7 @@ public class PipelineContext {
     private int fromStage = 1;
     private int currentStage;
     private String userHint;
+    private AtomicBoolean cancellationSignal;
 
     public PipelineContext(String cveId, Path workspacePath, LlmClient llmClient,
                            WorkspaceManager workspaceManager) {
@@ -49,4 +51,12 @@ public class PipelineContext {
     public void setCurrentStage(int currentStage) { this.currentStage = currentStage; }
     public String getUserHint() { return userHint; }
     public void setUserHint(String userHint) { this.userHint = userHint; }
+
+    public void setCancellationSignal(AtomicBoolean cancellationSignal) {
+        this.cancellationSignal = cancellationSignal;
+    }
+
+    public boolean isCancelled() {
+        return cancellationSignal != null && cancellationSignal.get();
+    }
 }

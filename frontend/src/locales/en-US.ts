@@ -60,6 +60,8 @@ const enUS = {
   },
   analysis: {
     rerunAll: '↺ Rerun All',
+    cancelTask: '■ Cancel',
+    cancelFailed: 'Failed to cancel',
     showLog: 'Show Log',
     hideLog: 'Hide Log',
     viewDiff: 'View Diff',
@@ -183,6 +185,7 @@ const enUS = {
       skipped: '— Skipped',
       notStarted: '— Not Started',
       pausedTitle: 'Agent paused due to API error',
+      pausedByUser: 'Agent cancelled by user',
       pausedAt: 'Paused at turn {turn}',
       pausedReason: 'Error',
       continueAgent: 'Continue',

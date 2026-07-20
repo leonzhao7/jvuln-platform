@@ -59,6 +59,40 @@ class AnalysisControllerTest {
         verify(fixture.taskRepo, never()).delete(fixture.task);
     }
 
+    @Test
+    void cancelRejectsTaskThatIsNotRunning() {
+        Fixture fixture = fixture(false);
+        fixture.task.setStatus(CveTask.TaskStatus.RUNNING);
+
+        ResponseEntity<?> response = fixture.controller.cancel(CVE);
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        verify(fixture.pipelineEngine, never()).cancel(CVE);
+    }
+
+    @Test
+    void cancelSignalsRunningTask() {
+        Fixture fixture = fixture(true);
+        fixture.task.setStatus(CveTask.TaskStatus.RUNNING);
+        when(fixture.pipelineEngine.cancel(CVE)).thenReturn(true);
+
+        ResponseEntity<?> response = fixture.controller.cancel(CVE);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(fixture.pipelineEngine).cancel(CVE);
+    }
+
+    @Test
+    void cancelReturnsBadRequestWhenEngineCannotCancel() {
+        Fixture fixture = fixture(true);
+        fixture.task.setStatus(CveTask.TaskStatus.RUNNING);
+        when(fixture.pipelineEngine.cancel(CVE)).thenReturn(false);
+
+        ResponseEntity<?> response = fixture.controller.cancel(CVE);
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+    }
+
     private Fixture fixture(boolean running) {
         PipelineEngine pipelineEngine = mock(PipelineEngine.class);
         CveTaskRepository taskRepo = mock(CveTaskRepository.class);
