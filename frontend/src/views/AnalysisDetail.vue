@@ -256,6 +256,9 @@ const startStream = () => {
       sseActive.value = false
       cancelling.value = false
       evtSource?.close()
+      if (type === 'error' && stageNum === 4) {
+        ElMessage.error(message || t('analysis.artifacts.uploadValidationFailed'))
+      }
       load()
     } else if (type.startsWith('stage_')) {
       load()

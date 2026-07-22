@@ -201,6 +201,7 @@ const zhCN = {
       uploadRequired: '请先选择 zip 文件',
       uploadStarted: '已接收上传，正在验证…',
       uploadFailed: '上传失败',
+      uploadValidationFailed: '上传验证失败',
       verificationReview: '验证结论',
       reviewVerdict: '判定',
       matchedSignals: '已命中信号',

@@ -201,6 +201,7 @@ const enUS = {
       uploadRequired: 'Please select a zip file first',
       uploadStarted: 'Upload received, validating…',
       uploadFailed: 'Upload failed',
+      uploadValidationFailed: 'Upload validation failed',
       verificationReview: 'Verification Review',
       reviewVerdict: 'Verdict',
       matchedSignals: 'Matched Signals',
