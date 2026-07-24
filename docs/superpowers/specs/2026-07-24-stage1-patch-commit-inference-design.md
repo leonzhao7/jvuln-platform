@@ -31,6 +31,22 @@ version we can actually locate a patch for, and Stage 4 currently picks the demo
 version via a heuristic (`affectedVersions.to` if it differs from
 `fixedVersion`, else `from`) rather than an authoritative recorded value.
 
+## Version Model (authoritative)
+
+Two distinct concepts, deliberately separated:
+
+- **`fixedVersions`** — the *complete* list of fixed versions across all major
+  lines (e.g. `["1.4.200", "2.0.206"]`). This is the working data used by
+  **Stages 1, 2, and 3**: patch-commit inference iterates the majors, the Maven
+  source diff tries them, and reasoning sees the full set.
+- **`fixedVersion`** — the *single chosen* version that anchors the vuln-demo.
+  It is determined **either in Stage 1** (when LLM patch-commit inference locks
+  onto a specific major line) **or after Stage 2's maven-diff** (whichever
+  version pair maven-diff actually diffed). It is consumed **only in Stage 4**.
+
+There is **no separate `demoVersion` field** — `fixedVersion` (singular) *is*
+the demo-anchor value.
+
 ## Goals
 
 1. **Stage 1** — when no patch commit is found, fetch the full commit log of the
@@ -41,8 +57,9 @@ version via a heuristic (`affectedVersions.to` if it differs from
    `RefCommitStrategy`). If empty, go straight to the 2-version Maven source diff.
 3. **Multi-major** — when the fix spans several major versions, prefer locating
    the patch commit from the **lowest** major line, escalating to the next major
-   only if the lower one yields no locatable patch. Record the chosen version and
-   use it in Stage 4 to build the vuln-demo.
+   only if the lower one yields no locatable patch. Record the chosen version in
+   the singular `fixedVersion` and use it in Stage 4 to build the vuln-demo, while
+   Stages 1/2/3 continue to work off the full `fixedVersions` list.
 
 ## Non-Goals
 
@@ -60,27 +77,31 @@ Today each source keeps a single fixed version:
 - `GhsaSource.packageFacts` keeps one `first_patched_version`.
 
 **Change:** collect *every* distinct fixed version each source reports into a new
-`List<String> fixedVersions` on `SourceData`. The single `fixedVersion` string is
-retained for backward compatibility (set to the lowest-major fixed version so
-existing consumers keep working). The assembler merges all sources' lists,
-deduped, preserving order.
+`List<String> fixedVersions` on `SourceData`, deduped and preserving order. This
+plural list is the working data for **Stages 1/2/3** — patch-commit inference
+iterates its major lines, maven-diff tries them, and reasoning sees them all.
 
-### 2. Select target major + demo version (Stage 1)
+The singular `fixedVersion` field is **repurposed** (no separate `demoVersion`
+field): it holds the *single chosen version* that anchors the Stage 4 vuln-demo,
+and is used **only in Stage 4**. It is set either in Stage 1 (when LLM
+patch-commit inference locks onto a major line) or after Stage 2's maven-diff
+(the actual version pair maven-diff diffed). Until chosen it may be empty; Stages
+1/2/3 never depend on it.
 
-`IntelligenceAssembler` (or a small dedicated collaborator) computes:
+### 2. Select target major (Stage 1)
 
-- **Chosen fixed version:** group the captured fixed versions by major version;
-  pick the **lowest** major's fix. This is the version we attempt to locate a
-  patch for first.
-- **Demo version:** the highest Maven Central version strictly below the chosen
-  fix on the same line — reuse `MavenSourceDiffStrategy.inferPrevVersion`
-  (metadata lookup, with decrement fallback).
+`IntelligenceAssembler` (or a small dedicated collaborator) groups the captured
+`fixedVersions` by major version and orders the major lines low→high. Patch-commit
+inference (§3) attempts the **lowest** major first.
 
-**Escalation:** if patch-commit inference fails for the lowest major (see §3),
-retry with the next-higher major's fix. The demo version tracks whichever major
-ultimately succeeds. If *all* majors fail inference, `fixCommits` stays empty and
-Stage 2 falls through to the Maven source diff (per approved decision), and the
-demo version defaults to the lowest major's inferred previous version.
+- When inference succeeds for a major, that major's fixed version becomes the
+  chosen singular `fixedVersion` (Stage-4 anchor).
+- **Escalation:** if inference fails for the lowest major, retry the next-higher
+  major. `fixedVersion` tracks whichever major ultimately succeeds.
+- If *all* majors fail inference, `fixCommits` stays empty and singular
+  `fixedVersion` stays empty; Stage 2 falls through to the Maven source diff (per
+  approved decision), which then sets `fixedVersion` from the version pair it
+  diffed.
 
 ### 3. Infer patch commits via LLM (Stage 1)
 
@@ -107,14 +128,19 @@ This lives in a new Stage 1 collaborator (e.g. `PatchCommitInferer`) invoked by
 It owns its own `WebClient` (GitHub) and uses the shared `LlmClient` +
 `PromptRegistry`.
 
-### 4. New `CveIntelligence` field: `demoVersion`
+### 4. `CveIntelligence` version fields
 
-Add `demoVersion` (the resolved vulnerable version to build the demo against) as a
-new constructor arg + getter, threaded through
-`IntelligenceAssembler.Draft.toIntelligence`. It is distinct from
-`affectedVersions` and `fixedVersion`, giving Stage 4 an unambiguous source of
-truth. Jackson `@JsonProperty("demoVersion")`; defaults to empty string when not
-resolved (existing serialized intel without the field deserializes cleanly).
+No new `demoVersion` field. Instead:
+
+- **`fixedVersions`** (new `List<String>`): all fixed versions across major lines.
+  New constructor arg + getter, threaded through
+  `IntelligenceAssembler.Draft.toIntelligence`. Jackson
+  `@JsonProperty("fixedVersions")`, defaults to empty list.
+- **`fixedVersion`** (existing singular string): repurposed as the Stage-4 anchor
+  only. May be empty until a major line is chosen (Stage 1 inference) or maven-diff
+  sets it (Stage 2). Existing serialized intel deserializes cleanly.
+
+Stages 1/2/3 read `fixedVersions`; Stage 4 reads the singular `fixedVersion`.
 
 ### 5. Stage 2 — delete keyword matching
 
@@ -131,37 +157,42 @@ commits) → `GhsaCommitStrategy` (direct commit URLs) → `maven-source-diff` �
 `ai-patch-search`. With no Stage 1 commits and no URL refs, it falls straight
 through to the 2-version source diff.
 
-### 6. Stage 4 — use recorded demo version
+### 6. Stage 4 — use the chosen singular `fixedVersion`
 
-- `StageDataExtractor.resolveVulnerableVersion`: prefer `intel.demoVersion` when
-  non-empty; otherwise fall back to the existing heuristic.
-- `JavaProfileResolver.resolveJavaProfile`: pass `demoVersion` (when present) as
-  the version the LLM should target for profile selection.
+- `StageDataExtractor.resolveVulnerableVersion`: prefer the singular
+  `intel.fixedVersion` when non-empty; otherwise fall back to the existing
+  heuristic (`affectedVersions.to`/`from`).
+- `JavaProfileResolver.resolveJavaProfile`: pass the singular `fixedVersion`
+  (when present) as the version the LLM should target for profile selection.
 
 ## Data Flow
 
 ```
 Stage 1 sources (OSV/GHSA/NVD)
   → SourceData.fixedVersions (all fixed events)
-  → IntelligenceAssembler.merge  (dedupe, choose lowest major, resolve demoVersion)
-  → PatchCommitInferer           (if fixCommits empty: full branch log → LLM → shas)
-      └─ on failure: escalate major, else leave fixCommits empty
-  → CveIntelligence { fixCommits, demoVersion, ... }
+  → IntelligenceAssembler.merge  (dedupe → fixedVersions list; order majors low→high)
+  → PatchCommitInferer           (if fixCommits empty: lowest major → full branch
+                                  log → LLM → shas; on success set singular
+                                  fixedVersion to that major's fix)
+      └─ on failure: escalate major; if all fail, fixCommits + fixedVersion empty
+  → CveIntelligence { fixCommits, fixedVersions, fixedVersion, ... }
 
-Stage 2 PatchAnalysisStage
+Stage 2 PatchAnalysisStage        (works off fixedVersions)
   → RefCommitStrategy(fixCommits)  →  GhsaCommitStrategy(URL only)
   →  maven-source-diff  →  ai-patch-search
-  (no keyword release-tag fallback)
+  (no keyword release-tag fallback; maven-diff sets singular fixedVersion
+   from the version pair it diffed if not already set)
 
-Stage 4 ArtifactGenStage
-  → resolveVulnerableVersion → demoVersion (authoritative)
+Stage 4 ArtifactGenStage          (reads singular fixedVersion only)
+  → resolveVulnerableVersion → fixedVersion (authoritative anchor)
 ```
 
 ## Error Handling
 
 - All Stage 1 network/LLM failures are non-fatal: inference simply yields no
   commits, matching the pre-existing "empty fixCommits" path.
-- Malformed/absent `demoVersion` → Stage 4 heuristic fallback (no regression).
+- Empty singular `fixedVersion` at Stage 4 → existing heuristic fallback
+  (`affectedVersions.to`/`from`), so no regression when nothing was chosen.
 - Deleting Stage 2 keyword fallback narrows results deliberately: a wrong patch is
   worse than no patch (the maven-source-diff path then applies).
 
@@ -169,13 +200,13 @@ Stage 4 ArtifactGenStage
 
 - `SourceData`/parser: OSV & GHSA payloads with multiple fixed events populate
   `fixedVersions`.
-- Assembler: lowest-major selection; demoVersion resolution.
+- Assembler: lowest-major selection; singular `fixedVersion` set correctly.
 - `PatchCommitInferer`: given a mocked compare log + mocked LLM response, produces
   the expected commit URLs; empty/failed LLM → empty result.
 - `GhsaCommitStrategy`: URL commits still work; release-tag input now returns
   empty (keyword path gone).
-- `StageDataExtractor.resolveVulnerableVersion`: demoVersion preferred; heuristic
-  fallback preserved.
+- `StageDataExtractor.resolveVulnerableVersion`: singular `fixedVersion` preferred;
+  heuristic fallback preserved.
 
 ## Global Constraints
 
