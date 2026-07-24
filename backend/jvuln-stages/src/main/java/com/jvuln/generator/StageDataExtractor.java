@@ -137,10 +137,7 @@ class StageDataExtractor {
         if (to != null && !to.equals(fixedVersion)) {
             return to;
         }
-        if (from != null) {
-            return from;
-        }
-        return to;
+        return from;
     }
 
     List<String> extractMethodsOfInterest(Object analysis) {
@@ -172,12 +169,16 @@ class StageDataExtractor {
     }
 
     String deriveClassName(String fileName) {
-        if (fileName == null || !fileName.contains("/")) return null;
+        if (fileName == null) return null;
         String normalized = fileName.replace('\\', '/');
+        if (!normalized.contains("/")) return null;
         int srcIdx = normalized.indexOf("src/main/java/");
         if (srcIdx >= 0) {
             String rel = normalized.substring(srcIdx + "src/main/java/".length());
-            return rel.replace('/', '.').replace(".java", "");
+            if (rel.endsWith(".java")) {
+                rel = rel.substring(0, rel.length() - ".java".length());
+            }
+            return rel.replace('/', '.');
         }
         return null;
     }

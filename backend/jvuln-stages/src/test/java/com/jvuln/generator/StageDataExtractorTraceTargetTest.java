@@ -114,6 +114,24 @@ class StageDataExtractorTraceTargetTest {
     }
 
     @Test
+    void resolveVulnerableVersionReturnsNullWhenToEqualsFixedAndFromAbsent() {
+        Map<String, Object> affected = new HashMap<>();
+        affected.put("to", "1.4.200");
+        Map<String, Object> intel = new HashMap<>();
+        intel.put("affectedVersions", affected);
+        intel.put("fixedVersion", "1.4.200");
+
+        JsonNode node = mapper.valueToTree(intel);
+        assertNull(extractor.resolveVulnerableVersion(node));
+    }
+
+    @Test
+    void deriveClassNameHandlesBackslashOnlyPath() {
+        assertEquals("com.example.Foo",
+                extractor.deriveClassName("module\\src\\main\\java\\com\\example\\Foo.java"));
+    }
+
+    @Test
     void extractTraceTargetReturnsNullWhenCoordinatesMissing() {
         // No "artifact" object -> groupId/artifactId null -> null, no network access.
         Map<String, Object> intel = new HashMap<>();
