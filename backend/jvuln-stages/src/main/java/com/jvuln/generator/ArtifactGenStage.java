@@ -130,11 +130,22 @@ public class ArtifactGenStage implements Stage {
         VerificationPlan verificationPlan = buildVerificationPlan(ctx, intelligence, vulnerabilityFacts,
                 triggerChain, rootCause, patchDiff, artifact);
 
+        Object analysisData = ctx.getCompletedStages().get(3).getData();
+        TraceTarget traceTarget = dataExtractor.extractTraceTarget(rawIntelligence, analysisData);
+        if (traceTarget != null && traceTarget.isValid()) {
+            log.info("Trace target: {}:{}:{} ({} packages, {} methods of interest)",
+                    traceTarget.groupId, traceTarget.artifactId, traceTarget.version,
+                    traceTarget.packages.size(), traceTarget.methodsOfInterest.size());
+        } else {
+            log.warn("Could not resolve trace target from intelligence/analysis data");
+        }
+
         Path cvePath = ctx.getWorkspaceManager().getCvePath(ctx.getCveId());
         AgentContext agentCtx = new AgentContext(cvePath, ctx);
         agentCtx.setToolExecutor(toolExecutor);
         agentCtx.verificationPlan = verificationPlan;
         agentCtx.javaProfile = javaProfile;
+        agentCtx.traceTarget = traceTarget;
         Path checkpointFile = cvePath.resolve("stages/4_checkpoint.json");
         Path memoryFile = cvePath.resolve("stages/4_memory.json");
 

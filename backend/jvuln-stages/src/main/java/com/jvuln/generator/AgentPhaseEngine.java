@@ -86,7 +86,7 @@ class AgentPhaseEngine {
             case POC_FIX:
                 gap = result == null ? "poc_unverified" : derivePocGap(result);
                 expected = derivePocExpected(ctx);
-                actual = result == null ? "No PoC validation evidence yet." : result.pocMessage;
+                actual = buildPocActual(result);
                 fixHint = derivePocFixHint(ctx, result);
                 break;
             default:
@@ -391,5 +391,18 @@ class AgentPhaseEngine {
         } else if (path.startsWith("poc/")) {
             scope.poc = true;
         }
+    }
+
+    private String buildPocActual(ValidationResult result) {
+        if (result == null) {
+            return "No PoC validation evidence yet.";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(result.pocMessage);
+        if (result.runtimeTrace != null && !result.runtimeTrace.isEmpty()) {
+            sb.append("\n\nRUNTIME TRACE:\n");
+            sb.append(llmHelper.renderJson(result.runtimeTrace));
+        }
+        return sb.toString();
     }
 }
