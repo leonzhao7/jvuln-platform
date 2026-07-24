@@ -4,6 +4,7 @@ import com.jvuln.store.model.CveIntelligence;
 import com.jvuln.store.model.SourceData;
 import com.jvuln.store.model.SourceResult;
 
+import java.util.Collections;
 import java.util.List;
 
 import static com.jvuln.util.ValueUtils.text;
@@ -42,7 +43,8 @@ public interface IntelSource {
             this(sourceName, success ? SourceResult.Status.SUCCESS : SourceResult.Status.NOT_FOUND,
                     description, new SourceData(cweId, cvssScore, "", cvssSeverity,
                             artifactGroupId, artifactId, affectedFrom, affectedTo,
-                            fixedVersion, sourceRepo, fixCommits, articles), rawJson);
+                            fixedVersion, sourceRepo, fixCommits, articles,
+                            Collections.<String>emptyList()), rawJson);
         }
 
         private IntelFragment(String sourceName, SourceResult.Status status,

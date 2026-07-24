@@ -1,11 +1,14 @@
 package com.jvuln.collector.source;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jvuln.store.model.SourceData;
 import com.jvuln.store.model.SourceResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class IntelSourceParsingTest {
 
@@ -65,5 +68,17 @@ class IntelSourceParsingTest {
 
         assertEquals(SourceResult.Status.NOT_FOUND, result.getStatus());
         assertEquals("{}", result.getRawPayload());
+    }
+
+    @Test
+    void deserializesOldJsonWithoutFixedVersions() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        // Old JSON (no fixedVersions field)
+        String old = "{\"cweId\":\"\",\"cvssScore\":\"\",\"cvssVector\":\"\",\"cvssSeverity\":\"\","
+                + "\"artifactGroupId\":\"\",\"artifactId\":\"\",\"affectedFrom\":\"\",\"affectedTo\":\"\","
+                + "\"fixedVersion\":\"2.0.206\",\"sourceRepo\":\"\",\"fixCommits\":[],\"references\":[]}";
+        SourceData data = mapper.readValue(old, SourceData.class);
+        assertEquals("2.0.206", data.getFixedVersion());
+        assertTrue(data.getFixedVersions().isEmpty(), "missing field defaults to empty list");
     }
 }
