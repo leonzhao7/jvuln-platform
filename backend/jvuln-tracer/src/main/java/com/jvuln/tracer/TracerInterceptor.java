@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * reference is volatile so that a late {@code setWriter} is visible
  * to all threads immediately.
  */
-final class TracerInterceptor {
+public final class TracerInterceptor {
 
     private static final AtomicInteger seqGen = new AtomicInteger(0);
     private static final ThreadLocal<Integer> depth = new ThreadLocal<Integer>() {

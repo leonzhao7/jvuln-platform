@@ -268,15 +268,26 @@ class ValidationEngine {
     }
 
     private Path resolveTracerJar(AgentContext ctx) {
-        Path backendRoot = ctx.cvePath.getParent().getParent().resolve("backend");
-        Path tracerTarget = backendRoot.resolve("jvuln-tracer/target");
+        Path dir = ctx.cvePath.toAbsolutePath().normalize();
+        while (dir != null) {
+            Path jar = findTracerJar(dir.resolve("jvuln-tracer/target"));
+            if (jar != null) return jar;
+            jar = findTracerJar(dir.resolve("backend/jvuln-tracer/target"));
+            if (jar != null) return jar;
+            dir = dir.getParent();
+        }
+        return null;
+    }
+
+    private Path findTracerJar(Path tracerTarget) {
         if (!Files.exists(tracerTarget)) return null;
         try (java.util.stream.Stream<Path> files = Files.list(tracerTarget)) {
             return files
                     .filter(p -> p.getFileName().toString().startsWith("jvuln-tracer-")
                             && p.getFileName().toString().endsWith(".jar")
                             && !p.getFileName().toString().contains("sources")
-                            && !p.getFileName().toString().contains("javadoc"))
+                            && !p.getFileName().toString().contains("javadoc")
+                            && !p.getFileName().toString().startsWith("original-"))
                     .findFirst()
                     .orElse(null);
         } catch (Exception e) {
