@@ -20,6 +20,7 @@
 
     <modules>
         <module>jvuln-utils</module>
+        <module>jvuln-tracer</module>
         <module>jvuln-stages</module>
         <module>jvuln-app</module>
     </modules>
