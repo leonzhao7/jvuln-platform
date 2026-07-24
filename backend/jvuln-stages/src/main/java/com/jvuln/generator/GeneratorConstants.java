@@ -84,4 +84,15 @@ public final class GeneratorConstants {
 
     /** 转录条目大小限制 */
     public static final int TRANSCRIPT_ENTRY_LIMIT = 60000;
+
+    // ==================== Runtime trace ====================
+
+    /** Per-argument string cap (chars) */
+    public static final int TRACE_ARG_CAP = 512;
+
+    /** Raw trace file hard cap (bytes) */
+    public static final int TRACE_FILE_CAP_BYTES = 5 * 1024 * 1024;
+
+    /** Trace digest text field cap (chars) */
+    public static final int TRACE_DIGEST_TEXT_CAP = 2000;
 }
