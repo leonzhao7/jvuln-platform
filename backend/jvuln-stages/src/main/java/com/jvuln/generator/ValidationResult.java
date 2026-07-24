@@ -18,6 +18,7 @@ class ValidationResult {
         String pocMessage = "";
         final List<PocStep> pocSteps = new ArrayList<>();
         final Map<String, Object> artifacts = new LinkedHashMap<>();
+        Map<String, Object> runtimeTrace;
 
         ValidationResult(String focus) {
             this.focus = focus == null ? "full" : focus;
@@ -35,6 +36,9 @@ class ValidationResult {
             if (this.pocMessage.isEmpty()) this.pocMessage = other.pocMessage;
             if (this.pocSteps.isEmpty()) this.pocSteps.addAll(other.pocSteps);
             this.artifacts.putAll(other.artifacts);
+            if (this.runtimeTrace == null && other.runtimeTrace != null) {
+                this.runtimeTrace = other.runtimeTrace;
+            }
         }
 
         String summary() {
@@ -53,6 +57,9 @@ class ValidationResult {
             out.put("pocMessage", pocMessage);
             out.put("pocSteps", PocStep.toMaps(pocSteps));
             out.put("artifacts", artifacts);
+            if (runtimeTrace != null) {
+                out.put("runtimeTrace", runtimeTrace);
+            }
             return out;
         }
 
@@ -71,6 +78,15 @@ class ValidationResult {
                 while (fields.hasNext()) {
                     Map.Entry<String, JsonNode> field = fields.next();
                     result.artifacts.put(field.getKey(), field.getValue());
+                }
+            }
+            JsonNode traceNode = node.path("runtimeTrace");
+            if (traceNode.isObject()) {
+                result.runtimeTrace = new LinkedHashMap<>();
+                Iterator<Map.Entry<String, JsonNode>> traceFields = traceNode.fields();
+                while (traceFields.hasNext()) {
+                    Map.Entry<String, JsonNode> field = traceFields.next();
+                    result.runtimeTrace.put(field.getKey(), field.getValue());
                 }
             }
             return result;

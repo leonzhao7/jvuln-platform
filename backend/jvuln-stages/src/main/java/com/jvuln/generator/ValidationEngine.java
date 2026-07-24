@@ -95,6 +95,7 @@ class ValidationEngine {
         ProcessBuilder pb = new ProcessBuilder("bash", "run.sh");
         pb.directory(vulnDemoPath.toFile());
         pb.redirectErrorStream(true);
+        attachTracerIfConfigured(ctx, pb);
         ctx.appProcess = pb.start();
         ctx.appOutput = new ProcessOutputBuffer(ctx.appProcess.getInputStream(), PROCESS_OUTPUT_BUFFER);
 
@@ -224,6 +225,7 @@ class ValidationEngine {
         result.pocVerified = pr.exitCode == 0;
         result.pocMessage = truncate(pr.output, OUTPUT_TRUNCATE);
         result.pocSteps.addAll(PocStep.parse(pr.output));
+        buildTraceDigest(ctx, result);
         return result;
     }
 
@@ -237,5 +239,48 @@ class ValidationEngine {
 
     private boolean shouldValidatePoc(String focus) {
         return "full".equals(focus) || "poc".equals(focus);
+    }
+
+    private void attachTracerIfConfigured(AgentContext ctx, ProcessBuilder pb) {
+        if (ctx.traceTarget == null || !ctx.traceTarget.isValid()) {
+            return;
+        }
+        Path tracerJar = resolveTracerJar(ctx);
+        if (tracerJar == null || !Files.exists(tracerJar)) {
+            log.warn("Tracer JAR not found, skipping agent attachment");
+            return;
+        }
+        String includes = String.join(";", ctx.traceTarget.packages);
+        String traceOut = ctx.cvePath.resolve("poc/trace.jsonl").toAbsolutePath().toString();
+        String agentArgs = "includes=" + includes + ",out=" + traceOut;
+        String javaToolOptions = "-javaagent:" + tracerJar.toAbsolutePath() + "=" + agentArgs;
+        pb.environment().put("JAVA_TOOL_OPTIONS", javaToolOptions);
+        log.info("Attached javaagent for packages: {}", includes);
+    }
+
+    private Path resolveTracerJar(AgentContext ctx) {
+        Path backendRoot = ctx.cvePath.getParent().getParent().resolve("backend");
+        Path tracerTarget = backendRoot.resolve("jvuln-tracer/target");
+        if (!Files.exists(tracerTarget)) return null;
+        try (java.util.stream.Stream<Path> files = Files.list(tracerTarget)) {
+            return files
+                    .filter(p -> p.getFileName().toString().startsWith("jvuln-tracer-")
+                            && p.getFileName().toString().endsWith(".jar")
+                            && !p.getFileName().toString().contains("sources")
+                            && !p.getFileName().toString().contains("javadoc"))
+                    .findFirst()
+                    .orElse(null);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void buildTraceDigest(AgentContext ctx, ValidationResult result) {
+        if (ctx.traceTarget == null || !ctx.traceTarget.isValid()) {
+            return;
+        }
+        Path traceFile = ctx.cvePath.resolve("poc/trace.jsonl");
+        java.util.Map<String, Object> digest = TraceDigestBuilder.buildDigest(traceFile, ctx.traceTarget);
+        result.runtimeTrace = digest;
     }
 }

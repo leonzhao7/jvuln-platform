@@ -29,6 +29,7 @@ class AgentContext {
     PhaseDirective lastDirective;
     AgentPhase phase = AgentPhase.PLAN;
     JavaProfile javaProfile;
+    TraceTarget traceTarget;
     Map<String, FileSnapshot> baselineSnapshot = new LinkedHashMap<>();
     Map<String, FileSnapshot> previousSnapshot = new LinkedHashMap<>();
     Map<String, FileSnapshot> currentFiles = new LinkedHashMap<>();
