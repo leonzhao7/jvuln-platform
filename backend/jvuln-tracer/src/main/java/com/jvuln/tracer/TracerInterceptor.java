@@ -24,6 +24,20 @@ final class TracerInterceptor {
         }
     };
 
+    /**
+     * Guards against re-entrancy: {@link #stringify(Object)} calls
+     * {@code toString()} on traced arguments and return values, and that
+     * {@code toString()} may itself be an instrumented method in a traced
+     * package. Without this guard the callback would recurse into itself,
+     * inflating the trace and adding unbounded overhead.
+     */
+    private static final ThreadLocal<Boolean> inTracer = new ThreadLocal<Boolean>() {
+        @Override
+        protected Boolean initialValue() {
+            return Boolean.FALSE;
+        }
+    };
+
     private static volatile TracerEventWriter writer;
 
     static void setWriter(TracerEventWriter w) {
@@ -37,6 +51,7 @@ final class TracerInterceptor {
     static void resetForTest() {
         seqGen.set(0);
         depth.remove();
+        inTracer.remove();
     }
 
     /**
@@ -44,7 +59,9 @@ final class TracerInterceptor {
      * Records current depth, then increments it for nested calls.
      */
     public static void onEnter(String className, String methodName, Object[] args) {
+        if (inTracer.get()) return;
         try {
+            inTracer.set(Boolean.TRUE);
             int d = depth.get();
             depth.set(d + 1);
 
@@ -61,6 +78,8 @@ final class TracerInterceptor {
             w.writeEvent(seqGen.incrementAndGet(), d, className, methodName, argStrings, null);
         } catch (Exception ignored) {
             // Agent must never alter control flow of the demo application
+        } finally {
+            inTracer.set(Boolean.FALSE);
         }
     }
 
@@ -69,7 +88,9 @@ final class TracerInterceptor {
      * Records the return value and decrements depth.
      */
     public static void onExit(String className, String methodName, Object ret) {
+        if (inTracer.get()) return;
         try {
+            inTracer.set(Boolean.TRUE);
             int d = depth.get();
             if (d > 0) depth.set(d - 1);
 
@@ -79,6 +100,8 @@ final class TracerInterceptor {
             w.writeEvent(seqGen.incrementAndGet(), d, className, methodName, null, stringify(ret));
         } catch (Exception ignored) {
             // Agent must never alter control flow of the demo application
+        } finally {
+            inTracer.set(Boolean.FALSE);
         }
     }
 
@@ -88,7 +111,9 @@ final class TracerInterceptor {
      * The exception is never swallowed -- it is rethrown by ByteBuddy automatically.
      */
     public static void onThrow(String className, String methodName, Throwable t) {
+        if (inTracer.get()) return;
         try {
+            inTracer.set(Boolean.TRUE);
             int d = depth.get();
             if (d > 0) depth.set(d - 1);
 
@@ -99,6 +124,8 @@ final class TracerInterceptor {
             w.writeEvent(seqGen.incrementAndGet(), d, className, methodName, null, throwStr);
         } catch (Exception ignored) {
             // Agent must never alter control flow of the demo application
+        } finally {
+            inTracer.set(Boolean.FALSE);
         }
     }
 

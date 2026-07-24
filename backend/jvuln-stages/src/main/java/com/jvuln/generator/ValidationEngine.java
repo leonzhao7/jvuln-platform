@@ -245,15 +245,24 @@ class ValidationEngine {
         if (ctx.traceTarget == null || !ctx.traceTarget.isValid()) {
             return;
         }
+        Path traceFile = ctx.cvePath.resolve("poc/trace.jsonl");
+        try {
+            Files.deleteIfExists(traceFile);
+        } catch (Exception e) {
+            log.warn("Could not delete stale trace file {}: {}", traceFile, e.getMessage());
+        }
         Path tracerJar = resolveTracerJar(ctx);
         if (tracerJar == null || !Files.exists(tracerJar)) {
             log.warn("Tracer JAR not found, skipping agent attachment");
             return;
         }
         String includes = String.join(";", ctx.traceTarget.packages);
-        String traceOut = ctx.cvePath.resolve("poc/trace.jsonl").toAbsolutePath().toString();
-        String agentArgs = "includes=" + includes + ",out=" + traceOut;
+        String agentArgs = "includes=" + includes + ",out=" + traceFile.toAbsolutePath();
         String javaToolOptions = "-javaagent:" + tracerJar.toAbsolutePath() + "=" + agentArgs;
+        String prev = pb.environment().get("JAVA_TOOL_OPTIONS");
+        if (prev != null && !prev.isEmpty()) {
+            javaToolOptions = javaToolOptions + " " + prev;
+        }
         pb.environment().put("JAVA_TOOL_OPTIONS", javaToolOptions);
         log.info("Attached javaagent for packages: {}", includes);
     }

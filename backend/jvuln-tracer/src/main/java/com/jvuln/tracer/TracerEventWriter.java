@@ -19,7 +19,7 @@ final class TracerEventWriter implements Closeable {
         this.outputPath = outputPath;
         this.fileCap = fileCap;
         try {
-            this.writer = new BufferedWriter(new FileWriter(outputPath, true));
+            this.writer = new BufferedWriter(new FileWriter(outputPath, false));
         } catch (Exception e) {
             this.writer = null;
         }
