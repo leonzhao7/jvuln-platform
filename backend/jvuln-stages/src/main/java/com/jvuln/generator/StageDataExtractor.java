@@ -11,6 +11,9 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Stage 数据提取器
@@ -21,9 +24,11 @@ import java.nio.file.Path;
 class StageDataExtractor {
 
     private final ObjectMapper mapper;
+    private final MavenSourcePackageScanner scanner;
 
-    StageDataExtractor(ObjectMapper mapper) {
+    StageDataExtractor(ObjectMapper mapper, MavenSourcePackageScanner scanner) {
         this.mapper = mapper;
+        this.scanner = scanner;
     }
 
     String trimIntelligence(Object data) throws Exception {
@@ -87,5 +92,93 @@ class StageDataExtractor {
             return artifact.isTextual() ? artifact.asText() : mapper.writeValueAsString(artifact);
         }
         return "";
+    }
+
+    TraceTarget extractTraceTarget(Object intelligence, Object analysis) {
+        try {
+            JsonNode intel = mapper.valueToTree(intelligence);
+            JsonNode artifact = intel.path("artifact");
+
+            String groupId = null;
+            String artifactId = null;
+            if (artifact.isObject()) {
+                groupId = artifact.path("groupId").asText(null);
+                artifactId = artifact.path("artifactId").asText(null);
+            }
+
+            if (groupId == null || artifactId == null) {
+                return null;
+            }
+
+            String version = resolveVulnerableVersion(intel);
+            if (version == null) {
+                return null;
+            }
+
+            Set<String> packages = scanner.scanPackages(groupId, artifactId, version);
+            if (packages.isEmpty()) {
+                return null;
+            }
+
+            List<String> methodsOfInterest = extractMethodsOfInterest(analysis);
+
+            return new TraceTarget(groupId, artifactId, version, packages, methodsOfInterest);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    String resolveVulnerableVersion(JsonNode intel) {
+        JsonNode affectedVersions = intel.path("affectedVersions");
+        String to = affectedVersions.path("to").asText(null);
+        String from = affectedVersions.path("from").asText(null);
+        String fixedVersion = intel.path("fixedVersion").asText(null);
+
+        if (to != null && !to.equals(fixedVersion)) {
+            return to;
+        }
+        if (from != null) {
+            return from;
+        }
+        return to;
+    }
+
+    List<String> extractMethodsOfInterest(Object analysis) {
+        List<String> methods = new ArrayList<>();
+        if (analysis == null) return methods;
+
+        try {
+            JsonNode root = mapper.valueToTree(analysis);
+            JsonNode files = root.path("analyzedFiles");
+            if (!files.isArray()) return methods;
+
+            for (JsonNode fileNode : files) {
+                String fileName = fileNode.path("fileName").asText("");
+                if (!fileName.endsWith(".java")) continue;
+
+                String className = deriveClassName(fileName);
+                JsonNode methodNodes = fileNode.path("methods");
+                if (methodNodes.isArray()) {
+                    for (JsonNode m : methodNodes) {
+                        String methodName = m.path("methodName").asText("");
+                        if (!methodName.isEmpty() && className != null) {
+                            methods.add(className + "." + methodName);
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return methods;
+    }
+
+    String deriveClassName(String fileName) {
+        if (fileName == null || !fileName.contains("/")) return null;
+        String normalized = fileName.replace('\\', '/');
+        int srcIdx = normalized.indexOf("src/main/java/");
+        if (srcIdx >= 0) {
+            String rel = normalized.substring(srcIdx + "src/main/java/".length());
+            return rel.replace('/', '.').replace(".java", "");
+        }
+        return null;
     }
 }
