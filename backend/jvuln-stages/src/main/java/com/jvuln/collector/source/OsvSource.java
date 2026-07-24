@@ -77,7 +77,7 @@ public class OsvSource implements IntelSource {
         }
         SourceData data = new SourceData("", "", "", "", facts.groupId,
                 facts.artifactId, facts.affectedFrom, "", facts.fixedVersion, "",
-                fixCommits, articles);
+                fixCommits, articles, facts.fixedVersions);
         return IntelFragment.success(name(), description, data, raw);
     }
 
@@ -99,11 +99,17 @@ public class OsvSource implements IntelSource {
                         facts.affectedFrom = event.path("introduced").asText("");
                     }
                     if (event.has("fixed")) {
-                        facts.fixedVersion = event.path("fixed").asText("");
+                        String fixed = event.path("fixed").asText("");
+                        if (!fixed.isEmpty() && !facts.fixedVersions.contains(fixed)) {
+                            facts.fixedVersions.add(fixed);
+                        }
                     }
                 }
             }
             break;
+        }
+        if (!facts.fixedVersions.isEmpty()) {
+            facts.fixedVersion = facts.fixedVersions.get(0);
         }
         return facts;
     }
@@ -113,5 +119,6 @@ public class OsvSource implements IntelSource {
         private String artifactId = "";
         private String affectedFrom = "";
         private String fixedVersion = "";
+        private final List<String> fixedVersions = new ArrayList<>();
     }
 }

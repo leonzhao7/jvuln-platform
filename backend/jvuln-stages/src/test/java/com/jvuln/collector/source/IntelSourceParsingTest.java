@@ -6,6 +6,7 @@ import com.jvuln.store.model.SourceResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -80,5 +81,22 @@ class IntelSourceParsingTest {
         SourceData data = mapper.readValue(old, SourceData.class);
         assertEquals("2.0.206", data.getFixedVersion());
         assertTrue(data.getFixedVersions().isEmpty(), "missing field defaults to empty list");
+    }
+
+    @Test
+    void osvCollectsMultipleFixedVersions() throws Exception {
+        OsvSource source = new OsvSource();
+        String payload = "{\"id\":\"CVE-2021-42392\",\"summary\":\"test\","
+                + "\"affected\":[{\"package\":{\"ecosystem\":\"Maven\",\"name\":\"com.h2database:h2\"},"
+                + "\"ranges\":[{\"type\":\"ECOSYSTEM\",\"events\":["
+                + "{\"introduced\":\"0\"},{\"fixed\":\"1.4.200\"},{\"fixed\":\"2.0.206\"}]}]}],"
+                + "\"references\":[]}";
+        IntelSource.IntelFragment result = source.parsePayload(payload);
+        List<String> fvs = result.getParsedData().getFixedVersions();
+        assertEquals(2, fvs.size());
+        assertTrue(fvs.contains("1.4.200"));
+        assertTrue(fvs.contains("2.0.206"));
+        // Singular fixedVersion = earliest (lowest major wins as per spec)
+        assertEquals("1.4.200", result.getParsedData().getFixedVersion());
     }
 }

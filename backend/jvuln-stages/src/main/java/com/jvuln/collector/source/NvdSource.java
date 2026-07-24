@@ -16,6 +16,7 @@ import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -106,7 +107,7 @@ public class NvdSource implements IntelSource {
         }
         SourceData data = new SourceData(cweId, cvssScore, cvssVector, cvssSeverity,
                 facts.groupId, facts.artifactId, "", facts.affectedTo, "", "",
-                fixCommits, articles);
+                fixCommits, articles, Collections.<String>emptyList());
         return IntelFragment.success(name(), description, data, raw);
     }
 

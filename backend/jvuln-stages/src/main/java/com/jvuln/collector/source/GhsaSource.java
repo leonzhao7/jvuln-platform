@@ -18,6 +18,7 @@ import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -93,9 +94,12 @@ public class GhsaSource implements IntelSource {
         String description = advisory.path("summary").asText(
                 advisory.path("description").asText(""));
         String sourceRepo = advisory.path("source_code_location").asText("");
+        List<String> fixedVersionsList = facts.fixedVersion.isEmpty()
+                ? Collections.emptyList()
+                : Collections.singletonList(facts.fixedVersion);
         SourceData data = new SourceData("", "", "", "", facts.groupId,
                 facts.artifactId, "", facts.affectedTo, facts.fixedVersion, sourceRepo,
-                fixCommits, articles);
+                fixCommits, articles, fixedVersionsList);
         return IntelFragment.success(name(), description, data, raw);
     }
 
