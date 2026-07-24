@@ -78,23 +78,33 @@ JAVA_TOOL_OPTIONS=-javaagent:<tracerJar>=includes=<pkg>,out=<cvePath>/poc/trace.
 - `<tracerJar>` is resolved from the built `jvuln-tracer` module artifact, the same way
   other module artifacts are located. If the jar is missing, the backend logs a warning and
   launches the demo **without** `-javaagent` (validation proceeds exactly as today).
-- `<pkg>` (the include filter) is derived from the vulnerable artifact: Stage 1/2 `groupId`
-  gives the package root, refined by the classes of Stage 3's changed methods.
+- `<pkg>` (the include filter) is derived from the **actual vulnerable-version sources**, never guessed from `groupId`: the backend downloads the artifact's Maven `-sources.jar` using the Stage 1/2 confirmed `groupId`, `artifactId`, and vulnerable version; scans every `.java` entry for its `package ...;` declaration; then de-duplicates the resulting package names. All discovered packages (including subpackages) are passed to the agent as its include filters. If the source JAR cannot be downloaded or yields no packages, the backend logs a warning and skips agent attachment rather than applying a guessed filter.
+
+Stage 3's changed methods are still used only as the digest's **methods of interest**, not to determine the instrumentation range. This preserves the full runtime trace for the real vulnerable component even when Stage 3 did not identify every changed class.
 
 ### 3.3 `TraceDigestBuilder` (new class in `jvuln-generator`)
 
 After `validatePoc`, reads `poc/trace.jsonl` and produces a compact digest keyed to Stage 3's
-changed methods ("methods of interest"). Merged into the PoC feedback packet the model already
-receives via `AgentPhaseEngine.buildAutoValidationFeedback`.
+changed methods ("methods of interest"). The digest is carried on `ValidationResult` and
+surfaced to the model through the live PoC-feedback path: `AgentPhaseEngine.buildPhaseDirective`
+(the `POC_FIX` branch, which sets `actual` from `pocMessage`) → `renderPhaseDirective`.
+
+> Note: `AgentPhaseEngine.buildAutoValidationFeedback` exists but is dead code (never called);
+> the live directive path is `buildPhaseDirective` → `renderPhaseDirective`. Do not wire into
+> the dead method.
 
 ## 4. Data Flow
 
 ```
-Stage 3 vulnerabilityFacts + changed methods (classes / method names)
-        │  backend derives: include-package + "methods of interest" list
+Stage 1/2 groupId + artifactId + vulnerable version
+        │  download <artifact>-<version>-sources.jar from Maven, scan package declarations
+        ▼  include-package list (actual packages from source, deduped)
+
+Stage 3 changed methods (classes / method names)
+        │  → "methods of interest" list (digest keying only, NOT instrumentation scope)
         ▼
 ValidationEngine.doStartApp
-        │  sets JAVA_TOOL_OPTIONS=-javaagent:jvuln-tracer.jar=includes=<pkg>,out=poc/trace.jsonl
+        │  sets JAVA_TOOL_OPTIONS=-javaagent:jvuln-tracer.jar=includes=<pkgs>,out=poc/trace.jsonl
         ▼
 demo JVM boots with tracer attached  ──►  exploit.sh hits port 18080
         │  tracer intercepts every call in <pkg>
@@ -108,7 +118,7 @@ TraceDigestBuilder (reads jsonl after validatePoc)
 compact digest (reached[] / notReached[] / maxDepth / lastCall / exception)
         │
         ▼
-merged into PoC feedback packet ──► LLM (buildAutoValidationFeedback)
+carried on ValidationResult ──► buildPhaseDirective (POC_FIX) ──► renderPhaseDirective ──► LLM
 ```
 
 The digest makes A-vs-B legible:
@@ -199,11 +209,16 @@ add-on; if anything about it fails, PoC validation proceeds exactly as today, mi
 - `ValidationEngine.doStartApp` (`ValidationEngine.java:74-136`) — attach `JAVA_TOOL_OPTIONS`
   on the demo `ProcessBuilder` env.
 - `ValidationEngine.validatePoc` (`ValidationEngine.java:212-228`) — after PoC run, invoke
-  `TraceDigestBuilder`.
-- `AgentPhaseEngine.buildAutoValidationFeedback` (`AgentPhaseEngine.java:261-285`) — merge the
-  digest into the PoC feedback packet sent to the model.
-- Stage 3 `vulnerabilityFacts` + changed methods — source of the include-package and
-  methods-of-interest list.
+  `TraceDigestBuilder` and store the digest on `ValidationResult`.
+- `AgentPhaseEngine.buildPhaseDirective` `POC_FIX` branch (`AgentPhaseEngine.java:86-91`) —
+  append the digest to the directive `actual`/`fixHint` that `renderPhaseDirective`
+  (`AgentPhaseEngine.java:105-120`) sends to the model. NOTE: `buildAutoValidationFeedback`
+  (`AgentPhaseEngine.java:261-285`) is dead code (defined, never called) — the live PoC
+  feedback path is `buildPhaseDirective` → `renderPhaseDirective`, not that method.
+- Include-package list — derived by downloading the vulnerable-version `-sources.jar`
+  (reusing `MavenSourceDiffStrategy` download/extract logic) and scanning `package`
+  declarations. Stage 3 changed methods feed the digest's methods-of-interest keying only,
+  not the instrumentation scope.
 
 ## 9. Decisions (from brainstorming)
 
