@@ -1,7 +1,7 @@
 # Stage 4 — Javaagent Runtime Trace for PoC Feedback
 
 **Date**: 2026-07-23
-**Status**: Design — pending implementation plan
+**Status**: Implemented
 **Author**: brainstorming session
 
 > Naming note: the demo-generation agent is labelled **Stage 5** in `docs/system-design.md`
