@@ -1,9 +1,12 @@
 package com.jvuln.generator;
 
+import com.jvuln.util.RequestLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -12,6 +15,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Enumeration;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -29,8 +33,14 @@ class MavenSourcePackageScanner {
 
     private final WebClient webClient;
 
-    MavenSourcePackageScanner(WebClient webClient) {
-        this.webClient = webClient;
+    MavenSourcePackageScanner() {
+        HttpClient httpClient = HttpClient.create().responseTimeout(Duration.ofSeconds(60));
+        this.webClient = WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(30 * 1024 * 1024))
+                .filter(RequestLogContext.webRequestFilter())
+                .defaultHeader("User-Agent", "JVuln-Platform/1.0")
+                .build();
     }
 
     Set<String> scanPackages(String groupId, String artifactId, String version) {

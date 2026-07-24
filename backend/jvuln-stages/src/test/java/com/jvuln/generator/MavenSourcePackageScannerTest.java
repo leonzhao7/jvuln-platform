@@ -21,7 +21,7 @@ class MavenSourcePackageScannerTest {
             addEntry(zip, "META-INF/MANIFEST.MF", "Manifest-Version: 1.0");
         }
 
-        MavenSourcePackageScanner scanner = new MavenSourcePackageScanner(null);
+        MavenSourcePackageScanner scanner = new MavenSourcePackageScanner();
         Set<String> packages = scanner.scanPackagesFromJar(fakeJar);
 
         assertEquals(3, packages.size());
