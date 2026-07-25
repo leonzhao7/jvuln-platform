@@ -83,7 +83,7 @@ public class IntelligenceStage implements Stage {
                 }
             }
         } catch (Exception e) {
-            context.reportProgress("Patch commit inference failed: " + e.getMessage()
+            context.reportProgress("Patch commit inference failed: " + errorMessage(e, 500)
                     + "; will fall back to maven-source-diff");
         }
 
