@@ -154,6 +154,30 @@ public class IntelligenceAssembler {
             return description;
         }
 
+        public String getSourceRepo() {
+            return sourceRepo;
+        }
+
+        public List<String> getFixedVersions() {
+            return Collections.unmodifiableList(fixedVersions);
+        }
+
+        public Set<String> getFixCommits() {
+            return Collections.unmodifiableSet(fixCommits);
+        }
+
+        public boolean hasSourceRepo() {
+            return sourceRepo != null && !sourceRepo.isEmpty();
+        }
+
+        public void addFixCommit(String url) {
+            fixCommits.add(url);
+        }
+
+        public void setFixedVersion(String v) {
+            this.fixedVersion = v;
+        }
+
         public CveIntelligence toIntelligence(
                 String description, List<CveIntelligence.Article> classifiedArticles,
                 List<EvidenceResult> evidence,

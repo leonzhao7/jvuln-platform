@@ -132,7 +132,8 @@ class IntelligenceStageTest {
         FakeEvidenceCollector evidenceCollector = new FakeEvidenceCollector();
         IntelligenceStage stage = new IntelligenceStage(
                 namedSources(), sourceCollector, classifier, evidenceCollector,
-                new IntelligenceAssembler());
+                new IntelligenceAssembler(),
+                new PatchCommitInferer(noOpLlm(), new PromptRegistry(), ""));
         return new Fixture(stage, context, workspace, classifier, evidenceCollector);
     }
 

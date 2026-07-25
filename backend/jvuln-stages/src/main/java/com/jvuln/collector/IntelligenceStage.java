@@ -26,17 +26,20 @@ public class IntelligenceStage implements Stage {
     private final ArticleClassifier articleClassifier;
     private final EvidenceCollector evidenceCollector;
     private final IntelligenceAssembler assembler;
+    private final PatchCommitInferer patchCommitInferer;
 
     public IntelligenceStage(List<IntelSource> sources,
                              SourceCollector sourceCollector,
                              ArticleClassifier articleClassifier,
                              EvidenceCollector evidenceCollector,
-                             IntelligenceAssembler assembler) {
+                             IntelligenceAssembler assembler,
+                             PatchCommitInferer patchCommitInferer) {
         this.sources = supportedSources(sources);
         this.sourceCollector = sourceCollector;
         this.articleClassifier = articleClassifier;
         this.evidenceCollector = evidenceCollector;
         this.assembler = assembler;
+        this.patchCommitInferer = patchCommitInferer;
     }
 
     @Override
@@ -60,6 +63,23 @@ public class IntelligenceStage implements Stage {
             CveIntelligence partial = draft.toIntelligence("", Collections.emptyList(),
                     Collections.emptyList(), DescriptionAdjudication.notRun(message));
             return persistFailure(context, partial, message);
+        }
+
+        if (draft.getFixCommits().isEmpty() && draft.hasSourceRepo()) {
+            PatchCommitInferer.InferenceResult inference = patchCommitInferer.infer(
+                    cveId, draft.getDescription(), draft.getSourceRepo(), draft.getFixedVersions());
+            if (inference.hasResult()) {
+                for (String url : inference.getCommitUrls()) {
+                    draft.addFixCommit(url);
+                }
+                if (inference.getChosenVersion() != null) {
+                    draft.setFixedVersion(inference.getChosenVersion());
+                }
+                context.reportProgress("Inferred " + inference.getCommitUrls().size()
+                        + " patch commit(s) via LLM analysis");
+            } else {
+                context.reportProgress("Could not infer patch commits; will fall back to maven-source-diff");
+            }
         }
 
         List<CveIntelligence.Article> classified;
