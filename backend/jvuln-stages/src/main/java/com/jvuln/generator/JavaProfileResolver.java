@@ -55,6 +55,7 @@ class JavaProfileResolver {
             String artifactId = intel.at("/artifact/artifactId").asText("");
             String affectedTo = intel.at("/affectedVersions/to").asText("");
             String fixedVersion = intel.at("/fixedVersion").asText("");
+            log.info("Using fixedVersion as demo anchor: {}", fixedVersion);
 
             String profileListText = buildProfileList(profiles);
             String taskPrompt = promptRegistry.getPrompt("current/artifact-java-profile-resolver");

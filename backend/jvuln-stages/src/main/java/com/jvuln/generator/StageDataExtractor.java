@@ -14,6 +14,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Stage 数据提取器
@@ -134,10 +136,29 @@ class StageDataExtractor {
         String from = affectedVersions.path("from").asText(null);
         String fixedVersion = intel.path("fixedVersion").asText(null);
 
+        if (fixedVersion != null && !fixedVersion.isEmpty()) {
+            // fixedVersion is the Stage 4 anchor — use it to decide the major line.
+            // 'to' is the last *affected* version, so it must never equal fixedVersion
+            // (a patched version is not vulnerable); when it does, fall through to 'from'.
+            String fixedMajor = extractMajor(fixedVersion);
+            String toMajor = extractMajor(to);
+            if (toMajor != null && toMajor.equals(fixedMajor) && !to.equals(fixedVersion)) {
+                return to; // same major line → use 'to'
+            }
+            // Different major lines or to==fixedVersion; fall through to heuristic below
+        }
+        // Original heuristic: prefer 'to' if it differs from fixedVersion
         if (to != null && !to.equals(fixedVersion)) {
             return to;
         }
         return from;
+    }
+
+    /** Extract "X.Y" major.minor prefix for line-matching. */
+    private String extractMajor(String version) {
+        if (version == null) return null;
+        Matcher m = Pattern.compile("(\\d+\\.\\d+)").matcher(version);
+        return m.find() ? m.group(1) : null;
     }
 
     List<String> extractMethodsOfInterest(Object analysis) {
