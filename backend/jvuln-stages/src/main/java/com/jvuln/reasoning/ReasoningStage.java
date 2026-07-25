@@ -100,6 +100,7 @@ public class ReasoningStage implements Stage {
         copyField(root, out, "description");
         copyField(root, out, "cvss");
         copyField(root, out, "fixedVersion");
+        copyField(root, out, "fixedVersions");
         copyField(root, out, "artifact");
         copyField(root, out, "fixCommits");
         copyField(root, out, "affectedVersions");

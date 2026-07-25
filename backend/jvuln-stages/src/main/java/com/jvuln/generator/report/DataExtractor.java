@@ -125,6 +125,7 @@ public class DataExtractor {
         copyField(root, out, "description");
         copyField(root, out, "cvss");
         copyField(root, out, "fixedVersion");
+        copyField(root, out, "fixedVersions");
         copyField(root, out, "artifact");
         copyField(root, out, "affectedVersions");
         return mapper.writeValueAsString(out);
