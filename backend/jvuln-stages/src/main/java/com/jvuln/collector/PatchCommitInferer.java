@@ -127,10 +127,12 @@ public class PatchCommitInferer {
         JsonNode commits = compare.path("commits");
         if (!commits.isArray() || commits.isEmpty()) return InferenceResult.empty();
 
-        // Build commit log text: "SHA | message"
+        // Build commit log text: "SHA | message" and collect the set of real SHAs
         StringBuilder commitLog = new StringBuilder();
+        Set<String> knownShas = new LinkedHashSet<>();
         for (JsonNode c : commits) {
             String sha = c.path("sha").asText("");
+            if (!sha.isEmpty()) knownShas.add(sha);
             String msg = c.path("commit").path("message").asText("");
             String firstLine = msg.split("\n")[0];
             commitLog.append(sha).append(" | ").append(firstLine).append("\n");
@@ -151,19 +153,40 @@ public class PatchCommitInferer {
         // Parse response
         JsonNode result = mapper.readTree(extractJsonObject(response.getContent()));
         JsonNode commitsNode = result.path("commits");
-        List<String> commitUrls = new ArrayList<>();
-        if (commitsNode.isArray()) {
-            for (JsonNode shaNode : commitsNode) {
-                String sha = shaNode.asText("");
-                if (sha.length() >= 7) {
-                    String url = "https://github.com/" + owner + "/" + repo + "/commit/" + sha;
-                    commitUrls.add(url);
-                }
-            }
-        }
+        List<String> commitUrls = matchReturnedShas(commitsNode, knownShas, owner, repo);
 
         return commitUrls.isEmpty() ? InferenceResult.empty()
                 : new InferenceResult(commitUrls, fixedVersion);
+    }
+
+    /**
+     * Resolve LLM-returned SHAs to canonical commit URLs, accepting only values that
+     * correspond to a real commit present in the fetched compare log. The LLM may return
+     * a short SHA or a full one; either is matched against the known full SHAs and the URL
+     * is always built from the canonical full SHA.
+     */
+    List<String> matchReturnedShas(JsonNode commitsNode, Set<String> knownShas, String owner, String repo) {
+        Set<String> urls = new LinkedHashSet<>();
+        if (commitsNode == null || !commitsNode.isArray()) {
+            return new ArrayList<>(urls);
+        }
+        for (JsonNode shaNode : commitsNode) {
+            String sha = shaNode.asText("");
+            if (sha.length() < 7) continue;
+            String fullSha = null;
+            for (String known : knownShas) {
+                if (known.equals(sha) || known.startsWith(sha) || sha.startsWith(known)) {
+                    fullSha = known;
+                    break;
+                }
+            }
+            if (fullSha == null) {
+                log.warn("PatchCommitInferer: LLM returned SHA {} not present in compare log — skipping", sha);
+                continue;
+            }
+            urls.add("https://github.com/" + owner + "/" + repo + "/commit/" + fullSha);
+        }
+        return new ArrayList<>(urls);
     }
 
     private String findMatchingTag(JsonNode tags, String version) {
