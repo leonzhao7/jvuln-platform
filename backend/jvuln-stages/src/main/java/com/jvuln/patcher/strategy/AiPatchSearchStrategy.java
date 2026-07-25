@@ -139,27 +139,6 @@ public class AiPatchSearchStrategy {
             }
         }
 
-        // 3. Retry release tag comparison with AI-suggested tag
-        if (enrichment.sourceRepo != null && enrichment.sourceRepo.contains("github.com")
-                && enrichment.releaseTag != null) {
-            Matcher m = GITHUB_REPO_PAT.matcher(enrichment.sourceRepo);
-            if (m.find()) {
-                String fullName = resolveCanonicalFullName(m.group(1), m.group(2));
-                String[] parts = fullName.split("/", 2);
-                String owner = parts[0], repo = parts.length > 1 ? parts[1] : m.group(2);
-                log.info("AiPatchSearch: retrying release tag comparison tag={}", enrichment.releaseTag);
-                try {
-                    Optional<PatchResult> result = diffFromReleaseTag(owner, repo, enrichment.releaseTag, cveId);
-                    if (result.isPresent()) {
-                        log.info("AiPatchSearch: found patch via release tag {}", enrichment.releaseTag);
-                        return Optional.of(new AiPatchOutcome(result.get(), enrichment));
-                    }
-                } catch (Exception e) {
-                    log.warn("AiPatchSearch: release tag diff failed: {}", e.getMessage());
-                }
-            }
-        }
-
         log.info("AiPatchSearch: no patch found after exhausting all AI-guided retries");
         return Optional.of(new AiPatchOutcome(null, enrichment));
     }
@@ -299,66 +278,6 @@ public class AiPatchSearchStrategy {
             }
         }
         return Optional.empty();
-    }
-
-    private Optional<PatchResult> diffFromReleaseTag(String owner, String repo,
-                                                       String fixedTag, String cveId) throws Exception {
-        String tagsJson = webClient.get()
-                .uri("/repos/" + owner + "/" + repo + "/tags?per_page=100")
-                .header("Accept", "application/vnd.github+json")
-                .retrieve().bodyToMono(String.class).block();
-        if (tagsJson == null) return Optional.empty();
-        JsonNode tags = mapper.readTree(tagsJson);
-        if (!tags.isArray()) return Optional.empty();
-
-        String prevTag = null;
-        for (int i = 0; i < tags.size(); i++) {
-            if (fixedTag.equals(tags.path(i).path("name").asText(""))) {
-                if (i + 1 < tags.size()) prevTag = tags.path(i + 1).path("name").asText(null);
-                break;
-            }
-        }
-        if (prevTag == null) {
-            log.warn("AiPatchSearch: tag '{}' not found or has no predecessor in {}/{}", fixedTag, owner, repo);
-            return Optional.empty();
-        }
-        log.info("AiPatchSearch: comparing {}/{}  {}...{}", owner, repo, prevTag, fixedTag);
-
-        String compareJson = webClient.get()
-                .uri("/repos/" + owner + "/" + repo + "/compare/" + prevTag + "..." + fixedTag)
-                .header("Accept", "application/vnd.github+json")
-                .retrieve().bodyToMono(String.class).block();
-        if (compareJson == null) return Optional.empty();
-        JsonNode compare = mapper.readTree(compareJson);
-        JsonNode commits = compare.path("commits");
-        if (!commits.isArray() || commits.isEmpty()) return Optional.empty();
-
-        StringBuilder combinedDiff = new StringBuilder();
-        String firstUrl = null, firstHash = null;
-        for (JsonNode c : commits) {
-            String sha = c.path("sha").asText("");
-            String msg = c.path("commit").path("message").asText("").toLowerCase();
-            boolean relevant = msg.contains("fix") || msg.contains("security") || msg.contains("cve")
-                    || msg.contains("inject") || msg.contains("patch") || msg.contains("vuln");
-            if (!relevant && commits.size() > 5) continue;
-            try {
-                String diff = webClient.get()
-                        .uri("/repos/" + owner + "/" + repo + "/commits/" + sha)
-                        .header("Accept", "application/vnd.github.diff")
-                        .retrieve().bodyToMono(String.class).block();
-                if (diff != null && diff.contains("diff --git")) {
-                    if (firstUrl == null) {
-                        firstUrl = "https://github.com/" + owner + "/" + repo + "/commit/" + sha;
-                        firstHash = sha;
-                    }
-                    combinedDiff.append(diff).append("\n");
-                }
-            } catch (Exception e) {
-                log.warn("AiPatchSearch: diff fetch failed for {}: {}", sha, e.getMessage());
-            }
-        }
-        if (combinedDiff.length() == 0) return Optional.empty();
-        return Optional.of(new PatchResult(firstUrl, firstHash, "", combinedDiff.toString()));
     }
 
     private String resolveCanonicalFullName(String owner, String repo) {
