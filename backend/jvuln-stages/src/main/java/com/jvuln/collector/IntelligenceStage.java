@@ -65,21 +65,26 @@ public class IntelligenceStage implements Stage {
             return persistFailure(context, partial, message);
         }
 
-        if (draft.getFixCommits().isEmpty() && draft.hasSourceRepo()) {
-            PatchCommitInferer.InferenceResult inference = patchCommitInferer.infer(
-                    cveId, draft.getDescription(), draft.getSourceRepo(), draft.getFixedVersions());
-            if (inference.hasResult()) {
-                for (String url : inference.getCommitUrls()) {
-                    draft.addFixCommit(url);
+        try {
+            if (draft.getFixCommits().isEmpty() && draft.hasSourceRepo()) {
+                PatchCommitInferer.InferenceResult inference = patchCommitInferer.infer(
+                        cveId, draft.getDescription(), draft.getSourceRepo(), draft.getFixedVersions());
+                if (inference.hasResult()) {
+                    for (String url : inference.getCommitUrls()) {
+                        draft.addFixCommit(url);
+                    }
+                    if (inference.getChosenVersion() != null) {
+                        draft.setFixedVersion(inference.getChosenVersion());
+                    }
+                    context.reportProgress("Inferred " + inference.getCommitUrls().size()
+                            + " patch commit(s) via LLM analysis");
+                } else {
+                    context.reportProgress("Could not infer patch commits; will fall back to maven-source-diff");
                 }
-                if (inference.getChosenVersion() != null) {
-                    draft.setFixedVersion(inference.getChosenVersion());
-                }
-                context.reportProgress("Inferred " + inference.getCommitUrls().size()
-                        + " patch commit(s) via LLM analysis");
-            } else {
-                context.reportProgress("Could not infer patch commits; will fall back to maven-source-diff");
             }
+        } catch (Exception e) {
+            context.reportProgress("Patch commit inference failed: " + e.getMessage()
+                    + "; will fall back to maven-source-diff");
         }
 
         List<CveIntelligence.Article> classified;
