@@ -95,6 +95,32 @@ class IntelligenceStageTest {
         assertFalse(fixture.evidenceCollector.called);
     }
 
+    @Test
+    void assembledIntelligenceHasFixedVersions() {
+        SourceData nvdData = new SourceData("CWE-502", "9.8", "CVSS:3.1", "CRITICAL",
+                "org.example", "demo", "1.0", "< 2.0", "2.0",
+                "https://github.com/example/demo", Collections.singletonList("commit-abc"),
+                Collections.<CveIntelligence.Article>emptyList(),
+                Arrays.asList("2.0.0", "1.5.3"));
+        SourceData osvData = new SourceData("", "", "", "", "", "", "", "", "", "",
+                Collections.<String>emptyList(), Collections.<CveIntelligence.Article>emptyList(),
+                Arrays.asList("1.5.3", "3.1.0"));
+        List<SourceResult> results = Arrays.asList(
+                new SourceResult(SourceResult.Source.NVD, SourceResult.Status.SUCCESS, 10, "", "",
+                        "NVD original description", nvdData, "{}"),
+                new SourceResult(SourceResult.Source.OSV, SourceResult.Status.SUCCESS, 10, "", "",
+                        "OSV original description", osvData, "{}"));
+
+        IntelligenceAssembler assembler = new IntelligenceAssembler();
+        IntelligenceAssembler.Draft draft = assembler.merge(CVE, results);
+        CveIntelligence intelligence = draft.toIntelligence("desc",
+                Collections.<CveIntelligence.Article>emptyList(),
+                Collections.<EvidenceResult>emptyList(),
+                DescriptionAdjudication.notRun(""));
+
+        assertEquals(Arrays.asList("2.0.0", "1.5.3", "3.1.0"), intelligence.getFixedVersions());
+    }
+
     private Fixture fixture(List<SourceResult> results) throws Exception {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         WorkspaceManager workspace = new WorkspaceManager(tempDir.toString(), mapper);

@@ -22,6 +22,7 @@ public class CveIntelligence {
     private final String fixedVersion;
     private final String sourceRepo;
     private final List<String> fixCommits;
+    private final List<String> fixedVersions;
     private final List<Article> articles;
     private final List<ReferenceFinding> referenceFindings;
     private final Instant collectedAt;
@@ -35,7 +36,8 @@ public class CveIntelligence {
                            List<String> fixCommits, List<Article> articles,
                            List<ReferenceFinding> referenceFindings, Instant collectedAt) {
         this(cveId, description, cvss, cweId, artifact, affectedVersions,
-                fixedVersion, sourceRepo, fixCommits, articles, referenceFindings,
+                fixedVersion, sourceRepo, fixCommits,
+                Collections.<String>emptyList(), articles, referenceFindings,
                 collectedAt, Collections.<SourceResult>emptyList(),
                 Collections.<EvidenceResult>emptyList(), DescriptionAdjudication.notRun(""));
     }
@@ -51,6 +53,7 @@ public class CveIntelligence {
             @JsonProperty("fixedVersion") String fixedVersion,
             @JsonProperty("sourceRepo") String sourceRepo,
             @JsonProperty("fixCommits") List<String> fixCommits,
+            @JsonProperty("fixedVersions") List<String> fixedVersions,
             @JsonProperty("articles") List<Article> articles,
             @JsonProperty("referenceFindings") List<ReferenceFinding> referenceFindings,
             @JsonProperty("collectedAt") Instant collectedAt,
@@ -66,6 +69,7 @@ public class CveIntelligence {
         this.fixedVersion = text(fixedVersion);
         this.sourceRepo = text(sourceRepo);
         this.fixCommits = immutableList(fixCommits);
+        this.fixedVersions = immutableList(fixedVersions);
         this.articles = immutableList(articles);
         this.referenceFindings = immutableList(referenceFindings);
         this.collectedAt = collectedAt;
@@ -84,6 +88,7 @@ public class CveIntelligence {
     public String getFixedVersion() { return fixedVersion; }
     public String getSourceRepo() { return sourceRepo; }
     public List<String> getFixCommits() { return fixCommits; }
+    public List<String> getFixedVersions() { return fixedVersions; }
     public List<Article> getArticles() { return articles; }
     public List<ReferenceFinding> getReferenceFindings() { return referenceFindings; }
     public Instant getCollectedAt() { return collectedAt; }

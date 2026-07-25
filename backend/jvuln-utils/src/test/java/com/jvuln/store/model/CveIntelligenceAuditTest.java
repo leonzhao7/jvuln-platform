@@ -65,6 +65,7 @@ class CveIntelligenceAuditTest {
                 new CveIntelligence.VersionRange("1.0.0", "< 2.0.0"), "2.0.0",
                 "https://github.com/example/demo",
                 Collections.singletonList("https://github.com/example/demo/commit/abc"),
+                Collections.<String>emptyList(),
                 Collections.singletonList(classified), Collections.emptyList(), Instant.EPOCH,
                 Collections.singletonList(source), Collections.singletonList(evidence), adjudication);
 

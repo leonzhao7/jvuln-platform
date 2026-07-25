@@ -44,8 +44,13 @@ public class IntelligenceAssembler {
             draft.fixedVersion = first(draft.fixedVersion, data.getFixedVersion());
             draft.sourceRepo = first(draft.sourceRepo, data.getSourceRepo());
             draft.fixCommits.addAll(data.getFixCommits());
+            draft.fixedVersions.addAll(data.getFixedVersions());
             draft.articles.addAll(data.getReferences());
         }
+        // Dedupe fixedVersions across sources preserving first-encountered order
+        Set<String> seen = new LinkedHashSet<>(draft.fixedVersions);
+        draft.fixedVersions.clear();
+        draft.fixedVersions.addAll(seen);
         applyCompatibleFallbacks(draft, draft.description);
         return draft;
     }
@@ -132,6 +137,7 @@ public class IntelligenceAssembler {
         private String fixedVersion = "";
         private String sourceRepo = "";
         private final Set<String> fixCommits = new LinkedHashSet<>();
+        private final List<String> fixedVersions = new ArrayList<>();
         private final List<CveIntelligence.Article> articles = new ArrayList<>();
 
         private Draft(String cveId, List<SourceResult> sourceResults) {
@@ -157,6 +163,7 @@ public class IntelligenceAssembler {
                     cweId, new CveIntelligence.MavenCoordinate(groupId, artifactId),
                     new CveIntelligence.VersionRange(affectedFrom, affectedTo),
                     fixedVersion, sourceRepo, new ArrayList<>(fixCommits),
+                    new ArrayList<>(fixedVersions),
                     classifiedArticles, Collections.<CveIntelligence.ReferenceFinding>emptyList(),
                     collectedAt, sourceResults, evidence, adjudication);
         }
