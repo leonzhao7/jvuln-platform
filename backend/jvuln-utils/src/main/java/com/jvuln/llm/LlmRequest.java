@@ -128,12 +128,21 @@ public class LlmRequest {
         private JsonNode toolInput;
         private String toolResultContent;
         private boolean isError;
+        private String mediaType;
+        private String base64Data;
 
         private ContentBlock(String type) { this.type = type; }
 
         public static ContentBlock text(String text) {
             ContentBlock b = new ContentBlock("text");
             b.text = text;
+            return b;
+        }
+
+        public static ContentBlock image(String mediaType, String base64Data) {
+            ContentBlock b = new ContentBlock("image");
+            b.mediaType = mediaType;
+            b.base64Data = base64Data;
             return b;
         }
 
@@ -168,6 +177,8 @@ public class LlmRequest {
         public JsonNode getToolInput() { return toolInput; }
         public String getToolResultContent() { return toolResultContent; }
         public boolean isError() { return isError; }
+        public String getMediaType() { return mediaType; }
+        public String getBase64Data() { return base64Data; }
     }
 
     // ==================== ToolDef ====================

@@ -1,9 +1,13 @@
 package com.jvuln.collector;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jvuln.store.WorkspaceManager;
 import com.jvuln.store.model.CveIntelligence;
+import com.jvuln.store.model.EvidenceImage;
 import com.jvuln.store.model.EvidenceResult;
 import com.jvuln.store.model.SourceResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -23,10 +27,13 @@ import static com.jvuln.util.ValueUtils.limit;
 @Component
 public class EvidenceCollector {
 
+    private static final Logger log = LoggerFactory.getLogger(EvidenceCollector.class);
     private static final int DEFAULT_TOTAL_BUDGET = 24_000;
     private static final int MAX_ADVISORIES = 5;
     private static final int MAX_PATCHES = 5;
     private static final int MAX_ANALYSES = 3;
+    private static final int MAX_ISSUE_PAGES = 5;
+    private static final int MAX_IMAGES_PER_EVIDENCE = 6;
     private static final int MAX_SOURCE_DESCRIPTION = 3000;
     private static final int MAX_SOURCE_FACTS = 4000;
     private static final Set<String> TRUSTED_ADVISORY_HOSTS = new HashSet<>(Arrays.asList(
@@ -52,15 +59,29 @@ public class EvidenceCollector {
 
     public List<EvidenceResult> collect(List<SourceResult> sources,
                                         List<CveIntelligence.Article> articles) {
+        return collect(sources, articles, null, null);
+    }
+
+    /**
+     * Collects evidence and, when a workspace is supplied, downloads screenshots from
+     * issue/PR/PoC references so disputed or unpatched CVEs still carry their visual PoC.
+     */
+    public List<EvidenceResult> collect(List<SourceResult> sources,
+                                        List<CveIntelligence.Article> articles,
+                                        String cveId, WorkspaceManager workspace) {
         List<EvidenceResult> evidence = new ArrayList<>();
         Budget budget = new Budget(totalBudget);
+        ImageSink imageSink = cveId != null && workspace != null
+                ? new ImageSink(cveId, workspace) : null;
         addInlineSources(evidence, budget, sources);
         addLinked(evidence, budget, selectTrustedAdvisories(articles),
-                EvidenceResult.Kind.ADVISORY);
+                EvidenceResult.Kind.ADVISORY, imageSink);
         addLinked(evidence, budget, select(articles, "patch", MAX_PATCHES),
-                EvidenceResult.Kind.PATCH);
+                EvidenceResult.Kind.PATCH, imageSink);
         addLinked(evidence, budget, selectTrustedAnalyses(articles),
-                EvidenceResult.Kind.ANALYSIS);
+                EvidenceResult.Kind.ANALYSIS, imageSink);
+        addLinked(evidence, budget, selectIssuePages(articles),
+                EvidenceResult.Kind.ANALYSIS, imageSink);
         return Collections.unmodifiableList(evidence);
     }
 
@@ -94,21 +115,65 @@ public class EvidenceCollector {
 
     private void addLinked(List<EvidenceResult> evidence, Budget budget,
                            List<CveIntelligence.Article> articles,
-                           EvidenceResult.Kind kind) {
+                           EvidenceResult.Kind kind, ImageSink imageSink) {
         for (CveIntelligence.Article article : articles) {
+            if (alreadyCollected(evidence, kind, article.getUrl())) {
+                continue;
+            }
             EvidencePageFetcher.FetchOutcome outcome = fetcher.fetch(article.getUrl());
             String excerpt = outcome.getStatus() == EvidenceResult.FetchStatus.SUCCESS
                     ? budget.take(outcome.getExcerpt()) : "";
             EvidenceResult.FetchStatus status = outcome.getStatus();
             String error = outcome.getErrorMessage();
-            if (status == EvidenceResult.FetchStatus.SUCCESS && excerpt.isEmpty()) {
+            if (status == EvidenceResult.FetchStatus.SUCCESS && excerpt.isEmpty()
+                    && outcome.getImageUrls().isEmpty()) {
                 status = EvidenceResult.FetchStatus.REJECTED;
                 error = "Aggregate evidence context budget exhausted";
             }
+            List<EvidenceImage> images = imageSink == null
+                    ? Collections.emptyList()
+                    : imageSink.download(outcome.getImageUrls());
             evidence.add(new EvidenceResult(stableId(kind, article.getUrl()), kind,
                     String.join(",", article.getDiscoveredFrom()), article.getTitle(),
-                    article.getUrl(), status, excerpt, error));
+                    article.getUrl(), status, excerpt, error, images));
         }
+    }
+
+    private boolean alreadyCollected(List<EvidenceResult> evidence,
+                                     EvidenceResult.Kind kind, String url) {
+        String id = stableId(kind, url);
+        for (EvidenceResult existing : evidence) {
+            if (existing.getEvidenceId().equals(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<CveIntelligence.Article> selectIssuePages(
+            List<CveIntelligence.Article> articles) {
+        List<CveIntelligence.Article> selected = new ArrayList<>();
+        if (articles == null) {
+            return selected;
+        }
+        for (CveIntelligence.Article article : articles) {
+            if (isIssueOrPocUrl(article.getUrl())) {
+                selected.add(article);
+                if (selected.size() == MAX_ISSUE_PAGES) {
+                    break;
+                }
+            }
+        }
+        return selected;
+    }
+
+    private boolean isIssueOrPocUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        return lower.contains("/issues/") || lower.contains("/pull/")
+                || lower.contains("/pulls/");
     }
 
     private List<CveIntelligence.Article> select(
@@ -197,6 +262,53 @@ public class EvidenceCollector {
             return "E-" + kind.name() + "-" + hex;
         } catch (Exception e) {
             throw new IllegalStateException("Could not create evidence ID", e);
+        }
+    }
+
+    private class ImageSink {
+        private final String cveId;
+        private final WorkspaceManager workspace;
+        private int index;
+
+        private ImageSink(String cveId, WorkspaceManager workspace) {
+            this.cveId = cveId;
+            this.workspace = workspace;
+        }
+
+        private List<EvidenceImage> download(List<String> imageUrls) {
+            if (imageUrls == null || imageUrls.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<EvidenceImage> images = new ArrayList<>();
+            for (String imageUrl : imageUrls) {
+                if (images.size() >= MAX_IMAGES_PER_EVIDENCE) {
+                    break;
+                }
+                EvidencePageFetcher.ImageOutcome outcome = fetcher.fetchImage(imageUrl);
+                if (!outcome.isSuccess()) {
+                    log.debug("Skipping image {}: {}", imageUrl, outcome.getErrorMessage());
+                    continue;
+                }
+                try {
+                    String fileName = "ref-" + (++index) + extension(outcome.getMediaType());
+                    String relativePath = workspace.writeReferenceImage(
+                            cveId, fileName, outcome.getData());
+                    images.add(new EvidenceImage(imageUrl, outcome.getMediaType(), relativePath));
+                } catch (Exception e) {
+                    log.debug("Could not persist image {}: {}", imageUrl, e.getMessage());
+                }
+            }
+            return images;
+        }
+
+        private String extension(String mediaType) {
+            switch (mediaType) {
+                case "image/png": return ".png";
+                case "image/jpeg": return ".jpg";
+                case "image/gif": return ".gif";
+                case "image/webp": return ".webp";
+                default: return ".img";
+            }
         }
     }
 

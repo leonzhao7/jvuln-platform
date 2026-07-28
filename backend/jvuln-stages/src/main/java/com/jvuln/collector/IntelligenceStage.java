@@ -105,7 +105,8 @@ public class IntelligenceStage implements Stage {
 
         List<EvidenceResult> evidence;
         try {
-            evidence = evidenceCollector.collect(sourceResults, classified);
+            evidence = evidenceCollector.collect(sourceResults, classified,
+                    cveId, context.getWorkspaceManager());
         } catch (Exception e) {
             String message = "Evidence collection failed: " + errorMessage(e, 500);
             CveIntelligence partial = draft.toIntelligence("", classified,

@@ -127,6 +127,30 @@ public class WorkspaceManager {
         return objectMapper.readValue(file.toFile(), type);
     }
 
+    /** Writes a reference image under references/images and returns its workspace-relative path. */
+    public String writeReferenceImage(String cveId, String fileName, byte[] data) throws IOException {
+        Path dir = getCvePath(cveId).resolve("references/images");
+        Files.createDirectories(dir);
+        Path target = dir.resolve(fileName).normalize();
+        if (!target.startsWith(dir)) {
+            throw new SecurityException("Path traversal attempt detected: " + fileName);
+        }
+        Files.write(target, data);
+        return getCvePath(cveId).relativize(target).toString().replace('\\', '/');
+    }
+
+    public byte[] readReferenceImage(String cveId, String relativePath) throws IOException {
+        Path base = getCvePath(cveId);
+        Path target = base.resolve(relativePath).normalize();
+        if (!target.startsWith(base)) {
+            throw new SecurityException("Path traversal attempt detected: " + relativePath);
+        }
+        if (!Files.exists(target)) {
+            return null;
+        }
+        return Files.readAllBytes(target);
+    }
+
     public void writeDiff(String cveId, String diffContent) throws IOException {
         Path diffFile = getCvePath(cveId).resolve("patches/fix.diff");
         Files.write(diffFile, diffContent.getBytes(StandardCharsets.UTF_8));

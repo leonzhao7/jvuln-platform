@@ -146,5 +146,10 @@ class EvidenceCollectorTest {
             }
             return FetchOutcome.success("Fetched evidence from " + url);
         }
+
+        @Override
+        public ImageOutcome fetchImage(String url) {
+            return ImageOutcome.failed("unused");
+        }
     }
 }

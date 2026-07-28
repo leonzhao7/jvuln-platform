@@ -257,13 +257,23 @@ class IntelligenceStageTest {
         private boolean called;
 
         private FakeEvidenceCollector() {
-            super(url -> EvidencePageFetcher.FetchOutcome.failed("unused"),
-                    new ObjectMapper(), 1000);
+            super(new EvidencePageFetcher() {
+                @Override
+                public FetchOutcome fetch(String url) {
+                    return FetchOutcome.failed("unused");
+                }
+
+                @Override
+                public ImageOutcome fetchImage(String url) {
+                    return ImageOutcome.failed("unused");
+                }
+            }, new ObjectMapper(), 1000);
         }
 
         @Override
         public List<EvidenceResult> collect(List<SourceResult> sources,
-                                            List<CveIntelligence.Article> articles) {
+                                            List<CveIntelligence.Article> articles,
+                                            String cveId, WorkspaceManager workspace) {
             called = true;
             return Collections.singletonList(new EvidenceResult(
                     "E-SRC-NVD-DESC", EvidenceResult.Kind.SOURCE_DESCRIPTION,

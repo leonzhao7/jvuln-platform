@@ -141,6 +141,15 @@ public class MessagesCaller extends AbstractLlmCaller {
             item.put("text", valueOrEmpty(block.getText()));
             return item;
         }
+        if ("image".equals(block.getType())) {
+            item.put("type", "image");
+            ObjectNode source = mapper.createObjectNode();
+            source.put("type", "base64");
+            source.put("media_type", valueOrEmpty(block.getMediaType()));
+            source.put("data", valueOrEmpty(block.getBase64Data()));
+            item.set("source", source);
+            return item;
+        }
         if ("tool_use".equals(block.getType())) {
             item.put("type", "tool_use");
             item.put("id", block.getToolUseId());

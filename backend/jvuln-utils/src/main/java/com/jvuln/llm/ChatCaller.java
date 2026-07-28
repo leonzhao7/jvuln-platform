@@ -169,8 +169,42 @@ public class ChatCaller extends AbstractLlmCaller {
         }
         ObjectNode item = mapper.createObjectNode();
         item.put("role", message.getRole());
-        item.put("content", textFromBlocks(blocks));
+        if (hasImage(blocks)) {
+            item.set("content", serializeUserContent(blocks));
+        } else {
+            item.put("content", textFromBlocks(blocks));
+        }
         messages.add(item);
+    }
+
+    private boolean hasImage(List<LlmRequest.ContentBlock> blocks) {
+        for (LlmRequest.ContentBlock block : blocks) {
+            if ("image".equals(block.getType())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ArrayNode serializeUserContent(List<LlmRequest.ContentBlock> blocks) {
+        ArrayNode content = mapper.createArrayNode();
+        for (LlmRequest.ContentBlock block : blocks) {
+            if ("text".equals(block.getType())) {
+                ObjectNode part = mapper.createObjectNode();
+                part.put("type", "text");
+                part.put("text", valueOrEmpty(block.getText()));
+                content.add(part);
+            } else if ("image".equals(block.getType())) {
+                ObjectNode part = mapper.createObjectNode();
+                part.put("type", "image_url");
+                ObjectNode imageUrl = mapper.createObjectNode();
+                imageUrl.put("url", "data:" + valueOrEmpty(block.getMediaType())
+                        + ";base64," + valueOrEmpty(block.getBase64Data()));
+                part.set("image_url", imageUrl);
+                content.add(part);
+            }
+        }
+        return content;
     }
 
     private ObjectNode serializeAssistant(List<LlmRequest.ContentBlock> blocks) {

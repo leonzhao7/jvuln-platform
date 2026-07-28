@@ -2,6 +2,7 @@ package com.jvuln.reasoning;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jvuln.llm.LlmRequest;
 import com.jvuln.llm.LlmResponse;
@@ -10,11 +11,17 @@ import com.jvuln.llm.PromptRegistry;
 import com.jvuln.pipeline.model.PipelineContext;
 import com.jvuln.pipeline.model.StageResult;
 import com.jvuln.pipeline.stage.Stage;
+import com.jvuln.store.model.EvidenceImage;
+import com.jvuln.store.model.EvidenceResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -43,10 +50,15 @@ public class ReasoningStage implements Stage {
         String taskPrompt = promptRegistry.getPrompt("current/reasoning-system");
         String userTemplate = promptRegistry.getPrompt("current/reasoning-user");
 
-        String intelligence = trimIntelligence(ctx.getCompletedStages().get(1).getData());
+        Object stage1Data = ctx.getCompletedStages().get(1).getData();
+        String intelligence = trimIntelligence(stage1Data);
         StageResult stage2  = ctx.getCompletedStages().get(2);
         String codeAnalysis = trimCodeAnalysis(stage2 != null ? stage2.getData() : null);
         String vulnerabilityFacts = extractVulnerabilityFacts(stage2 != null ? stage2.getData() : null);
+        List<LlmRequest.ContentBlock> images = collectEvidenceImages(ctx, stage1Data);
+        if (!images.isEmpty()) {
+            ctx.reportProgress("Attaching " + images.size() + " reference screenshot(s) to reasoning");
+        }
 
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             if (attempt > 0) {
@@ -62,7 +74,7 @@ public class ReasoningStage implements Stage {
             vars.put("vulnerability_facts", vulnerabilityFacts);
             vars.put("code_analysis", codeAnalysis);
             String userPrompt = promptRegistry.render(userTemplate, vars);
-            LlmRequest request = LlmRequest.reasoning(LlmPromptStage.REASONING, taskPrompt, userPrompt);
+            LlmRequest request = buildRequest(taskPrompt, userPrompt, images);
 
             try {
                 ctx.reportProgress("AI reasoning attempt " + (attempt + 1));
@@ -104,7 +116,82 @@ public class ReasoningStage implements Stage {
         copyField(root, out, "artifact");
         copyField(root, out, "fixCommits");
         copyField(root, out, "affectedVersions");
+        appendEvidenceText(root, out);
         return mapper.writeValueAsString(out);
+    }
+
+    /** Fold Stage 1 evidence excerpts (advisory/issue/PoC text) into the reasoning input. */
+    private void appendEvidenceText(JsonNode root, ObjectNode out) {
+        JsonNode evidenceResults = root.path("evidenceResults");
+        if (!evidenceResults.isArray() || evidenceResults.size() == 0) {
+            return;
+        }
+        ArrayNode evidence = mapper.createArrayNode();
+        for (JsonNode item : evidenceResults) {
+            String excerpt = item.path("excerpt").asText("");
+            if (excerpt.trim().isEmpty()) {
+                continue;
+            }
+            ObjectNode entry = mapper.createObjectNode();
+            entry.put("kind", item.path("kind").asText(""));
+            entry.put("source", item.path("source").asText(""));
+            entry.put("title", item.path("title").asText(""));
+            entry.put("url", item.path("url").asText(""));
+            entry.put("excerpt", excerpt);
+            evidence.add(entry);
+        }
+        if (evidence.size() > 0) {
+            out.set("evidence", evidence);
+        }
+    }
+
+    /** Build a reasoning request, attaching reference screenshots as image blocks when present. */
+    private LlmRequest buildRequest(String taskPrompt, String userPrompt,
+                                    List<LlmRequest.ContentBlock> images) {
+        if (images.isEmpty()) {
+            return LlmRequest.reasoning(LlmPromptStage.REASONING, taskPrompt, userPrompt);
+        }
+        List<LlmRequest.ContentBlock> blocks = new ArrayList<>();
+        blocks.add(LlmRequest.ContentBlock.text(userPrompt));
+        blocks.addAll(images);
+        LlmRequest.Message message = new LlmRequest.Message("user", blocks);
+        return new LlmRequest(LlmPromptStage.REASONING, taskPrompt,
+                Collections.singletonList(message), true);
+    }
+
+    /** Read screenshots downloaded in Stage 1 and turn them into image content blocks. */
+    private List<LlmRequest.ContentBlock> collectEvidenceImages(PipelineContext ctx,
+                                                                Object stage1Data) {
+        List<LlmRequest.ContentBlock> blocks = new ArrayList<>();
+        JsonNode root = mapper.valueToTree(stage1Data);
+        JsonNode evidenceResults = root.path("evidenceResults");
+        if (!evidenceResults.isArray()) {
+            return blocks;
+        }
+        for (JsonNode item : evidenceResults) {
+            JsonNode imageNodes = item.path("images");
+            if (!imageNodes.isArray()) {
+                continue;
+            }
+            for (JsonNode imageNode : imageNodes) {
+                String relativePath = imageNode.path("relativePath").asText("");
+                String mediaType = imageNode.path("mediaType").asText("");
+                if (relativePath.isEmpty() || mediaType.isEmpty()) {
+                    continue;
+                }
+                try {
+                    byte[] data = ctx.getWorkspaceManager()
+                            .readReferenceImage(ctx.getCveId(), relativePath);
+                    if (data != null && data.length > 0) {
+                        blocks.add(LlmRequest.ContentBlock.image(
+                                mediaType, Base64.getEncoder().encodeToString(data)));
+                    }
+                } catch (Exception e) {
+                    log.warn("Could not read reference image {}: {}", relativePath, e.getMessage());
+                }
+            }
+        }
+        return blocks;
     }
 
 

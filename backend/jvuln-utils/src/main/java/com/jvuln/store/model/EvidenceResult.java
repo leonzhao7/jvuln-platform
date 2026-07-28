@@ -4,6 +4,10 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import static com.jvuln.util.ValueUtils.text;
 
 public class EvidenceResult {
@@ -19,6 +23,13 @@ public class EvidenceResult {
     private final FetchStatus fetchStatus;
     private final String excerpt;
     private final String errorMessage;
+    private final List<EvidenceImage> images;
+
+    public EvidenceResult(String evidenceId, Kind kind, String source, String title,
+                          String url, FetchStatus fetchStatus, String excerpt,
+                          String errorMessage) {
+        this(evidenceId, kind, source, title, url, fetchStatus, excerpt, errorMessage, null);
+    }
 
     @JsonCreator
     public EvidenceResult(
@@ -29,7 +40,8 @@ public class EvidenceResult {
             @JsonProperty("url") String url,
             @JsonProperty("fetchStatus") FetchStatus fetchStatus,
             @JsonProperty("excerpt") String excerpt,
-            @JsonProperty("errorMessage") String errorMessage) {
+            @JsonProperty("errorMessage") String errorMessage,
+            @JsonProperty("images") List<EvidenceImage> images) {
         this.evidenceId = text(evidenceId);
         this.kind = kind;
         this.source = text(source);
@@ -38,6 +50,9 @@ public class EvidenceResult {
         this.fetchStatus = fetchStatus;
         this.excerpt = text(excerpt);
         this.errorMessage = text(errorMessage);
+        this.images = images == null || images.isEmpty()
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(new ArrayList<>(images));
     }
 
     public String getEvidenceId() { return evidenceId; }
@@ -48,6 +63,7 @@ public class EvidenceResult {
     public FetchStatus getFetchStatus() { return fetchStatus; }
     public String getExcerpt() { return excerpt; }
     public String getErrorMessage() { return errorMessage; }
+    public List<EvidenceImage> getImages() { return images; }
 
     @JsonIgnore
     public boolean isAvailable() {
