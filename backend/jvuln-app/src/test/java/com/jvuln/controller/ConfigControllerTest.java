@@ -8,6 +8,7 @@ import com.jvuln.llm.impl.LlmConfigProvider;
 import com.jvuln.llm.impl.OpenAiCompatClient;
 import com.jvuln.store.JavaProfileRepository;
 import com.jvuln.store.LlmConfigRepository;
+import com.jvuln.store.ProxySettingsService;
 import com.jvuln.store.entity.LlmConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,11 +28,12 @@ class ConfigControllerTest {
     private final JavaProfileRepository javaProfiles = mock(JavaProfileRepository.class);
     private final PromptRegistry prompts = mock(PromptRegistry.class);
     private final OpenAiCompatClient client = mock(OpenAiCompatClient.class);
+    private final ProxySettingsService proxySettings = mock(ProxySettingsService.class);
     private ConfigController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new ConfigController(repository, javaProfiles, prompts, client);
+        controller = new ConfigController(repository, javaProfiles, prompts, client, proxySettings);
     }
 
     @Test

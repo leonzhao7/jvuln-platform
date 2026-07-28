@@ -13,8 +13,8 @@ import java.util.List;
 public class ChatCaller extends AbstractLlmCaller {
 
     public ChatCaller(LlmConfigProvider.ActiveConfig config, ObjectMapper mapper,
-                      LlmAuditLogger auditLogger) {
-        super(config, mapper, LlmEndpoint.CHAT_COMPLETIONS, false, auditLogger);
+                      LlmAuditLogger auditLogger, int llmTimeoutMs) {
+        super(config, mapper, LlmEndpoint.CHAT_COMPLETIONS, false, auditLogger, llmTimeoutMs);
     }
 
     @Override

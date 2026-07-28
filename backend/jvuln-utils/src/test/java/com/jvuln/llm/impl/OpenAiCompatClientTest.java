@@ -75,7 +75,7 @@ class OpenAiCompatClientTest {
         private LlmConfigProvider.ActiveConfig lastConfig;
 
         private CapturingFactory(LlmProtocolCaller caller) {
-            super(new LlmAuditLogger());
+            super(new LlmAuditLogger(), null);
             this.caller = caller;
         }
 

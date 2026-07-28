@@ -351,6 +351,27 @@ const enUS = {
     nameRequired: 'Name is required',
     javaHomeRequired: 'JAVA_HOME and Spring Boot version are required',
   },
+  proxy: {
+    title: 'Proxy & Timeouts',
+    proxyType: 'Proxy Type',
+    proxyHost: 'Proxy Host',
+    proxyHostPlaceholder: 'e.g. 127.0.0.1',
+    proxyPort: 'Proxy Port',
+    proxyPortPlaceholder: 'e.g. 1080',
+    proxyScope: 'Scope',
+    scopeLlm: 'LLM Requests',
+    scopeUrl: 'URL Access',
+    urlConnectTimeout: 'URL Connect Timeout (ms)',
+    urlReadTimeout: 'URL Read Timeout (ms)',
+    llmTimeout: 'LLM Timeout (ms)',
+    save: 'Save',
+    saveSuccess: 'Proxy settings saved',
+    saveFailed: 'Save failed',
+    loadFailed: 'Failed to load proxy settings',
+    testOk: '✓ Proxy settings valid',
+    testFail: '✗ Proxy settings invalid',
+    hostPortRequired: 'Proxy host and port are required',
+  },
 }
 
 export default enUS

@@ -3,12 +3,17 @@ package com.jvuln.collector;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import com.jvuln.util.DbProxyConfigProvider;
+import com.jvuln.util.DbProxyConfigProvider.RuntimeProxyConfig;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URL;
@@ -30,36 +35,49 @@ public class SecureEvidenceFetcher implements EvidencePageFetcher {
     private static final int DEFAULT_MAX_CHARS = 4000;
     private static final int DEFAULT_MAX_REDIRECTS = 3;
     private static final int MAX_IMAGES_PER_PAGE = 10;
-    private static final int DEFAULT_CONNECT_TIMEOUT_MS = 5000;
-    private static final int DEFAULT_READ_TIMEOUT_MS = 8000;
     private final PublicUrlPolicy urlPolicy;
     private final int maxBytes;
     private final int maxImageBytes;
     private final int maxChars;
     private final int maxRedirects;
-    private final int connectTimeoutMs;
-    private final int readTimeoutMs;
+    private final DbProxyConfigProvider proxyConfigProvider;
+    private final Integer explicitConnectTimeout;
+    private final Integer explicitReadTimeout;
 
-    public SecureEvidenceFetcher() {
+    @Autowired
+    public SecureEvidenceFetcher(DbProxyConfigProvider proxyConfigProvider) {
         this(new PublicUrlPolicy(), DEFAULT_MAX_BYTES, DEFAULT_MAX_IMAGE_BYTES, DEFAULT_MAX_CHARS,
-                DEFAULT_MAX_REDIRECTS, DEFAULT_CONNECT_TIMEOUT_MS, DEFAULT_READ_TIMEOUT_MS);
+                DEFAULT_MAX_REDIRECTS, proxyConfigProvider, null, null);
     }
 
     SecureEvidenceFetcher(PublicUrlPolicy urlPolicy, int maxBytes, int maxChars,
                           int maxRedirects, int connectTimeoutMs, int readTimeoutMs) {
-        this(urlPolicy, maxBytes, DEFAULT_MAX_IMAGE_BYTES, maxChars,
-                maxRedirects, connectTimeoutMs, readTimeoutMs);
+        this(urlPolicy, maxBytes, DEFAULT_MAX_IMAGE_BYTES, maxChars, maxRedirects, null,
+                connectTimeoutMs, readTimeoutMs);
     }
 
     SecureEvidenceFetcher(PublicUrlPolicy urlPolicy, int maxBytes, int maxImageBytes, int maxChars,
                           int maxRedirects, int connectTimeoutMs, int readTimeoutMs) {
+        this(urlPolicy, maxBytes, maxImageBytes, maxChars, maxRedirects, null,
+                connectTimeoutMs, readTimeoutMs);
+    }
+
+    SecureEvidenceFetcher(PublicUrlPolicy urlPolicy, int maxBytes, int maxImageBytes, int maxChars,
+                          int maxRedirects, DbProxyConfigProvider proxyConfigProvider) {
+        this(urlPolicy, maxBytes, maxImageBytes, maxChars, maxRedirects, proxyConfigProvider, null, null);
+    }
+
+    SecureEvidenceFetcher(PublicUrlPolicy urlPolicy, int maxBytes, int maxImageBytes, int maxChars,
+                          int maxRedirects, DbProxyConfigProvider proxyConfigProvider,
+                          Integer explicitConnectTimeout, Integer explicitReadTimeout) {
         this.urlPolicy = urlPolicy;
         this.maxBytes = maxBytes;
         this.maxImageBytes = maxImageBytes;
         this.maxChars = maxChars;
         this.maxRedirects = maxRedirects;
-        this.connectTimeoutMs = connectTimeoutMs;
-        this.readTimeoutMs = readTimeoutMs;
+        this.proxyConfigProvider = proxyConfigProvider;
+        this.explicitConnectTimeout = explicitConnectTimeout;
+        this.explicitReadTimeout = explicitReadTimeout;
     }
 
     @Override
@@ -156,10 +174,20 @@ public class SecureEvidenceFetcher implements EvidencePageFetcher {
     }
 
     private HttpURLConnection open(URL url) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        RuntimeProxyConfig proxyConfig = proxyConfigProvider != null ? proxyConfigProvider.getProxyConfig() : null;
+        Proxy proxy = (proxyConfig != null && proxyConfig.isEnabled(DbProxyConfigProvider.Scope.URL))
+                ? proxyConfig.toJavaProxy() : Proxy.NO_PROXY;
+
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection(proxy);
         connection.setInstanceFollowRedirects(false);
-        connection.setConnectTimeout(connectTimeoutMs);
-        connection.setReadTimeout(readTimeoutMs);
+
+        int connectTimeout = explicitConnectTimeout != null ? explicitConnectTimeout
+                : (proxyConfig != null ? proxyConfig.getUrlConnectTimeout() : 5000);
+        int readTimeout = explicitReadTimeout != null ? explicitReadTimeout
+                : (proxyConfig != null ? proxyConfig.getUrlReadTimeout() : 8000);
+        connection.setConnectTimeout(connectTimeout);
+        connection.setReadTimeout(readTimeout);
+
         connection.setRequestProperty("User-Agent", "JVuln-Platform/1.0 Evidence Collector");
         connection.setRequestProperty("Accept", "text/html,text/plain,application/xhtml+xml");
         return connection;
@@ -242,13 +270,28 @@ public class SecureEvidenceFetcher implements EvidencePageFetcher {
     }
 
     private HttpURLConnection openImage(URL url) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        RuntimeProxyConfig proxyConfig = proxyConfigProvider != null ? proxyConfigProvider.getProxyConfig() : null;
+        Proxy proxy = (proxyConfig != null && proxyConfig.isEnabled(DbProxyConfigProvider.Scope.URL))
+                ? proxyConfig.toJavaProxy() : Proxy.NO_PROXY;
+
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection(proxy);
         connection.setInstanceFollowRedirects(false);
-        connection.setConnectTimeout(connectTimeoutMs);
-        connection.setReadTimeout(readTimeoutMs);
+
+        int connectTimeout = explicitConnectTimeout != null ? explicitConnectTimeout
+                : (proxyConfig != null ? proxyConfig.getUrlConnectTimeout() : 5000);
+        int readTimeout = explicitReadTimeout != null ? explicitReadTimeout
+                : (proxyConfig != null ? proxyConfig.getUrlReadTimeout() : 8000);
+        connection.setConnectTimeout(connectTimeout);
+        connection.setReadTimeout(readTimeout);
+
         connection.setRequestProperty("User-Agent", "JVuln-Platform/1.0 Evidence Collector");
         connection.setRequestProperty("Accept", "image/png,image/jpeg,image/gif,image/webp,image/*");
         return connection;
+    }
+
+    private boolean isRedirect(int status) {
+        return status == 301 || status == 302 || status == 303
+                || status == 307 || status == 308;
     }
 
     private byte[] readBoundedBytes(HttpURLConnection connection, int limit) throws IOException {
@@ -291,10 +334,4 @@ public class SecureEvidenceFetcher implements EvidencePageFetcher {
                 return "";
         }
     }
-
-    private boolean isRedirect(int status) {
-        return status == 301 || status == 302 || status == 303
-                || status == 307 || status == 308;
-    }
-
 }

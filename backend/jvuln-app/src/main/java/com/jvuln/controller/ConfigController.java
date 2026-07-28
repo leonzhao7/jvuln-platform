@@ -8,8 +8,10 @@ import com.jvuln.llm.impl.LlmConfigProvider;
 import com.jvuln.llm.impl.OpenAiCompatClient;
 import com.jvuln.store.JavaProfileRepository;
 import com.jvuln.store.LlmConfigRepository;
+import com.jvuln.store.ProxySettingsService;
 import com.jvuln.store.entity.JavaProfile;
 import com.jvuln.store.entity.LlmConfig;
+import com.jvuln.store.entity.ProxySettings;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -32,13 +34,16 @@ public class ConfigController {
     private final JavaProfileRepository javaProfileRepo;
     private final PromptRegistry promptRegistry;
     private final OpenAiCompatClient llmClient;
+    private final ProxySettingsService proxySettingsService;
 
     public ConfigController(LlmConfigRepository repo, JavaProfileRepository javaProfileRepo,
-                            PromptRegistry promptRegistry, OpenAiCompatClient llmClient) {
+                            PromptRegistry promptRegistry, OpenAiCompatClient llmClient,
+                            ProxySettingsService proxySettingsService) {
         this.repo = repo;
         this.javaProfileRepo = javaProfileRepo;
         this.promptRegistry = promptRegistry;
         this.llmClient = llmClient;
+        this.proxySettingsService = proxySettingsService;
     }
 
     @GetMapping("/llm")
@@ -251,5 +256,42 @@ public class ConfigController {
         if (!allowed) {
             throw new SecurityException("Java Home 路径不在允许的目录范围内");
         }
+    }
+
+    // ==================== Proxy Settings ====================
+
+    @GetMapping("/proxy")
+    public ResponseEntity<ProxySettings> getProxySettings() {
+        return ResponseEntity.ok(proxySettingsService.getSettings());
+    }
+
+    @PutMapping("/proxy")
+    public ResponseEntity<ProxySettings> updateProxySettings(@RequestBody ProxySettings incoming) {
+        ProxySettings updated = proxySettingsService.updateSettings(incoming);
+        return ResponseEntity.ok(updated);
+    }
+
+    @PostMapping("/proxy/test")
+    public ResponseEntity<Map<String, Object>> testProxy() {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            ProxySettings settings = proxySettingsService.getSettings();
+            if ("NONE".equals(settings.getProxyType())) {
+                throw new IllegalStateException("代理未启用");
+            }
+            if (settings.getProxyHost() == null || settings.getProxyHost().trim().isEmpty()) {
+                throw new IllegalStateException("代理主机未配置");
+            }
+            if (settings.getProxyPort() == null || settings.getProxyPort() <= 0) {
+                throw new IllegalStateException("代理端口未配置");
+            }
+
+            result.put("ok", true);
+            result.put("message", "代理配置有效");
+        } catch (Exception e) {
+            result.put("ok", false);
+            result.put("error", e.getMessage());
+        }
+        return ResponseEntity.ok(result);
     }
 }

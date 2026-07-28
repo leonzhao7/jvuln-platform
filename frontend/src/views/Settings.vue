@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { api, type LlmConfig, type JavaProfile } from '../api'
+import { api, type LlmConfig, type JavaProfile, type ProxySettings } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from '../i18n'
 
@@ -225,9 +225,77 @@ const deleteProfile = async (p: JavaProfile) => {
   }
 }
 
+/* ── Proxy & Timeouts ── */
+const emptyProxyForm = (): ProxySettings => ({
+  proxyType: 'NONE',
+  proxyHost: '',
+  proxyPort: null,
+  proxyScope: 'url',
+  urlConnectTimeout: 5000,
+  urlReadTimeout: 8000,
+  llmTimeout: 300000,
+})
+
+const proxyForm = ref<ProxySettings>(emptyProxyForm())
+const proxyScopeList = ref<string[]>(['url'])
+const proxySaving = ref(false)
+const proxyTesting = ref(false)
+const proxyTestResult = ref<{ ok: boolean; message?: string; error?: string } | null>(null)
+
+const loadProxy = async () => {
+  try {
+    const s = await api.getProxySettings()
+    proxyForm.value = { ...emptyProxyForm(), ...s }
+    proxyScopeList.value = (proxyForm.value.proxyScope || '')
+      .split(',').map(x => x.trim()).filter(Boolean)
+  } catch {
+    ElMessage.error(t('proxy.loadFailed'))
+  }
+}
+
+const saveProxy = async () => {
+  if (proxyForm.value.proxyType !== 'NONE'
+      && (!proxyForm.value.proxyHost || !proxyForm.value.proxyPort)) {
+    ElMessage.error(t('proxy.hostPortRequired'))
+    return
+  }
+  proxySaving.value = true
+  try {
+    proxyForm.value.proxyScope = proxyScopeList.value.join(',')
+    const s = await api.updateProxySettings(proxyForm.value)
+    proxyForm.value = { ...emptyProxyForm(), ...s }
+    proxyScopeList.value = (proxyForm.value.proxyScope || '')
+      .split(',').map(x => x.trim()).filter(Boolean)
+    ElMessage.success(t('proxy.saveSuccess'))
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.error ?? t('proxy.saveFailed'))
+  } finally {
+    proxySaving.value = false
+  }
+}
+
+const testProxy = async () => {
+  if (proxyForm.value.proxyType !== 'NONE'
+      && (!proxyForm.value.proxyHost || !proxyForm.value.proxyPort)) {
+    ElMessage.error(t('proxy.hostPortRequired'))
+    return
+  }
+  proxyTesting.value = true
+  proxyTestResult.value = null
+  try {
+    proxyForm.value.proxyScope = proxyScopeList.value.join(',')
+    proxyTestResult.value = await api.testProxy(proxyForm.value)
+  } catch (e: any) {
+    proxyTestResult.value = { ok: false, error: e.response?.data?.error ?? e.message }
+  } finally {
+    proxyTesting.value = false
+  }
+}
+
 onMounted(() => {
   loadConfigs()
   loadJavaProfiles()
+  loadProxy()
 })
 </script>
 
@@ -450,6 +518,79 @@ onMounted(() => {
         </div>
       </template>
     </el-dialog>
+
+    <!-- Proxy & Timeouts -->
+    <el-card style="margin-top:20px">
+      <template #header>
+        <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled); letter-spacing:1px">
+          {{ t('proxy.title') }}
+        </span>
+      </template>
+
+      <el-form :model="proxyForm" label-position="top" style="max-width:800px">
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px">
+          <el-form-item :label="t('proxy.proxyType')">
+            <select v-model="proxyForm.proxyType"
+              style="width:100%; height:36px; background:var(--bg-elevated); border:1px solid var(--border);
+                     color:var(--text-primary); padding:0 12px; font-family:var(--font-sans); font-size:14px">
+              <option value="NONE">NONE</option>
+              <option value="SOCKS5">SOCKS5</option>
+              <option value="SOCKS4">SOCKS4</option>
+              <option value="HTTP">HTTP</option>
+            </select>
+          </el-form-item>
+
+          <el-form-item :label="t('proxy.proxyHost')">
+            <el-input v-model="proxyForm.proxyHost" :placeholder="t('proxy.proxyHostPlaceholder')"
+              :disabled="proxyForm.proxyType === 'NONE'" />
+          </el-form-item>
+
+          <el-form-item :label="t('proxy.proxyPort')">
+            <el-input v-model.number="proxyForm.proxyPort" type="number" :placeholder="t('proxy.proxyPortPlaceholder')"
+              :disabled="proxyForm.proxyType === 'NONE'" />
+          </el-form-item>
+        </div>
+
+        <el-form-item :label="t('proxy.proxyScope')">
+          <el-checkbox-group v-model="proxyScopeList" :disabled="proxyForm.proxyType === 'NONE'">
+            <el-checkbox label="llm">{{ t('proxy.scopeLlm') }}</el-checkbox>
+            <el-checkbox label="url">{{ t('proxy.scopeUrl') }}</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px">
+          <el-form-item :label="t('proxy.urlConnectTimeout')">
+            <el-input v-model.number="proxyForm.urlConnectTimeout" type="number" />
+          </el-form-item>
+
+          <el-form-item :label="t('proxy.urlReadTimeout')">
+            <el-input v-model.number="proxyForm.urlReadTimeout" type="number" />
+          </el-form-item>
+
+          <el-form-item :label="t('proxy.llmTimeout')">
+            <el-input v-model.number="proxyForm.llmTimeout" type="number" />
+          </el-form-item>
+        </div>
+
+        <div style="display:flex; gap:12px; margin-top:8px">
+          <el-button type="primary" :loading="proxySaving" @click="saveProxy">{{ t('proxy.save') }}</el-button>
+          <el-button :loading="proxyTesting" @click="testProxy">{{ t('common.test') }}</el-button>
+        </div>
+      </el-form>
+
+      <div v-if="proxyTestResult" class="jv-test-result"
+        :class="proxyTestResult.ok ? 'jv-test-ok' : 'jv-test-fail'" style="margin-top:16px">
+        <span class="jv-test-label">
+          {{ proxyTestResult.ok ? t('proxy.testOk') : t('proxy.testFail') }}
+        </span>
+        <span v-if="proxyTestResult.message" style="font-size:12px; color:var(--text-secondary)">
+          {{ proxyTestResult.message }}
+        </span>
+        <span v-if="proxyTestResult.error" style="font-size:12px; color:var(--critical)">
+          {{ proxyTestResult.error }}
+        </span>
+      </div>
+    </el-card>
   </div>
 </template>
 

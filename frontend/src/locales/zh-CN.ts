@@ -351,6 +351,27 @@ const zhCN = {
     nameRequired: '名称不能为空',
     javaHomeRequired: 'JAVA_HOME 和 Spring Boot 版本不能为空',
   },
+  proxy: {
+    title: '代理与超时',
+    proxyType: '代理类型',
+    proxyHost: '代理主机',
+    proxyHostPlaceholder: '例如 127.0.0.1',
+    proxyPort: '代理端口',
+    proxyPortPlaceholder: '例如 1080',
+    proxyScope: '生效范围',
+    scopeLlm: 'LLM 请求',
+    scopeUrl: 'URL 访问',
+    urlConnectTimeout: 'URL 连接超时 (ms)',
+    urlReadTimeout: 'URL 读取超时 (ms)',
+    llmTimeout: 'LLM 超时 (ms)',
+    save: '保存',
+    saveSuccess: '代理配置已保存',
+    saveFailed: '保存失败',
+    loadFailed: '加载代理配置失败',
+    testOk: '✓ 代理配置有效',
+    testFail: '✗ 代理配置无效',
+    hostPortRequired: '代理主机和端口不能为空',
+  },
 }
 
 export default zhCN

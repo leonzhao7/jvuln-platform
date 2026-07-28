@@ -41,6 +41,11 @@ jvuln:
     endpoint: ${LLM_ENDPOINT:/v1/chat/completions}
   nvd:
     api-key: ${NVD_API_KEY:}
+  proxy:
+    type: ${PROXY_TYPE:NONE}
+    host: ${PROXY_HOST:}
+    port: ${PROXY_PORT:0}
+    scope: ${PROXY_SCOPE:all}
   github:
     token: ${GITHUB_TOKEN:}
 

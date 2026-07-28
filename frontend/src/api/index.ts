@@ -105,6 +105,12 @@ export const api = {
   updateJavaProfile: (id: number, p: Partial<JavaProfile>) => http.put<JavaProfile>(`/config/java-profiles/${id}`, p).then(r => r.data),
   deleteJavaProfile: (id: number) => http.delete(`/config/java-profiles/${id}`),
   setDefaultJavaProfile: (id: number) => http.post<JavaProfile>(`/config/java-profiles/${id}/set-default`).then(r => r.data),
+
+  // Proxy Settings
+  getProxySettings: () => http.get<ProxySettings>('/config/proxy').then(r => r.data),
+  updateProxySettings: (s: ProxySettings) => http.put<ProxySettings>('/config/proxy', s).then(r => r.data),
+  testProxy: (s: ProxySettings) =>
+    http.post<{ ok: boolean; message?: string; error?: string }>('/config/proxy/test', s).then(r => r.data),
 }
 
 export interface LlmConfig {
@@ -127,6 +133,17 @@ export interface JavaProfile {
   mavenJavaVersion: string
   syntaxConstraints: string
   isDefault: boolean
+}
+
+export interface ProxySettings {
+  id?: number
+  proxyType: 'NONE' | 'SOCKS5' | 'SOCKS4' | 'HTTP'
+  proxyHost: string | null
+  proxyPort: number | null
+  proxyScope: string
+  urlConnectTimeout: number
+  urlReadTimeout: number
+  llmTimeout: number
 }
 
 export interface TranscriptEvent {

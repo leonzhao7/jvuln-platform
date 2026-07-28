@@ -29,7 +29,7 @@ abstract class AbstractLlmCaller implements LlmProtocolCaller {
 
     AbstractLlmCaller(LlmConfigProvider.ActiveConfig config, ObjectMapper mapper,
                       LlmEndpoint expectedEndpoint, boolean messagesHeaders,
-                      LlmAuditLogger auditLogger) {
+                      LlmAuditLogger auditLogger, int llmTimeoutMs) {
         if (config == null) {
             throw new IllegalArgumentException("LLM config is required");
         }
@@ -45,7 +45,7 @@ abstract class AbstractLlmCaller implements LlmProtocolCaller {
         this.model = config.getModel();
         this.endpointPath = expectedEndpoint.getPath();
         this.endpointUri = expectedEndpoint.resolveUri(config.getBaseUrl());
-        this.webClient = buildWebClient(config.getApiKey(), messagesHeaders, config.getUserAgent());
+        this.webClient = buildWebClient(config.getApiKey(), messagesHeaders, config.getUserAgent(), llmTimeoutMs);
         this.auditLogger = auditLogger;
     }
 
@@ -133,8 +133,10 @@ abstract class AbstractLlmCaller implements LlmProtocolCaller {
         return new RuntimeException("LLM streaming error from " + endpointPath + ": " + message);
     }
 
-    private WebClient buildWebClient(String apiKey, boolean messagesHeaders, String userAgent) {
-        HttpClient httpClient = HttpClient.create().responseTimeout(Duration.ofSeconds(300));
+    private WebClient buildWebClient(String apiKey, boolean messagesHeaders, String userAgent,
+                                      int llmTimeoutMs) {
+        HttpClient httpClient = HttpClient.create()
+                .responseTimeout(Duration.ofMillis(llmTimeoutMs));
         WebClient.Builder builder = WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .filter(RequestLogContext.llmRequestFilter(model, endpointPath))

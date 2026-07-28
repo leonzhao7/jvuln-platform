@@ -13,8 +13,8 @@ import java.util.List;
 public class ResponsesCaller extends AbstractLlmCaller {
 
     public ResponsesCaller(LlmConfigProvider.ActiveConfig config, ObjectMapper mapper,
-                           LlmAuditLogger auditLogger) {
-        super(config, mapper, LlmEndpoint.RESPONSES, false, auditLogger);
+                           LlmAuditLogger auditLogger, int llmTimeoutMs) {
+        super(config, mapper, LlmEndpoint.RESPONSES, false, auditLogger, llmTimeoutMs);
     }
 
     @Override
