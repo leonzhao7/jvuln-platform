@@ -213,7 +213,6 @@ public class PipelineEngine {
 
             boolean succeeded;
             LlmAuditLogger.setContextDir(workspace);
-            LlmConversationContext.init();
             try (RequestLogContext.Scope ignored =
                          RequestLogContext.bind(ctx::reportProgress)) {
                 succeeded = runStages(cveId, fromStage, task, ctx);
@@ -415,7 +414,6 @@ public class PipelineEngine {
 
             ManualVulnDemoValidator.Result result;
             LlmAuditLogger.setContextDir(workspace);
-            LlmConversationContext.init();
             try (RequestLogContext.Scope ignored =
                          RequestLogContext.bind(ctx::reportProgress)) {
                 Path cvePath = workspaceManager.getCvePath(cveId);

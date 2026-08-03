@@ -80,10 +80,6 @@ public class ChatCaller extends AbstractLlmCaller {
         body.put("model", model);
         LlmRequestDefaults.apply(body, "max_tokens");
         body.put("stream", stream);
-        String userId = LlmConversationContext.getUserId();
-        if (userId != null) {
-            body.put("user_id", userId);
-        }
         ArrayNode messages = mapper.createArrayNode();
         addTextMessage(messages, "system", prompts.getGlobalPrompt());
         addTextMessage(messages, "system", LlmConversationContext.getRelevantDiff());

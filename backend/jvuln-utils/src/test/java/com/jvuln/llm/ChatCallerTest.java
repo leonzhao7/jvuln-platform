@@ -43,6 +43,7 @@ class ChatCallerTest {
         assertEquals("Bearer secret", server.getLastHeader("Authorization"));
         JsonNode body = mapper.readTree(server.getLastBody());
         assertFalse(body.path("stream").asBoolean());
+        assertFalse(body.has("user_id"));
         assertRequestDefaults(body, "max_tokens");
         assertMessage(body, 0, "system", "global");
         assertMessage(body, 1, "system", "stage");
@@ -77,6 +78,7 @@ class ChatCallerTest {
         List<String> chunks = caller.chatStream(agentCall()).collectList().block();
 
         assertEquals(java.util.Arrays.asList("hel", "lo"), chunks);
+        assertFalse(readRequestBody().has("user_id"));
         assertTrue(readStreamFlag());
     }
 
@@ -107,8 +109,12 @@ class ChatCallerTest {
     }
 
     private boolean readStreamFlag() {
+        return readRequestBody().path("stream").asBoolean();
+    }
+
+    private JsonNode readRequestBody() {
         try {
-            return mapper.readTree(server.getLastBody()).path("stream").asBoolean();
+            return mapper.readTree(server.getLastBody());
         } catch (Exception e) {
             throw new AssertionError(e);
         }
