@@ -1,83 +1,90 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n, type Locale } from './i18n'
+import { LayoutDashboard, Settings2, Plus, ShieldHalf, ChevronRight, Activity } from 'lucide-vue-next'
 
 const router = useRouter()
+const route = useRoute()
 const { locale, setLocale, t } = useI18n()
+
+const crumbs = computed<string[]>(() => {
+  const p = route.path
+  if (p === '/settings') return [t('app.settings')]
+  if (p === '/analysis/new') return [t('app.dashboard'), t('app.newAnalysis')]
+  if (route.params.cveId) {
+    const tail = p.endsWith('/diff') ? ['DIFF'] : []
+    return [t('app.dashboard'), String(route.params.cveId), ...tail]
+  }
+  return [t('app.dashboard')]
+})
 </script>
 
 <template>
-  <el-container style="min-height:100vh; background:var(--bg-base)">
-    <el-header class="jv-header">
-      <div class="jv-header-brand" @click="router.push('/')">
-        <span class="jv-logo">JVULN</span>
-        <span class="jv-tagline">{{ t('app.tagline') }}</span>
+  <div class="jv-shell">
+    <aside class="jv-rail">
+      <div class="jv-rail-mark" @click="router.push('/')">
+        <ShieldHalf :size="21" :stroke-width="2.1" />
       </div>
-      <div style="flex:1"/>
-      <nav class="jv-nav">
-        <span class="jv-nav-link" @click="router.push('/')">{{ t('app.dashboard') }}</span>
-        <span class="jv-nav-divider">|</span>
-        <span class="jv-nav-link" @click="router.push('/settings')">{{ t('app.settings') }}</span>
-        <el-select
-          :model-value="locale"
-          size="small"
-          style="width: 106px"
-          :teleported="false"
-          @change="setLocale($event as Locale)"
-        >
-          <el-option label="中文" value="zh-CN" />
-          <el-option label="English" value="en-US" />
-        </el-select>
-        <el-button type="primary" size="small" @click="router.push('/analysis/new')">
-          {{ t('app.newAnalysis') }}
-        </el-button>
-      </nav>
-    </el-header>
-    <el-main style="background:var(--bg-base); padding:28px 32px; min-height:calc(100vh - 56px)">
-      <RouterView />
-    </el-main>
-  </el-container>
-</template>
+      <div class="jv-rail-sep" />
 
-<style scoped>
-.jv-header {
-  background: #0d0d0d;
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 0 32px !important;
-  height: 56px;
-}
-.jv-header-brand {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  cursor: pointer;
-  user-select: none;
-}
-.jv-logo {
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 15px;
-  letter-spacing: 3px;
-}
-.jv-tagline {
-  color: var(--text-disabled);
-  font-size: 12px;
-}
-.jv-nav {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.jv-nav-link {
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  transition: color .15s;
-}
-.jv-nav-link:hover { color: var(--text-primary); }
-.jv-nav-divider { color: var(--border); font-size: 11px; }
-</style>
+      <div class="jv-rail-item" :class="{ 'is-active': route.path === '/' }" @click="router.push('/')">
+        <LayoutDashboard :size="19" :stroke-width="1.8" />
+        <span class="jv-rail-tip">{{ t('app.dashboard') }}</span>
+      </div>
+      <div class="jv-rail-item" :class="{ 'is-active': route.path === '/analysis/new' }" @click="router.push('/analysis/new')">
+        <Plus :size="20" :stroke-width="1.9" />
+        <span class="jv-rail-tip">{{ t('app.newAnalysis') }}</span>
+      </div>
+      <div class="jv-rail-item" :class="{ 'is-active': route.path === '/settings' }" @click="router.push('/settings')">
+        <Settings2 :size="19" :stroke-width="1.8" />
+        <span class="jv-rail-tip">{{ t('app.settings') }}</span>
+      </div>
+
+      <div class="jv-rail-spacer" />
+      <span class="jv-rail-glyph">JVULN</span>
+    </aside>
+
+    <div class="jv-main">
+      <header class="jv-bar">
+        <div class="jv-bar-brand" @click="router.push('/')">
+          <span class="jv-wordmark">JVULN<span class="jv-wordmark-dot">.</span></span>
+          <span class="jv-tagline">{{ t('app.tagline') }}</span>
+        </div>
+
+        <div class="jv-bar-crumbs">
+          <template v-for="(c, i) in crumbs" :key="i">
+            <ChevronRight v-if="i > 0" :size="12" :stroke-width="2" />
+            <span :class="{ 'crumb-cur': i === crumbs.length - 1 }">{{ c }}</span>
+          </template>
+        </div>
+
+        <div class="jv-bar-spacer" />
+
+        <div class="jv-bar-status">
+          <span class="dot" />
+          <Activity :size="12" :stroke-width="2" />
+          <span>LIVE</span>
+        </div>
+
+        <div class="jv-locale">
+          <span class="jv-locale-opt" :class="{ 'is-active': locale === 'zh-CN' }" @click="setLocale('zh-CN' as Locale)">中文</span>
+          <span class="jv-locale-opt" :class="{ 'is-active': locale === 'en-US' }" @click="setLocale('en-US' as Locale)">EN</span>
+        </div>
+
+        <button class="jv-bar-cta" @click="router.push('/analysis/new')">
+          <Plus :size="15" :stroke-width="2.4" />
+          {{ t('app.newAnalysis') }}
+        </button>
+      </header>
+
+      <main class="jv-canvas">
+        <RouterView v-slot="{ Component }">
+          <Transition name="route" mode="out-in">
+            <component :is="Component" />
+          </Transition>
+        </RouterView>
+      </main>
+    </div>
+  </div>
+</template>

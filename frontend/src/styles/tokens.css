@@ -1,0 +1,105 @@
+/* ══ JVULN · "IONIZED" design tokens ══════════════════════════════════
+   Dark forensic instrument panel: void base, plasma/cyan accents,
+   glass strata. Legacy bg/text aliases are kept at the bottom so
+   existing inline styles keep resolving. */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* ── Void & strata ── */
+  --void:          #05060a;
+  --stratum-0:     #080a10;
+  --stratum-1:     #0c0f17;
+  --stratum-2:     #12161f;
+  --stratum-3:     #1a1f2b;
+  --stratum-4:     #232a38;
+
+  /* ── Glass ── */
+  --glass:         rgba(255, 255, 255, .028);
+  --glass-strong:  rgba(255, 255, 255, .055);
+  --hairline:      rgba(255, 255, 255, .075);
+  --hairline-hi:   rgba(255, 255, 255, .14);
+  --hairline-lo:   rgba(255, 255, 255, .045);
+
+  /* ── Ink ── */
+  --ink-0:         #f2f5fb;
+  --ink-1:         #c8d0e0;
+  --ink-2:         #8d97ac;
+  --ink-3:         #5d6678;
+  --ink-4:         #3c4453;
+
+  /* ── Plasma accents ── */
+  --plasma:        #7c5cff;
+  --plasma-hi:     #9d84ff;
+  --plasma-lo:     #5b3ce0;
+  --signal:        #22d3ee;
+  --signal-hi:     #67e8f9;
+  --lime:          #a3e635;
+  --magenta:       #f0abfc;
+
+  /* ── Severity ── */
+  --sev-critical:  #ff4d6d;
+  --sev-high:      #ff9e2c;
+  --sev-medium:    #ffd84d;
+  --sev-low:       #34e0a1;
+  --sev-info:      #4da6ff;
+
+  /* ── Gradients ── */
+  --grad-plasma:   linear-gradient(135deg, #7c5cff 0%, #22d3ee 100%);
+  --grad-heat:     linear-gradient(135deg, #ff4d6d 0%, #ff9e2c 100%);
+  --grad-cool:     linear-gradient(135deg, #22d3ee 0%, #34e0a1 100%);
+  --grad-ink:      linear-gradient(180deg, #f2f5fb 0%, #8d97ac 100%);
+
+  /* ── Glow ── */
+  --glow-plasma:   0 0 0 1px rgba(124, 92, 255, .35), 0 8px 32px -8px rgba(124, 92, 255, .45);
+  --glow-signal:   0 0 0 1px rgba(34, 211, 238, .35), 0 8px 32px -8px rgba(34, 211, 238, .4);
+  --glow-danger:   0 0 0 1px rgba(255, 77, 109, .35), 0 8px 32px -8px rgba(255, 77, 109, .4);
+
+  /* ── Elevation ── */
+  --lift-1:        0 1px 2px rgba(0, 0, 0, .4);
+  --lift-2:        0 4px 16px -4px rgba(0, 0, 0, .55);
+  --lift-3:        0 18px 48px -12px rgba(0, 0, 0, .72);
+  --lift-4:        0 32px 80px -20px rgba(0, 0, 0, .85);
+
+  /* ── Geometry ── */
+  --r-xs: 4px; --r-sm: 7px; --r-md: 11px; --r-lg: 16px; --r-xl: 22px; --r-pill: 999px;
+
+  /* ── Motion ── */
+  --ease-out:   cubic-bezier(.16, 1, .3, 1);
+  --ease-in-out:cubic-bezier(.65, 0, .35, 1);
+  --ease-spring:cubic-bezier(.34, 1.56, .64, 1);
+  --dur-1: .16s; --dur-2: .28s; --dur-3: .48s; --dur-4: .8s;
+
+  /* ── Type ── */
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-sans:    'Inter', 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', 'IBM Plex Mono', 'Consolas', monospace;
+
+  /* ── Layout ── */
+  --rail-w: 68px;
+  --bar-h: 66px;
+  --shell-max: 1560px;
+
+  /* ── Legacy aliases (do not remove: inline styles depend on these) ── */
+  --bg-base: var(--void);
+  --bg-surface: var(--stratum-1);
+  --bg-elevated: var(--stratum-3);
+  --bg-overlay: var(--stratum-2);
+  --bg-code: #090c13;
+  --bg-hover: var(--stratum-3);
+  --border: var(--hairline-hi);
+  --border-subtle: var(--hairline);
+  --text-primary: var(--ink-0);
+  --text-secondary: var(--ink-1);
+  --text-muted: var(--ink-2);
+  --text-disabled: var(--ink-3);
+  --accent: var(--plasma);
+  --accent-light: var(--plasma-hi);
+  --accent-hover: var(--plasma-lo);
+  --critical: var(--sev-critical);
+  --high: var(--sev-high);
+  --medium: var(--sev-medium);
+  --low: var(--sev-low);
+  --info: var(--sev-info);
+  --success: var(--sev-low);
+}

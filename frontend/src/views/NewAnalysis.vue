@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { api } from '../api'
 import { ElMessage } from 'element-plus'
 import { useI18n } from '../i18n'
+import { ScanLine, Rocket, ArrowLeft, Terminal } from 'lucide-vue-next'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -30,15 +31,17 @@ const submit = async () => {
 </script>
 
 <template>
-  <div style="max-width:520px; margin:60px auto">
-    <el-card>
-      <template #header>
-        <div class="jv-new-header">
-          <span style="font-family:var(--font-mono); font-size:13px; color:var(--text-disabled); letter-spacing:1px">
-            {{ t('newAnalysis.title') }}
-          </span>
+  <div class="jv-launch">
+    <div class="jv-launch-aura" />
+
+    <div class="jv-launch-card">
+      <div class="jv-launch-head">
+        <span class="jv-launch-glyph"><ScanLine :size="18" :stroke-width="2" /></span>
+        <div>
+          <div class="jv-eyebrow">NEW PIPELINE RUN</div>
+          <h1 class="jv-launch-title">{{ t('newAnalysis.title') }}</h1>
         </div>
-      </template>
+      </div>
 
       <el-form @submit.prevent="submit" label-position="top">
         <el-form-item :label="t('newAnalysis.cveId')">
@@ -51,19 +54,26 @@ const submit = async () => {
           />
         </el-form-item>
 
-        <p style="color:var(--text-disabled); font-size:12px; margin-bottom:20px; line-height:1.8; font-family:var(--font-mono)">
-          {{ t('newAnalysis.description') }}
+        <p class="jv-launch-note">
+          <Terminal :size="13" :stroke-width="2" />
+          <span>{{ t('newAnalysis.description') }}</span>
         </p>
 
-        <div style="display:flex; gap:12px">
-          <el-button @click="router.back()" style="flex:1">
+        <div class="jv-launch-actions">
+          <el-button @click="router.back()">
+            <ArrowLeft :size="14" :stroke-width="2.2" style="margin-right:6px" />
             {{ t('common.cancel') }}
           </el-button>
-          <el-button type="primary" :loading="loading" @click="submit" style="flex:2">
+          <el-button type="primary" :loading="loading" @click="submit">
+            <Rocket v-if="!loading" :size="14" :stroke-width="2.2" style="margin-right:7px" />
             {{ t('newAnalysis.start') }}
           </el-button>
         </div>
       </el-form>
-    </el-card>
+
+      <div class="jv-launch-strip">
+        <span v-for="s in 5" :key="s" class="jv-launch-tick">STAGE {{ s }}</span>
+      </div>
+    </div>
   </div>
 </template>

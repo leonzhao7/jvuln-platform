@@ -5,6 +5,7 @@ import { api } from '../api'
 import { ElMessage } from 'element-plus'
 import DiffViewer from '../components/DiffViewer.vue'
 import { useI18n } from '../i18n'
+import { ArrowLeft, GitCompare } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,11 +31,15 @@ onMounted(async () => {
   <div>
     <div class="jv-diff-header">
       <div class="jv-diff-header-left">
-        <span class="jv-back-btn" @click="router.push(`/analysis/${cveId}`)">{{ t('common.back') }}</span>
-        <h2 style="margin:0; font-family:var(--font-mono); font-size:18px">
-          {{ cveId }}
-        </h2>
-        <span class="jv-tag jv-tag-pending">{{ t('diff.patchDiff') }}</span>
+        <span class="jv-back-btn" @click="router.push(`/analysis/${cveId}`)">
+          <ArrowLeft :size="14" :stroke-width="2.2" />
+          {{ t('common.back') }}
+        </span>
+        <h2 class="jv-detail-id">{{ cveId }}</h2>
+        <span class="jv-diff-badge">
+          <GitCompare :size="11" :stroke-width="2.2" />
+          {{ t('diff.patchDiff') }}
+        </span>
       </div>
     </div>
 
@@ -45,25 +50,3 @@ onMounted(async () => {
     />
   </div>
 </template>
-
-<style scoped>
-.jv-diff-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24px;
-  gap: 12px;
-}
-.jv-diff-header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.jv-back-btn {
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  font-family: var(--font-mono);
-}
-.jv-back-btn:hover { color: var(--text-primary); }
-</style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElSkeleton } from 'element-plus'
+import { ChevronDown, ChevronRight, Columns2, Rows3, Filter, FileDiff } from 'lucide-vue-next'
 import { html as diff2htmlHtml } from 'diff2html'
 import { ColorSchemeType } from 'diff2html/lib/types'
 import { useI18n } from '../i18n'
@@ -109,6 +110,7 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
       <div class="jv-diff-toolbar-left">
         <span v-if="title" class="jv-section-label">{{ title }}</span>
         <span v-if="fileCount" class="jv-diff-file-count">
+          <FileDiff :size="11" :stroke-width="2" />
           {{ t('diff.fileCount', { count: fileCount }) }}
         </span>
       </div>
@@ -119,9 +121,14 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
           :type="showRelevantOnly ? 'primary' : 'default'"
           @click="showRelevantOnly = !showRelevantOnly"
         >
+          <Filter :size="13" :stroke-width="2" style="margin-right:6px" />
           {{ showRelevantOnly ? t('diff.showAll') : t('diff.relevantOnly', { count: relevantCount }) }}
         </el-button>
         <el-button size="small" :disabled="!diffContent" @click="toggleView">
+          <component
+            :is="viewType === 'side-by-side' ? Rows3 : Columns2"
+            :size="13" :stroke-width="2" style="margin-right:6px"
+          />
           {{ viewType === 'side-by-side' ? t('diff.unifiedView') : t('diff.sideBySide') }}
         </el-button>
       </div>
@@ -132,8 +139,11 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
     <div v-else-if="displayedFileDiffs.length" class="jv-file-diffs">
       <div v-for="file in displayedFileDiffs" :key="file.fileName" class="jv-file-diff-block">
         <div class="jv-file-diff-header" @click="toggleFile(file.fileName)">
+          <span class="jv-file-diff-icon">
+            <ChevronDown v-if="expandedFile === file.fileName" :size="14" :stroke-width="2.2" />
+            <ChevronRight v-else :size="14" :stroke-width="2.2" />
+          </span>
           <div class="jv-file-diff-info">
-            <span class="jv-file-diff-icon">{{ expandedFile === file.fileName ? '▼' : '▶' }}</span>
             <span class="jv-file-diff-name">{{ file.fileName }}</span>
             <span
               v-if="decisionFor(file.fileName)"
@@ -148,17 +158,18 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
                   ? t('analysis.patch.relevant')
                   : t('analysis.patch.suspected') }}
             </span>
-            <span class="jv-file-diff-stats">
-              <span class="additions">+{{ file.stats.additions }}</span>
-              <span class="deletions">-{{ file.stats.deletions }}</span>
-            </span>
           </div>
-          <div
-            v-if="decisionFor(file.fileName)?.relevant && decisionFor(file.fileName)?.reason"
-            class="jv-file-relevance-reason"
-          >
-            {{ decisionFor(file.fileName)!.reason }}
-          </div>
+          <span class="jv-file-diff-stats">
+            <span class="add">+{{ file.stats.additions }}</span>
+            <span class="del">-{{ file.stats.deletions }}</span>
+          </span>
+        </div>
+
+        <div
+          v-if="decisionFor(file.fileName)?.relevant && decisionFor(file.fileName)?.reason"
+          class="jv-file-relevance-reason"
+        >
+          {{ decisionFor(file.fileName)!.reason }}
         </div>
 
         <div v-if="expandedFile === file.fileName" class="jv-file-diff-content">
@@ -174,32 +185,32 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
 <style>
 .diff-wrapper.d2h-dark-color-scheme {
   --d2h-dark-color:                     var(--text-secondary);
-  --d2h-dark-bg-color:                  #1c1c1c;
+  --d2h-dark-bg-color:                  #060810;
   --d2h-dark-border-color:              var(--border-subtle);
   --d2h-dark-dim-color:                 var(--text-disabled);
-  --d2h-dark-line-border-color:         #2a2a2a;
-  --d2h-dark-file-header-bg-color:      var(--bg-base);
+  --d2h-dark-line-border-color:         var(--hairline-lo);
+  --d2h-dark-file-header-bg-color:      var(--stratum-1);
   --d2h-dark-file-header-border-color:  var(--border-subtle);
   --d2h-dark-empty-placeholder-bg-color: rgba(82,82,82,.1);
   --d2h-dark-empty-placeholder-border-color: var(--border-subtle);
-  --d2h-dark-selected-color:            rgba(15,98,254,.15);
-  --d2h-dark-ins-bg-color:              rgba(66,190,101,.12);
-  --d2h-dark-ins-border-color:          rgba(66,190,101,.3);
-  --d2h-dark-ins-highlight-bg-color:    rgba(66,190,101,.28);
-  --d2h-dark-ins-label-color:           #42be65;
-  --d2h-dark-del-bg-color:              rgba(250,77,86,.1);
-  --d2h-dark-del-border-color:          rgba(250,77,86,.3);
-  --d2h-dark-del-highlight-bg-color:    rgba(250,77,86,.28);
-  --d2h-dark-del-label-color:           #fa4d56;
-  --d2h-dark-change-del-color:          rgba(241,194,27,.12);
-  --d2h-dark-change-ins-color:          rgba(66,190,101,.18);
-  --d2h-dark-info-bg-color:             rgba(15,98,254,.08);
-  --d2h-dark-info-border-color:         rgba(15,98,254,.25);
-  --d2h-dark-change-label-color:        #f1c21b;
+  --d2h-dark-selected-color:            rgba(124,92,255,.15);
+  --d2h-dark-ins-bg-color:              rgba(52,224,161,.11);
+  --d2h-dark-ins-border-color:          rgba(52,224,161,.28);
+  --d2h-dark-ins-highlight-bg-color:    rgba(52,224,161,.26);
+  --d2h-dark-ins-label-color:           var(--sev-low);
+  --d2h-dark-del-bg-color:              rgba(255,77,109,.1);
+  --d2h-dark-del-border-color:          rgba(255,77,109,.28);
+  --d2h-dark-del-highlight-bg-color:    rgba(255,77,109,.26);
+  --d2h-dark-del-label-color:           var(--sev-critical);
+  --d2h-dark-change-del-color:          rgba(255,216,77,.11);
+  --d2h-dark-change-ins-color:          rgba(52,224,161,.16);
+  --d2h-dark-info-bg-color:             rgba(124,92,255,.09);
+  --d2h-dark-info-border-color:         rgba(124,92,255,.24);
+  --d2h-dark-change-label-color:        var(--sev-medium);
   --d2h-dark-moved-label-color:         var(--accent-light);
 
   font-size: 13px;
-  border: 1px solid var(--border-subtle);
+  border: none;
   overflow: hidden;
 }
 
@@ -217,7 +228,7 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
   font-family: var(--font-mono);
   font-size: 12px;
 }
-.diff-wrapper .d2h-file-wrapper { border-radius: 0; }
+.diff-wrapper .d2h-file-wrapper { border-radius: 0; border: none; }
 .diff-wrapper .d2h-lines-added  { border-radius: 0; }
 .diff-wrapper .d2h-lines-deleted { border-radius: 0; }
 .diff-wrapper .d2h-code-line del,
@@ -266,158 +277,5 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
 .diff-wrapper td,
 .diff-wrapper th {
   border-color: var(--border-subtle) !important;
-}
-</style>
-
-<style scoped>
-.jv-diff-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(15,98,254,.3);
-}
-.jv-diff-toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.jv-diff-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.jv-section-label {
-  position: relative;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: .5px;
-  padding-left: 14px;
-}
-.jv-section-label::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 50%;
-  transform: translateY(-50%);
-  width: 4px; height: 17px;
-  background: var(--accent);
-  border-radius: 2px;
-}
-.jv-diff-file-count {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-disabled);
-}
-
-/* 文件列表 */
-.jv-file-diffs {
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.jv-file-diff-block {
-  border-bottom: 1px solid var(--border-subtle);
-}
-.jv-file-diff-block:last-child {
-  border-bottom: none;
-}
-
-.jv-file-diff-header {
-  background: var(--bg-base);
-  padding: 10px 14px;
-  cursor: pointer;
-  transition: background .15s;
-  border-left: 3px solid var(--accent);
-}
-.jv-file-diff-header:hover {
-  background: var(--bg-hover);
-}
-
-.jv-file-diff-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.jv-file-diff-icon {
-  font-size: 10px;
-  color: var(--text-disabled);
-  width: 12px;
-  transition: transform .2s;
-}
-
-.jv-file-diff-name {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--accent-light);
-}
-
-.jv-file-relevance {
-  margin-left: 16px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: .5px;
-  text-transform: uppercase;
-  padding: 1px 8px;
-  border: 1px solid transparent;
-}
-.jv-file-relevance.is-causal {
-  color: #42be65;
-  border-color: rgba(66, 190, 101, .4);
-  background: rgba(66, 190, 101, .1);
-}
-.jv-file-relevance.is-suspected {
-  color: #f1c21b;
-  border-color: rgba(241, 194, 27, .35);
-  background: rgba(241, 194, 27, .08);
-  border-style: dashed;
-}
-.jv-file-relevance.is-excluded {
-  color: var(--text-disabled);
-  border-color: var(--border-subtle);
-  background: rgba(130, 130, 130, .08);
-}
-
-.jv-file-diff-stats {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  margin-left: auto;
-}
-.jv-file-diff-stats .additions {
-  color: #42be65;
-}
-.jv-file-diff-stats .deletions {
-  color: #fa4d56;
-}
-
-.jv-file-relevance-reason {
-  margin-top: 6px;
-  padding-left: 22px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-
-.jv-file-diff-content {
-  animation: slideDown .2s ease-out;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 </style>

@@ -7,6 +7,10 @@ import DiffViewer from '../components/DiffViewer.vue'
 import { useI18n } from '../i18n'
 import { cweName } from '../cwe'
 import { marked, Renderer } from 'marked'
+import {
+  ArrowLeft, ScrollText, Square, RotateCcw, Play, ChevronRight, ChevronDown,
+  ClipboardList, Search, Wrench, Bomb, FileText, Zap, Check, Download,
+} from 'lucide-vue-next'
 import hljs from 'highlight.js/lib/core'
 import java from 'highlight.js/lib/languages/java'
 import xml from 'highlight.js/lib/languages/xml'
@@ -194,13 +198,13 @@ const formatSseEntry = (type: string, stageNum: number, message: string): Termin
       formatted = `${stageLabel(stageNum)} ${t('analysis.log.start')}`
       break
     case 'stage_done':
-      formatted = `✔ ${stageLabel(stageNum)} · ${message}`
+      formatted = `[OK] ${stageLabel(stageNum)} · ${message}`
       break
     case 'error':
-      formatted = `✖ ${stageNum ? stageLabel(stageNum) + ' · ' : ''}${message}`
+      formatted = `[ERR] ${stageNum ? stageLabel(stageNum) + ' · ' : ''}${message}`
       break
     case 'pipeline_done':
-      formatted = `✔ ${message}`
+      formatted = `[OK] ${message}`
       break
     default:
       formatted = stageNum ? `${stageLabel(stageNum)} · ${message}` : message
@@ -438,16 +442,26 @@ const highlightFile = (path: string, code: string): string => {
     <!-- Page header -->
     <div class="jv-detail-header">
       <div class="jv-detail-header-left">
-        <span class="jv-back-btn" @click="router.push('/')">{{ t('common.back') }}</span>
-        <h2 style="margin:0; font-family:var(--font-mono); font-size:18px">{{ cveId }}</h2>
+        <span class="jv-back-btn" @click="router.push('/')">
+          <ArrowLeft :size="13" :stroke-width="2.2" />
+          {{ t('common.back') }}
+        </span>
+        <h2 class="jv-detail-id">{{ cveId }}</h2>
         <span :class="taskStatusClass(task!.status)">{{ t(`status.${task!.status}`) }}</span>
       </div>
       <div class="jv-detail-header-right">
         <el-button size="small" :disabled="!sseMessages.length" @click="terminalVisible = !terminalVisible">
+          <ScrollText :size="13" :stroke-width="2" style="margin-right:6px" />
           {{ terminalVisible ? t('analysis.hideLog') : t('analysis.showLog') }}
         </el-button>
-        <el-button v-if="sseActive" size="small" type="danger" :loading="cancelling" @click="cancelTask()">{{ t('analysis.cancelTask') }}</el-button>
-        <el-button size="small" :loading="sseActive" @click="rerun()">{{ t('analysis.rerunAll') }}</el-button>
+        <el-button v-if="sseActive" size="small" type="danger" :loading="cancelling" @click="cancelTask()">
+          <Square :size="12" :stroke-width="2.4" style="margin-right:6px" />
+          {{ t('analysis.cancelTask') }}
+        </el-button>
+        <el-button size="small" :loading="sseActive" @click="rerun()">
+          <RotateCcw :size="13" :stroke-width="2" style="margin-right:6px" />
+          {{ t('analysis.rerunAll') }}
+        </el-button>
       </div>
     </div>
 
@@ -469,7 +483,10 @@ const highlightFile = (path: string, code: string): string => {
         <template v-if="group.stageNum > 0">
           <div class="jv-term-stage-header" :class="{ 'has-error': group.hasError }"
                @click="toggleStageGroup(group.stageNum)">
-            <span class="jv-term-caret">{{ collapsedStages.has(group.stageNum) ? '▶' : '▼' }}</span>
+            <span class="jv-term-caret">
+              <ChevronRight v-if="collapsedStages.has(group.stageNum)" :size="12" :stroke-width="2.4" />
+              <ChevronDown v-else :size="12" :stroke-width="2.4" />
+            </span>
             {{ group.label }}
           </div>
           <template v-if="!collapsedStages.has(group.stageNum)">
@@ -493,7 +510,8 @@ const highlightFile = (path: string, code: string): string => {
       <div class="jv-result-header">
         <div class="jv-result-title-row">
           <div class="jv-result-title">
-            {{ stageIcons[selectedStage - 1] }} {{ stageNames[selectedStage - 1] }}
+            <span class="jv-result-index">{{ stageIcons[selectedStage - 1] }}</span>
+            {{ stageNames[selectedStage - 1] }}
           </div>
           <div v-if="selectedStageRecord" class="jv-result-meta">
             <span :class="taskStatusClass(selectedStageRecord.status)">{{ t(`status.${selectedStageRecord.status}`) }}</span>
@@ -506,12 +524,14 @@ const highlightFile = (path: string, code: string): string => {
             v-if="selectedStageRecord && selectedStageRecord.status === 'FAILED'"
             type="warning" size="small" :loading="sseActive"
             @click="rerun(selectedStage)">
+            <Play :size="12" :stroke-width="2.4" style="margin-right:6px" />
             {{ t('analysis.continueStage') }}
           </el-button>
           <el-button
             v-else-if="selectedStageRecord && selectedStageRecord.status === 'COMPLETED'"
             size="small" :loading="sseActive"
             @click="rerun(selectedStage)">
+            <RotateCcw :size="13" :stroke-width="2" style="margin-right:6px" />
             {{ t('analysis.rerunStage') }}
           </el-button>
         </div>
@@ -574,7 +594,7 @@ const highlightFile = (path: string, code: string): string => {
               <!-- Advisory -->
               <div v-if="articlesByCategory(stageData[1].articles, 'advisory').length" class="jv-ref-category">
                 <div class="jv-ref-category-title">
-                  <span class="jv-ref-icon">📋</span>
+                  <span class="jv-ref-icon"><ClipboardList :size="12" :stroke-width="2" /></span>
                   {{ t('analysis.refCategories.advisory') }}
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'advisory')" :key="article.url" class="jv-ref-item">
@@ -588,7 +608,7 @@ const highlightFile = (path: string, code: string): string => {
               <!-- Analysis -->
               <div v-if="articlesByCategory(stageData[1].articles, 'analysis').length" class="jv-ref-category">
                 <div class="jv-ref-category-title">
-                  <span class="jv-ref-icon">🔍</span>
+                  <span class="jv-ref-icon"><Search :size="12" :stroke-width="2" /></span>
                   {{ t('analysis.refCategories.analysis') }}
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'analysis')" :key="article.url" class="jv-ref-item">
@@ -602,7 +622,7 @@ const highlightFile = (path: string, code: string): string => {
               <!-- Patch -->
               <div v-if="articlesByCategory(stageData[1].articles, 'patch').length" class="jv-ref-category">
                 <div class="jv-ref-category-title">
-                  <span class="jv-ref-icon">🔧</span>
+                  <span class="jv-ref-icon"><Wrench :size="12" :stroke-width="2" /></span>
                   {{ t('analysis.refCategories.patch') }}
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'patch')" :key="article.url" class="jv-ref-item">
@@ -616,7 +636,7 @@ const highlightFile = (path: string, code: string): string => {
               <!-- PoC -->
               <div v-if="articlesByCategory(stageData[1].articles, 'poc').length" class="jv-ref-category">
                 <div class="jv-ref-category-title">
-                  <span class="jv-ref-icon">💥</span>
+                  <span class="jv-ref-icon"><Bomb :size="12" :stroke-width="2" /></span>
                   {{ t('analysis.refCategories.poc') }}
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'poc')" :key="article.url" class="jv-ref-item">
@@ -630,7 +650,7 @@ const highlightFile = (path: string, code: string): string => {
               <!-- Other -->
               <div v-if="articlesByCategory(stageData[1].articles, 'other').length" class="jv-ref-category">
                 <div class="jv-ref-category-title">
-                  <span class="jv-ref-icon">📄</span>
+                  <span class="jv-ref-icon"><FileText :size="12" :stroke-width="2" /></span>
                   {{ t('analysis.refCategories.other') }}
                 </div>
                 <div v-for="article in articlesByCategory(stageData[1].articles, 'other')" :key="article.url" class="jv-ref-item">
@@ -713,7 +733,7 @@ const highlightFile = (path: string, code: string): string => {
               </div>
 
               <div v-if="stageData[3].impact.attack_vector" class="rs-impact-vector">
-                <div class="rs-impact-vector-icon">⚡</div>
+                <div class="rs-impact-vector-icon"><Zap :size="16" :stroke-width="2" /></div>
                 <div class="rs-impact-vector-body">
                   <div class="rs-impact-vector-label">{{ t('analysis.reasoning.attackVector') }}</div>
                   <div class="rs-impact-vector-value">{{ stageData[3].impact.attack_vector }}</div>
@@ -751,7 +771,7 @@ const highlightFile = (path: string, code: string): string => {
                 <span class="rs-section-title">{{ t('analysis.reasoning.vulnFix') }}</span>
               </div>
               <div v-if="stageData[3].code_analysis?.fix_description" class="rs-fix-desc">
-                <div class="rs-fix-desc-icon">✓</div>
+                <div class="rs-fix-desc-icon"><Check :size="16" :stroke-width="2.4" /></div>
                 <div class="rs-fix-desc-body">
                   <div class="rs-fix-desc-label">{{ t('analysis.reasoning.fixDescription') }}</div>
                   <div class="rs-fix-desc-text">{{ stageData[3].code_analysis.fix_description }}</div>
@@ -1016,16 +1036,20 @@ const highlightFile = (path: string, code: string): string => {
               <div class="jv-section-label" style="display:flex; align-items:center; justify-content:space-between">
                 <span>{{ t('analysis.artifacts.fileList') }}</span>
                 <el-button size="small" @click="downloadAllArtifacts" style="margin-left:auto">
+                  <Download :size="13" :stroke-width="2" style="margin-right:6px" />
                   {{ t('analysis.artifacts.downloadAll') }}
                 </el-button>
               </div>
               <div class="jv-artifacts-files">
                 <div v-for="f in stageData[4].files" :key="f.path" class="jv-artifact-file-row">
                   <div class="jv-artifact-file" @click="toggleFile(f.path)" style="cursor:pointer">
-                    <span class="jv-artifact-expand">{{ expandedFiles.has(f.path) ? '▼' : '▶' }}</span>
+                    <span class="jv-artifact-expand">
+                      <ChevronDown v-if="expandedFiles.has(f.path)" :size="13" :stroke-width="2.2" />
+                      <ChevronRight v-else :size="13" :stroke-width="2.2" />
+                    </span>
                     <span :class="'jv-artifact-type jv-artifact-type-' + f.type">{{ f.type }}</span>
                     <code>{{ f.path }}</code>
-                    <span v-if="fileLoading.has(f.path)" class="jv-artifact-loading">…</span>
+                    <span v-if="fileLoading.has(f.path)" class="jv-artifact-loading">LOADING</span>
                   </div>
                   <pre v-if="expandedFiles.has(f.path) && fileContents[f.path] != null" class="jv-artifact-content hljs"><code v-html="highlightFile(f.path, fileContents[f.path])"></code></pre>
                 </div>
@@ -1043,6 +1067,7 @@ const highlightFile = (path: string, code: string): string => {
             <div class="jv-section-label" style="display:flex; align-items:center; justify-content:space-between">
               <span>{{ t('analysis.artifacts.reportPreview') }}</span>
               <el-button size="small" @click="downloadReport" style="margin-left:auto">
+                <Download :size="13" :stroke-width="2" style="margin-right:6px" />
                 {{ t('analysis.artifacts.downloadReport') }}
               </el-button>
             </div>
@@ -1064,1245 +1089,3 @@ const highlightFile = (path: string, code: string): string => {
   <el-skeleton v-else :rows="8" animated style="padding:20px" />
 </template>
 
-<style scoped>
-.jv-detail-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 24px;
-  gap: 12px;
-}
-.jv-detail-header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.jv-detail-header-right {
-  display: flex;
-  gap: 8px;
-}
-.jv-back-btn {
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  font-family: var(--font-mono);
-}
-.jv-back-btn:hover { color: var(--text-primary); }
-
-/* Pipeline */
-.jv-pipeline-row {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 1px;
-  background: var(--border-subtle);
-  border: 1px solid var(--border-subtle);
-  margin-bottom: 20px;
-}
-.jv-stage {
-  padding: 14px 10px;
-  text-align: center;
-  cursor: pointer;
-  transition: filter .15s;
-  user-select: none;
-}
-.jv-stage:hover { filter: brightness(1.15); }
-.jv-stage-selected {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-  filter: brightness(1.12);
-}
-.jv-stage-completed { background: #1c3a29; border-top: 2px solid #42be65; }
-.jv-stage-running   { background: #2a1f00; border-top: 2px solid #f1c21b; }
-.jv-stage-failed    { background: #2a0000; border-top: 2px solid #fa4d56; }
-.jv-stage-pending   { background: var(--bg-surface); border-top: 2px solid var(--border); }
-.jv-stage-num {
-  font-family: var(--font-mono);
-  font-size: 18px;
-  font-weight: 300;
-  color: var(--text-disabled);
-  line-height: 1;
-}
-.jv-stage-completed .jv-stage-num { color: #42be65; }
-.jv-stage-running   .jv-stage-num { color: #f1c21b; }
-.jv-stage-failed    .jv-stage-num { color: #fa4d56; }
-.jv-stage-name {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 6px;
-  letter-spacing: .3px;
-}
-.jv-stage-status {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  margin-top: 2px;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-}
-.jv-stage-completed .jv-stage-status { color: #42be65; }
-.jv-stage-running   .jv-stage-status { color: #f1c21b; }
-.jv-stage-failed    .jv-stage-status { color: #fa4d56; }
-
-/* Result panel */
-.jv-result-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 16px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.jv-result-title-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.jv-result-title {
-  font-family: var(--font-mono);
-  font-size: 16px;
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-.jv-result-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  color: var(--text-disabled);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-.jv-stage-error {
-  color: var(--critical);
-  background: rgba(250,77,86,.08);
-  border: 1px solid rgba(250,77,86,.25);
-  padding: 10px 12px;
-  margin-bottom: 16px;
-  font-size: 12px;
-  font-family: var(--font-mono);
-  white-space: pre-wrap;
-}
-/* Patch locate view */
-.jv-patch-files {
-  margin-top: 20px;
-}
-.jv-patch-files .jv-section-label {
-  margin-bottom: 10px;
-}
-.jv-patch-file {
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  margin-bottom: 10px;
-}
-.jv-patch-file-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-left: 3px solid var(--accent);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--accent-light);
-}
-.jv-patch-change-type {
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 2px 8px;
-  border: 1px solid transparent;
-}
-.jv-patch-change-added {
-  color: #42be65;
-  background: rgba(66,190,101,.12);
-  border-color: rgba(66,190,101,.28);
-}
-.jv-patch-change-modified {
-  color: #78a9ff;
-  background: rgba(120,169,255,.12);
-  border-color: rgba(120,169,255,.28);
-}
-.jv-patch-change-deleted {
-  color: #fa4d56;
-  background: rgba(250,77,86,.12);
-  border-color: rgba(250,77,86,.28);
-}
-/* Section label */
-.jv-section-label {
-  position: relative;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: .5px;
-  padding: 0 0 12px 14px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid rgba(15,98,254,.3);
-}
-.jv-section-label::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 1px;
-  width: 4px; height: 17px;
-  background: var(--accent);
-  border-radius: 2px;
-}
-
-/* Stage 4 — numbered section headers (like stage 3) */
-.jv-stage4-sections { counter-reset: s4section; }
-.jv-stage4-sections .jv-reasoning-section { counter-increment: s4section; }
-.jv-stage4-sections .jv-section-label {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 0 12px 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.jv-stage4-sections .jv-section-label::before {
-  content: counter(s4section, decimal-leading-zero);
-  position: static;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px; height: 34px;
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--accent-light);
-  background: rgba(15,98,254,.12);
-  border: 1px solid rgba(15,98,254,.35);
-  border-radius: 8px;
-  transform: none;
-}
-.jv-stage4-sections .s4-c1 .jv-section-label::before { color: var(--accent-light); background: rgba(15,98,254,.12); border-color: rgba(15,98,254,.35); }
-.jv-stage4-sections .s4-c1 .jv-section-label { border-bottom-color: rgba(15,98,254,.35); }
-.jv-stage4-sections .s4-c2 .jv-section-label::before { color: var(--critical); background: rgba(250,77,86,.12); border-color: rgba(250,77,86,.35); }
-.jv-stage4-sections .s4-c2 .jv-section-label { border-bottom-color: rgba(250,77,86,.35); }
-.jv-stage4-sections .s4-c3 .jv-section-label::before { color: var(--success); background: rgba(66,190,101,.12); border-color: rgba(66,190,101,.35); }
-.jv-stage4-sections .s4-c3 .jv-section-label { border-bottom-color: rgba(66,190,101,.35); }
-.jv-stage4-sections .s4-c4 .jv-section-label::before { color: var(--medium); background: rgba(241,194,27,.12); border-color: rgba(241,194,27,.35); }
-.jv-stage4-sections .s4-c4 .jv-section-label { border-bottom-color: rgba(241,194,27,.35); }
-.jv-stage4-sections .s4-c5 .jv-section-label::before { color: #a06eff; background: rgba(160,110,255,.12); border-color: rgba(160,110,255,.35); }
-.jv-stage4-sections .s4-c5 .jv-section-label { border-bottom-color: rgba(160,110,255,.35); }
-.jv-stage4-sections .s4-c6 .jv-section-label::before { color: #33b1ff; background: rgba(51,177,255,.12); border-color: rgba(51,177,255,.35); }
-.jv-stage4-sections .s4-c6 .jv-section-label { border-bottom-color: rgba(51,177,255,.35); }
-.jv-stage4-sections .s4-c7 .jv-section-label::before { color: #ff7eb6; background: rgba(255,126,182,.12); border-color: rgba(255,126,182,.35); }
-.jv-stage4-sections .s4-c7 .jv-section-label { border-bottom-color: rgba(255,126,182,.35); }
-
-.jv-stage3-section {
-  margin-bottom: 28px;
-}
-.jv-diff-section {
-  margin-top: 28px;
-}
-.jv-stage3-summary-meta {
-  margin-bottom: 12px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-.jv-stage3-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
-.jv-stage3-summary-card {
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-base);
-  padding: 12px;
-}
-.jv-stage3-summary-title {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-}
-.jv-stage3-summary-count {
-  margin: 8px 0 6px;
-  font-family: var(--font-mono);
-  font-size: 24px;
-  color: var(--text-primary);
-}
-.jv-stage3-summary-desc {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-.jv-stage3-layer-group {
-  margin-bottom: 24px;
-}
-.jv-stage3-layer-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-}
-.jv-stage3-layer-title {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-primary);
-}
-.jv-stage3-layer-desc {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.jv-stage3-layer-badge {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--accent-light);
-  border: 1px solid rgba(120,169,255,.3);
-  background: rgba(120,169,255,.08);
-  padding: 2px 6px;
-  white-space: nowrap;
-}
-.jv-stage3-file-reason {
-  margin: -10px 0 14px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-/* File block */
-.jv-file-block {
-  margin-bottom: 28px;
-  padding-bottom: 28px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.jv-file-block:last-child { border-bottom: none; }
-.jv-file-header {
-  background: var(--bg-base);
-  border-left: 3px solid var(--accent);
-  padding: 8px 12px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-/* Call chain */
-.jv-chain-item {
-  display: inline-flex;
-  align-items: center;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--accent-light);
-  background: rgba(15,98,254,.1);
-  padding: 3px 10px;
-  border: 1px solid rgba(15,98,254,.25);
-}
-
-/* Reasoning view - Redesigned UI */
-
-/* Legacy classes kept for Stage 4 */
-.jv-reasoning-section {
-  margin-bottom: 28px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.jv-reasoning-section:last-of-type { border-bottom: none; }
-.jv-reasoning-section .jv-section-label { margin-bottom: 12px; }
-.jv-reasoning-field {
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-  margin-bottom: 6px;
-}
-.jv-field-label {
-  color: var(--text-disabled);
-  font-size: 12px;
-  font-family: var(--font-mono);
-}
-
-/* Stage 3 redesigned styles */
-.rs-section { margin-bottom: 32px; }
-.rs-section-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 18px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.rs-section-num {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px; height: 34px;
-  flex-shrink: 0;
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--accent-light);
-  background: rgba(15,98,254,.12);
-  border: 1px solid rgba(15,98,254,.35);
-  border-radius: 8px;
-}
-.rs-section-title {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: .5px;
-}
-.rs-section-badge {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--accent-light);
-  background: rgba(15,98,254,.1);
-  border: 1px solid rgba(15,98,254,.25);
-  padding: 2px 8px;
-}
-/* per-section accent colors */
-.rs-section--trigger .rs-section-num { color: var(--accent-light); background: rgba(15,98,254,.12); border-color: rgba(15,98,254,.35); }
-.rs-section--trigger .rs-section-header { border-bottom-color: rgba(15,98,254,.3); }
-.rs-section--impact .rs-section-num { color: var(--critical); background: rgba(250,77,86,.12); border-color: rgba(250,77,86,.35); }
-.rs-section--impact .rs-section-header { border-bottom-color: rgba(250,77,86,.3); }
-.rs-section--fix .rs-section-num { color: var(--success); background: rgba(66,190,101,.12); border-color: rgba(66,190,101,.35); }
-.rs-section--fix .rs-section-header { border-bottom-color: rgba(66,190,101,.3); }
-.rs-section--detect .rs-section-num { color: var(--medium); background: rgba(241,194,27,.12); border-color: rgba(241,194,27,.35); }
-.rs-section--detect .rs-section-header { border-bottom-color: rgba(241,194,27,.3); }
-.rs-trigger-summary {
-  color: var(--text-secondary);
-  font-size: 13px;
-  margin-bottom: 16px;
-  line-height: 1.7;
-}
-.rs-flow { position: relative; padding-left: 32px; }
-.rs-flow-line {
-  position: absolute;
-  left: 11px; top: 0; bottom: 0;
-  width: 2px;
-  background: linear-gradient(180deg, var(--accent) 0%, var(--critical) 100%);
-}
-.rs-flow-step {
-  position: relative;
-  padding: 10px 16px;
-  margin-bottom: 8px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-left: none;
-  transition: border-color .15s;
-}
-.rs-flow-step:hover { border-color: rgba(120,169,255,.4); }
-.rs-flow-step:last-child { margin-bottom: 0; }
-.rs-flow-step:last-child .rs-flow-dot {
-  border-color: var(--critical);
-  background: rgba(250,77,86,.2);
-}
-.rs-flow-dot {
-  position: absolute;
-  left: -27px; top: 14px;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  background: var(--bg-body);
-  border: 2px solid var(--accent);
-}
-.rs-flow-seq {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--accent-light);
-  margin-right: 8px;
-}
-.rs-flow-class {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--accent-light);
-}
-.rs-flow-desc {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-.rs-list-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: .5px;
-  margin-bottom: 8px;
-}
-
-/* Impact Assessment — attack vector banner */
-.rs-impact-vector {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 14px 16px;
-  margin-bottom: 16px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-left: 2px solid rgba(250,77,86,.5);
-}
-.rs-impact-vector-icon {
-  font-size: 16px;
-  line-height: 1.4;
-  flex-shrink: 0;
-  opacity: .8;
-}
-.rs-impact-vector-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: .5px;
-  text-transform: uppercase;
-  margin-bottom: 5px;
-}
-.rs-impact-vector-value {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-
-/* Impact Assessment — card grid */
-.rs-impact-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
-}
-.rs-impact-card {
-  padding: 14px 16px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-top: 2px solid var(--border);
-  transition: border-color .15s, transform .15s;
-}
-.rs-impact-card:hover {
-  transform: translateY(-2px);
-}
-.rs-impact-card--prereq { border-top-color: var(--accent); }
-.rs-impact-card--prereq:hover { border-color: rgba(120,169,255,.4); }
-.rs-impact-card--conseq { border-top-color: var(--critical); }
-.rs-impact-card--conseq:hover { border-color: rgba(250,77,86,.4); }
-.rs-impact-card--scenario { border-top-color: var(--medium); }
-.rs-impact-card--scenario:hover { border-color: rgba(241,194,27,.4); }
-.rs-impact-card-head {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: .5px;
-  text-transform: uppercase;
-  margin-bottom: 10px;
-}
-.rs-impact-list { list-style: none; padding: 0; margin: 0; }
-.rs-impact-list li {
-  position: relative;
-  padding: 5px 0 5px 16px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.55;
-}
-.rs-impact-list li::before {
-  content: '›';
-  position: absolute;
-  left: 0;
-  color: var(--text-disabled);
-  font-family: var(--font-mono);
-}
-
-/* Vulnerability Fix — description */
-.rs-fix-desc {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 14px 16px;
-  margin-bottom: 16px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-left: 2px solid rgba(66,190,101,.5);
-}
-.rs-fix-desc-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px; height: 20px;
-  color: var(--success);
-  font-size: 13px;
-  flex-shrink: 0;
-  opacity: .8;
-}
-.rs-fix-desc-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: .5px;
-  text-transform: uppercase;
-  margin-bottom: 5px;
-}
-.rs-fix-desc-text {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.7;
-}
-
-/* Vulnerability Fix — recommendations */
-.rs-fix-recos {
-  padding: 14px 16px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-}
-.rs-fix-recos-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-  letter-spacing: .5px;
-  text-transform: uppercase;
-  margin-bottom: 10px;
-}
-.rs-fix-reco-list { list-style: none; padding: 0; margin: 0; counter-reset: reco; }
-.rs-fix-reco-list li {
-  position: relative;
-  padding: 7px 0 7px 28px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.55;
-  counter-increment: reco;
-}
-.rs-fix-reco-list li::before {
-  content: counter(reco);
-  position: absolute;
-  left: 0; top: 7px;
-  width: 18px; height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--success);
-  background: rgba(66,190,101,.12);
-  border: 1px solid rgba(66,190,101,.35);
-  border-radius: 50%;
-}
-.rs-dp-filters {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-}
-.rs-dp-filter {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  cursor: pointer;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  transition: all .15s;
-}
-.rs-dp-filter:hover { border-color: rgba(120,169,255,.4); }
-.rs-dp-filter.active {
-  background: rgba(15,98,254,.12);
-  border-color: rgba(15,98,254,.4);
-  color: var(--accent-light);
-}
-.rs-dp-filter .count { font-size: 10px; color: var(--text-disabled); }
-.rs-dp-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  margin-bottom: 8px;
-  padding: 14px 16px;
-}
-.rs-dp-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.rs-dp-id {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-disabled);
-}
-.rs-dp-type-tag {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 2px 8px;
-  letter-spacing: .3px;
-}
-.rs-dp-type-dependency   { background: rgba(15,98,254,.15); color: var(--accent-light); border: 1px solid rgba(15,98,254,.3); }
-.rs-dp-type-code_pattern { background: rgba(250,77,86,.12);  color: #fa4d56; border: 1px solid rgba(250,77,86,.3); }
-.rs-dp-type-config_risk  { background: rgba(241,194,27,.12); color: #f1c21b; border: 1px solid rgba(241,194,27,.3); }
-.rs-dp-type-api_usage    { background: rgba(190,98,255,.12); color: #be62ff; border: 1px solid rgba(190,98,255,.3); }
-.rs-dp-desc {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  margin-bottom: 10px;
-}
-.rs-dp-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  font-size: 12px;
-}
-.rs-dp-meta-item .label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-disabled);
-}
-.rs-dp-meta-item code {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--accent-light);
-  background: rgba(15,98,254,.08);
-  padding: 1px 6px;
-}
-.rs-dp-config-row {
-  padding: 4px 0;
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-.rs-dp-config-row code { color: var(--text-primary); }
-.rs-dp-config-row .risky { color: var(--critical); }
-.rs-dp-api-tag {
-  display: inline-block;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 2px 8px;
-  margin: 2px 4px 2px 0;
-  background: rgba(250,77,86,.08);
-  color: var(--critical);
-  border: 1px solid rgba(250,77,86,.2);
-}
-.rs-dp-safe-tag {
-  display: inline-block;
-  font-size: 11px;
-  padding: 2px 8px;
-  margin: 2px 4px 2px 0;
-  background: rgba(66,190,101,.08);
-  color: var(--success);
-  border: 1px solid rgba(66,190,101,.2);
-}
-
-/* Artifacts tab */
-.jv-artifacts-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 18px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 20px;
-  padding: 10px 14px;
-  background: var(--bg-base);
-}
-.jv-stage4-plan-grid,
-.jv-stage4-validation-grid,
-.jv-stage4-evidence-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-.jv-stage4-plan-lists,
-.jv-stage4-validation-messages,
-.jv-stage4-validation-artifacts {
-  margin-top: 14px;
-}
-.jv-stage4-plan-list + .jv-stage4-plan-list {
-  margin-top: 12px;
-}
-.jv-stage4-plan-card,
-.jv-stage4-evidence-card {
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  padding: 12px 14px;
-}
-.jv-stage4-card-label,
-.jv-stage4-evidence-key {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-disabled);
-  text-transform: uppercase;
-  letter-spacing: .5px;
-  margin-bottom: 8px;
-}
-.jv-stage4-card-text {
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-.jv-stage4-verdict-ok   { color: #42be65; }
-.jv-stage4-verdict-fail { color: #fa4d56; }
-.jv-stage4-list {
-  margin: 0;
-  padding-left: 18px;
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.jv-stage4-pre {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-  font-family: var(--font-mono);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* PoC client/server timeline */
-.jv-poc-timeline {
-  margin-top: 18px;
-  padding: 16px;
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-}
-.jv-poc-timeline-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.jv-poc-timeline-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: .3px;
-}
-.jv-poc-timeline-legend {
-  display: flex;
-  gap: 14px;
-}
-.jv-poc-legend-item {
-  position: relative;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding-left: 16px;
-  color: var(--text-secondary);
-}
-.jv-poc-legend-item::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 50%;
-  transform: translateY(-50%);
-  width: 9px; height: 9px;
-  border-radius: 50%;
-}
-.jv-poc-legend-item.is-client::before { background: var(--accent, #4589ff); }
-.jv-poc-legend-item.is-server::before { background: #08bdba; }
-
-.jv-poc-track {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.jv-poc-track::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 4px; bottom: 4px;
-  width: 2px;
-  transform: translateX(-50%);
-  background: var(--border-subtle);
-}
-.jv-poc-step {
-  position: relative;
-  display: flex;
-  width: 100%;
-}
-.jv-poc-step.is-client { justify-content: flex-start; }
-.jv-poc-step.is-server { justify-content: flex-end; }
-.jv-poc-step-rail {
-  position: absolute;
-  left: 50%;
-  top: 14px;
-  transform: translateX(-50%);
-  z-index: 1;
-}
-.jv-poc-step-dot {
-  display: block;
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  background: var(--text-disabled);
-  border: 2px solid var(--bg-base);
-  box-shadow: 0 0 0 1px var(--border-subtle);
-}
-.jv-poc-step-dot.phase-startup  { background: #08bdba; }
-.jv-poc-step-dot.phase-request  { background: var(--accent, #4589ff); }
-.jv-poc-step-dot.phase-response { background: #a06eff; }
-.jv-poc-step-dot.phase-verify   { background: #42be65; }
-.jv-poc-step-card {
-  width: calc(50% - 26px);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 10px 12px;
-}
-.jv-poc-step.is-client .jv-poc-step-card {
-  border-left: 3px solid var(--accent, #4589ff);
-}
-.jv-poc-step.is-server .jv-poc-step-card {
-  border-right: 3px solid #08bdba;
-  text-align: left;
-}
-.jv-poc-step-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-.jv-poc-step-phase {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: .5px;
-  text-transform: uppercase;
-  padding: 1px 7px;
-  border-radius: 3px;
-  color: var(--text-secondary);
-  background: rgba(130,130,130,.12);
-}
-.jv-poc-step-phase.phase-startup  { color: #08bdba; background: rgba(8,189,186,.12); }
-.jv-poc-step-phase.phase-request  { color: var(--accent-light, #78a9ff); background: rgba(69,137,255,.14); }
-.jv-poc-step-phase.phase-response { color: #a06eff; background: rgba(160,110,255,.14); }
-.jv-poc-step-phase.phase-verify   { color: #42be65; background: rgba(66,190,101,.14); }
-.jv-poc-step-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-.jv-poc-step-body {
-  margin: 0;
-  font-size: 11px;
-  max-height: 220px;
-  overflow: auto;
-}
-@media (max-width: 720px) {
-  .jv-poc-track::before { left: 6px; }
-  .jv-poc-step.is-client,
-  .jv-poc-step.is-server { justify-content: flex-end; }
-  .jv-poc-step-rail { left: 6px; }
-  .jv-poc-step-card { width: calc(100% - 26px); }
-}
-.jv-artifacts-review {
-  border: 1px solid rgba(250,77,86,.22);
-  background: rgba(250,77,86,.08);
-  border-radius: 8px;
-  padding: 12px 14px;
-}
-.jv-artifacts-review-verdict {
-  color: var(--critical);
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 6px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.jv-artifacts-review-reason {
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.jv-artifacts-review-actions {
-  margin-top: 10px;
-}
-.jv-artifacts-review-actions-title {
-  color: var(--text-secondary);
-  font-size: 12px;
-  margin-bottom: 6px;
-}
-.jv-artifacts-review-actions ul {
-  margin: 0;
-  padding-left: 18px;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-.jv-artifacts-review-actions li {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.6;
-}
-.jv-artifacts-files {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-}
-.jv-artifact-file {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  background: var(--bg-base);
-  font-size: 13px;
-}
-.jv-artifact-file:hover { background: var(--bg-hover); }
-.jv-artifact-file code {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.jv-artifact-expand {
-  font-size: 10px;
-  color: var(--text-muted);
-  width: 12px;
-  flex-shrink: 0;
-}
-.jv-artifact-loading {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-left: auto;
-}
-.jv-artifact-content {
-  margin: 0;
-  padding: 10px 14px;
-  background: var(--bg-base);
-  border-top: 1px solid var(--border-color, rgba(255,255,255,.06));
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 500px;
-  overflow-y: auto;
-}
-.jv-artifact-type {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 2px 8px;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-  min-width: 80px;
-  text-align: center;
-}
-.jv-artifact-type-vuln-demo     { background: rgba(15,98,254,.15); color: var(--accent-light); border: 1px solid rgba(15,98,254,.3); }
-.jv-artifact-type-poc           { background: rgba(250,77,86,.12);  color: #fa4d56; border: 1px solid rgba(250,77,86,.3); }
-.jv-artifact-type-report        { background: rgba(66,190,101,.12); color: #42be65; border: 1px solid rgba(66,190,101,.3); }
-.jv-artifact-type-docker-compose { background: rgba(241,194,27,.12); color: #f1c21b; border: 1px solid rgba(241,194,27,.3); }
-.jv-poc-block {
-  margin-bottom: 10px;
-}
-
-.jv-paused-banner {
-  background: rgba(250,77,86,.08);
-  border: 1px solid rgba(250,77,86,.3);
-  border-radius: 8px;
-  padding: 14px 16px;
-  margin-bottom: 16px;
-}
-.jv-paused-title {
-  font-weight: 600;
-  color: var(--critical);
-  margin-bottom: 6px;
-}
-.jv-paused-reason {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-/* Stage 4 failure recovery */
-.jv-stage4-recovery-wrap {
-  margin-bottom: 24px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid rgba(255,255,255,.08);
-}
-.jv-stage4-recovery {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 20px;
-  text-align: left;
-}
-@media (max-width: 900px) {
-  .jv-stage4-recovery { grid-template-columns: 1fr; }
-}
-.jv-stage4-recovery-card {
-  background: rgba(0,0,0,.2);
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 8px;
-  padding: 16px;
-}
-.jv-stage4-recovery-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--accent-light);
-  margin-bottom: 6px;
-}
-.jv-stage4-recovery-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 12px;
-  line-height: 1.5;
-}
-
-/* References by Category */
-.jv-ref-category {
-  margin-top: 16px;
-  background: rgba(0,0,0,.2);
-  border: 1px solid rgba(255,255,255,.06);
-  border-radius: 8px;
-  padding: 12px 16px;
-}
-.jv-ref-category-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--accent-light);
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255,255,255,.08);
-}
-.jv-ref-icon {
-  font-size: 16px;
-}
-.jv-ref-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(255,255,255,.03);
-}
-.jv-ref-item:last-child {
-  border-bottom: none;
-}
-.jv-ref-link {
-  flex: 1;
-  font-size: 13px;
-  color: var(--accent);
-  text-decoration: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.jv-ref-link:hover {
-  color: var(--accent-bright);
-  text-decoration: underline;
-}
-.jv-ref-source {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: var(--text-disabled);
-  flex-shrink: 0;
-}
-</style>
-
-<style>
-/* Non-scoped: styles v-html markdown output injected into .jv-report-preview */
-.jv-report-preview {
-  color: var(--text-primary);
-  font-size: 14px;
-  line-height: 1.6;
-  max-height: 70vh;
-  overflow-y: auto;
-  padding: 20px 24px;
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  word-wrap: break-word;
-}
-.jv-report-preview > *:first-child { margin-top: 0; }
-.jv-report-preview > *:last-child { margin-bottom: 0; }
-.jv-report-preview h1, .jv-report-preview h2, .jv-report-preview h3,
-.jv-report-preview h4, .jv-report-preview h5, .jv-report-preview h6 {
-  color: var(--text-primary);
-  font-weight: 600;
-  line-height: 1.25;
-  margin: 24px 0 16px;
-}
-.jv-report-preview h1 { font-size: 24px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
-.jv-report-preview h2 { font-size: 20px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
-.jv-report-preview h3 { font-size: 17px; }
-.jv-report-preview h4 { font-size: 15px; }
-.jv-report-preview h5, .jv-report-preview h6 { font-size: 13px; }
-.jv-report-preview p { margin: 0 0 16px; }
-.jv-report-preview ul, .jv-report-preview ol { margin: 0 0 16px; padding-left: 28px; }
-.jv-report-preview li { margin: 4px 0; }
-.jv-report-preview li > ul, .jv-report-preview li > ol { margin: 4px 0; }
-.jv-report-preview strong { font-weight: 600; color: var(--text-primary); }
-.jv-report-preview a { color: var(--accent, #4589ff); text-decoration: none; word-break: break-all; }
-.jv-report-preview a:hover { text-decoration: underline; }
-.jv-report-preview hr { height: 1px; border: none; background: var(--border-subtle); margin: 24px 0; }
-.jv-report-preview code {
-  font-family: var(--font-mono);
-  font-size: 85%;
-  background: rgba(110,118,129,.25);
-  padding: .2em .4em;
-  border-radius: 4px;
-}
-.jv-report-preview pre {
-  background: var(--bg-code, #1c1c1c);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 14px 16px;
-  overflow-x: auto;
-  margin: 0 0 16px;
-  line-height: 1.5;
-}
-.jv-report-preview pre code {
-  background: none;
-  padding: 0;
-  font-size: 85%;
-  color: var(--text-primary);
-  white-space: pre;
-}
-.jv-report-preview blockquote {
-  margin: 0 0 16px;
-  padding: 0 16px;
-  color: var(--text-muted);
-  border-left: 4px solid var(--border);
-}
-.jv-report-preview blockquote > *:last-child { margin-bottom: 0; }
-.jv-report-preview table {
-  border-collapse: collapse;
-  margin: 0 0 16px;
-  width: 100%;
-  font-size: 13px;
-  display: block;
-  overflow-x: auto;
-}
-.jv-report-preview th, .jv-report-preview td {
-  border: 1px solid var(--border-subtle);
-  padding: 8px 12px;
-  text-align: left;
-  vertical-align: top;
-}
-.jv-report-preview th { background: var(--bg-surface, #262626); font-weight: 600; }
-.jv-report-preview tr:nth-child(2n) td { background: rgba(255,255,255,.03); }
-.jv-report-preview img { max-width: 100%; }
-/* highlight.js token colors (GitHub-dark palette) */
-.jv-report-preview .hljs-comment, .jv-report-preview .hljs-quote { color: #8b949e; }
-.jv-report-preview .hljs-keyword, .jv-report-preview .hljs-selector-tag, .jv-report-preview .hljs-literal, .jv-report-preview .hljs-meta .hljs-keyword { color: #ff7b72; }
-.jv-report-preview .hljs-string, .jv-report-preview .hljs-addition, .jv-report-preview .hljs-meta .hljs-string { color: #a5d6ff; }
-.jv-report-preview .hljs-number, .jv-report-preview .hljs-symbol, .jv-report-preview .hljs-bullet { color: #79c0ff; }
-.jv-report-preview .hljs-title, .jv-report-preview .hljs-title.function_, .jv-report-preview .hljs-section { color: #d2a8ff; }
-.jv-report-preview .hljs-type, .jv-report-preview .hljs-class .hljs-title, .jv-report-preview .hljs-built_in, .jv-report-preview .hljs-title.class_ { color: #ffa657; }
-.jv-report-preview .hljs-variable, .jv-report-preview .hljs-template-variable, .jv-report-preview .hljs-attr, .jv-report-preview .hljs-attribute, .jv-report-preview .hljs-name { color: #79c0ff; }
-.jv-report-preview .hljs-tag { color: #7ee787; }
-.jv-report-preview .hljs-deletion { color: #ffa198; }
-.jv-report-preview .hljs-emphasis { font-style: italic; }
-.jv-report-preview .hljs-strong { font-weight: 600; }
-/* highlight.js token colors for expanded artifact files (GitHub-dark palette) */
-.jv-artifact-content .hljs-comment, .jv-artifact-content .hljs-quote { color: #8b949e; }
-.jv-artifact-content .hljs-keyword, .jv-artifact-content .hljs-selector-tag, .jv-artifact-content .hljs-literal, .jv-artifact-content .hljs-meta .hljs-keyword { color: #ff7b72; }
-.jv-artifact-content .hljs-string, .jv-artifact-content .hljs-addition, .jv-artifact-content .hljs-meta .hljs-string { color: #a5d6ff; }
-.jv-artifact-content .hljs-number, .jv-artifact-content .hljs-symbol, .jv-artifact-content .hljs-bullet { color: #79c0ff; }
-.jv-artifact-content .hljs-title, .jv-artifact-content .hljs-title.function_, .jv-artifact-content .hljs-section { color: #d2a8ff; }
-.jv-artifact-content .hljs-type, .jv-artifact-content .hljs-class .hljs-title, .jv-artifact-content .hljs-built_in, .jv-artifact-content .hljs-title.class_ { color: #ffa657; }
-.jv-artifact-content .hljs-variable, .jv-artifact-content .hljs-template-variable, .jv-artifact-content .hljs-attr, .jv-artifact-content .hljs-attribute, .jv-artifact-content .hljs-name { color: #79c0ff; }
-.jv-artifact-content .hljs-tag { color: #7ee787; }
-.jv-artifact-content .hljs-deletion { color: #ffa198; }
-.jv-artifact-content .hljs-emphasis { font-style: italic; }
-.jv-artifact-content .hljs-strong { font-weight: 600; }
-</style>

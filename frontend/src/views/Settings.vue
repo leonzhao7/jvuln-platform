@@ -4,6 +4,10 @@ import { useRouter } from 'vue-router'
 import { api, type LlmConfig, type JavaProfile, type ProxySettings } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from '../i18n'
+import {
+  ArrowLeft, BrainCircuit, Coffee, Network, Plus, Plug, Pencil, Trash2,
+  CheckCircle2, XCircle, SlidersHorizontal,
+} from 'lucide-vue-next'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -300,20 +304,34 @@ onMounted(() => {
 </script>
 
 <template>
-  <div style="max-width:1200px; margin:0 auto">
+  <div class="jv-settings">
     <div class="jv-settings-header">
-      <span class="jv-back-btn" @click="router.back()">{{ t('common.back') }}</span>
-      <h2 style="margin:0; font-family:var(--font-mono); font-size:18px">{{ t('settings.title') }}</h2>
+      <span class="jv-back-btn" @click="router.back()">
+        <ArrowLeft :size="14" :stroke-width="2.2" />
+        {{ t('common.back') }}
+      </span>
+      <div>
+        <div class="jv-eyebrow">SYSTEM CONFIGURATION</div>
+        <h2 class="jv-settings-title">{{ t('settings.title') }}</h2>
+      </div>
+      <div class="jv-panel-head-spacer" />
+      <span class="jv-settings-chip">
+        <SlidersHorizontal :size="11" :stroke-width="2.2" />
+        {{ configs.length }} LLM / {{ javaProfiles.length }} JDK
+      </span>
     </div>
 
     <!-- LLM Configurations -->
     <el-card>
       <template #header>
-        <div style="display:flex; align-items:center; justify-content:space-between">
-          <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled); letter-spacing:1px">
-            {{ t('settings.llmConfigurations') }}
-          </span>
-          <el-button type="primary" size="small" @click="openAdd">{{ t('settings.addNew') }}</el-button>
+        <div class="jv-card-head">
+          <span class="jv-panel-head-icon"><BrainCircuit :size="14" :stroke-width="2" /></span>
+          <span class="jv-panel-head-title">{{ t('settings.llmConfigurations') }}</span>
+          <div class="jv-panel-head-spacer" />
+          <el-button type="primary" size="small" @click="openAdd">
+            <Plus :size="13" :stroke-width="2.4" style="margin-right:5px" />
+            {{ t('settings.addNew') }}
+          </el-button>
         </div>
       </template>
 
@@ -339,23 +357,19 @@ onMounted(() => {
 
         <el-table-column :label="t('settings.endpoint')" min-width="190">
           <template #default="{ row }">
-            <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted)">
-              {{ row.endpoint || '—' }}
-            </span>
+            <span class="jv-cell-mono">{{ row.endpoint || '—' }}</span>
           </template>
         </el-table-column>
 
         <el-table-column :label="t('settings.model')" min-width="180">
           <template #default="{ row }">
-            <span style="font-family:var(--font-mono); font-size:12px; color:var(--text-muted)">
-              {{ row.model || '—' }}
-            </span>
+            <span class="jv-cell-mono is-strong">{{ row.model || '—' }}</span>
           </template>
         </el-table-column>
 
         <el-table-column :label="t('settings.baseUrl')" min-width="200">
           <template #default="{ row }">
-            <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled)">
+            <span class="jv-cell-mono is-dim">
               {{ row.baseUrl ? (row.baseUrl.length > 35 ? row.baseUrl.substring(0, 35) + '…' : row.baseUrl) : '—' }}
             </span>
           </template>
@@ -363,10 +377,19 @@ onMounted(() => {
 
         <el-table-column label="" width="200" align="right">
           <template #default="{ row }">
-            <div style="display:flex; gap:6px; justify-content:flex-end">
-              <el-button size="small" :loading="testingId === row.id" @click="testConfig(row)">{{ t('common.test') }}</el-button>
-              <el-button size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-              <el-button size="small" type="danger" plain @click="deleteConfig(row)">{{ t('common.delete') }}</el-button>
+            <div class="jv-row-actions">
+              <el-button size="small" :loading="testingId === row.id" @click="testConfig(row)">
+                <Plug v-if="testingId !== row.id" :size="12" :stroke-width="2.2" style="margin-right:5px" />
+                {{ t('common.test') }}
+              </el-button>
+              <el-button size="small" @click="openEdit(row)">
+                <Pencil :size="12" :stroke-width="2.2" style="margin-right:5px" />
+                {{ t('common.edit') }}
+              </el-button>
+              <el-button size="small" type="danger" plain @click="deleteConfig(row)">
+                <Trash2 :size="12" :stroke-width="2.2" style="margin-right:5px" />
+                {{ t('common.delete') }}
+              </el-button>
             </div>
           </template>
         </el-table-column>
@@ -377,17 +400,19 @@ onMounted(() => {
         <div v-if="testResults[cfg.id!]" class="jv-test-result"
           :class="testResults[cfg.id!].ok ? 'jv-test-ok' : 'jv-test-fail'">
           <span class="jv-test-label">
+            <CheckCircle2 v-if="testResults[cfg.id!].ok" :size="13" :stroke-width="2.2" />
+            <XCircle v-else :size="13" :stroke-width="2.2" />
             {{ cfg.name || cfg.model }}:
             {{ testResults[cfg.id!].ok ? t('settings.connected') : t('settings.failed') }}
           </span>
-          <span v-if="testResults[cfg.id!].ok" style="font-family:var(--font-mono); font-size:12px; color:var(--text-secondary)">
+          <span v-if="testResults[cfg.id!].ok" class="jv-test-detail">
             {{ testResults[cfg.id!].model }} · "{{ testResults[cfg.id!].response }}" · {{ testResults[cfg.id!].tokens }} tokens
           </span>
-          <span v-else style="font-size:12px; color:var(--critical)">{{ testResults[cfg.id!].error }}</span>
+          <span v-else class="jv-test-detail is-error">{{ testResults[cfg.id!].error }}</span>
         </div>
       </div>
 
-      <div v-if="configs.length === 0 && !loading" style="text-align:center; color:var(--text-disabled); padding:32px 0; font-size:13px">
+      <div v-if="configs.length === 0 && !loading" class="jv-settings-empty">
         {{ t('settings.empty') }}
       </div>
     </el-card>
@@ -411,7 +436,7 @@ onMounted(() => {
             :placeholder="t('settings.apiKeyPlaceholder')" />
         </el-form-item>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px">
+        <div class="jv-field-grid is-2">
           <el-form-item :label="t('settings.model')">
             <el-input v-model="form.model" :placeholder="t('settings.modelPlaceholder')" />
           </el-form-item>
@@ -431,7 +456,7 @@ onMounted(() => {
       </el-form>
 
       <template #footer>
-        <div style="display:flex; gap:12px; justify-content:flex-end">
+        <div class="jv-dialog-actions">
           <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
           <el-button type="primary" :loading="saving" @click="saveForm">{{ t('common.save') }}</el-button>
         </div>
@@ -439,13 +464,16 @@ onMounted(() => {
     </el-dialog>
 
     <!-- Java Profiles -->
-    <el-card style="margin-top:20px">
+    <el-card class="jv-settings-card">
       <template #header>
-        <div style="display:flex; align-items:center; justify-content:space-between">
-          <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled); letter-spacing:1px">
-            {{ t('javaProfiles.title') }}
-          </span>
-          <el-button type="primary" size="small" @click="openJpAdd">{{ t('javaProfiles.addNew') }}</el-button>
+        <div class="jv-card-head">
+          <span class="jv-panel-head-icon"><Coffee :size="14" :stroke-width="2" /></span>
+          <span class="jv-panel-head-title">{{ t('javaProfiles.title') }}</span>
+          <div class="jv-panel-head-spacer" />
+          <el-button type="primary" size="small" @click="openJpAdd">
+            <Plus :size="13" :stroke-width="2.4" style="margin-right:5px" />
+            {{ t('javaProfiles.addNew') }}
+          </el-button>
         </div>
       </template>
 
@@ -454,7 +482,7 @@ onMounted(() => {
 
         <el-table-column :label="t('javaProfiles.name')" min-width="120">
           <template #default="{ row }">
-            <div style="display:flex; align-items:center; gap:8px">
+            <div class="jv-cell-flex">
               <span>{{ row.name }}</span>
               <span v-if="row.isDefault" class="jv-tag jv-tag-completed">{{ t('javaProfiles.isDefault') }}</span>
             </div>
@@ -469,7 +497,7 @@ onMounted(() => {
 
         <el-table-column :label="t('javaProfiles.javaHome')" min-width="220">
           <template #default="{ row }">
-            <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled)">
+            <span class="jv-cell-mono is-dim">
               {{ row.javaHome ? (row.javaHome.length > 40 ? row.javaHome.substring(0, 40) + '…' : row.javaHome) : '—' }}
             </span>
           </template>
@@ -477,15 +505,21 @@ onMounted(() => {
 
         <el-table-column label="" width="160" align="right">
           <template #default="{ row }">
-            <div style="display:flex; gap:6px; justify-content:flex-end">
-              <el-button size="small" @click="openJpEdit(row)">{{ t('common.edit') }}</el-button>
-              <el-button size="small" type="danger" plain @click="deleteProfile(row)">{{ t('common.delete') }}</el-button>
+            <div class="jv-row-actions">
+              <el-button size="small" @click="openJpEdit(row)">
+                <Pencil :size="12" :stroke-width="2.2" style="margin-right:5px" />
+                {{ t('common.edit') }}
+              </el-button>
+              <el-button size="small" type="danger" plain @click="deleteProfile(row)">
+                <Trash2 :size="12" :stroke-width="2.2" style="margin-right:5px" />
+                {{ t('common.delete') }}
+              </el-button>
             </div>
           </template>
         </el-table-column>
       </el-table>
 
-      <div v-if="javaProfiles.length === 0 && !jpLoading" style="text-align:center; color:var(--text-disabled); padding:32px 0; font-size:13px">
+      <div v-if="javaProfiles.length === 0 && !jpLoading" class="jv-settings-empty">
         {{ t('javaProfiles.empty') }}
       </div>
     </el-card>
@@ -512,7 +546,7 @@ onMounted(() => {
       </el-form>
 
       <template #footer>
-        <div style="display:flex; gap:12px; justify-content:flex-end">
+        <div class="jv-dialog-actions">
           <el-button @click="jpDialogVisible = false">{{ t('common.cancel') }}</el-button>
           <el-button type="primary" :loading="jpSaving" @click="saveJpForm">{{ t('common.save') }}</el-button>
         </div>
@@ -520,24 +554,23 @@ onMounted(() => {
     </el-dialog>
 
     <!-- Proxy & Timeouts -->
-    <el-card style="margin-top:20px">
+    <el-card class="jv-settings-card">
       <template #header>
-        <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-disabled); letter-spacing:1px">
-          {{ t('proxy.title') }}
-        </span>
+        <div class="jv-card-head">
+          <span class="jv-panel-head-icon"><Network :size="14" :stroke-width="2" /></span>
+          <span class="jv-panel-head-title">{{ t('proxy.title') }}</span>
+        </div>
       </template>
 
-      <el-form :model="proxyForm" label-position="top" style="max-width:800px">
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px">
+      <el-form :model="proxyForm" label-position="top" class="jv-proxy-form">
+        <div class="jv-field-grid">
           <el-form-item :label="t('proxy.proxyType')">
-            <select v-model="proxyForm.proxyType"
-              style="width:100%; height:36px; background:var(--bg-elevated); border:1px solid var(--border);
-                     color:var(--text-primary); padding:0 12px; font-family:var(--font-sans); font-size:14px">
-              <option value="NONE">NONE</option>
-              <option value="SOCKS5">SOCKS5</option>
-              <option value="SOCKS4">SOCKS4</option>
-              <option value="HTTP">HTTP</option>
-            </select>
+            <el-select v-model="proxyForm.proxyType" style="width:100%" :teleported="false">
+              <el-option label="NONE" value="NONE" />
+              <el-option label="SOCKS5" value="SOCKS5" />
+              <el-option label="SOCKS4" value="SOCKS4" />
+              <el-option label="HTTP" value="HTTP" />
+            </el-select>
           </el-form-item>
 
           <el-form-item :label="t('proxy.proxyHost')">
@@ -558,7 +591,7 @@ onMounted(() => {
           </el-checkbox-group>
         </el-form-item>
 
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px">
+        <div class="jv-field-grid">
           <el-form-item :label="t('proxy.urlConnectTimeout')">
             <el-input v-model.number="proxyForm.urlConnectTimeout" type="number" />
           </el-form-item>
@@ -572,66 +605,29 @@ onMounted(() => {
           </el-form-item>
         </div>
 
-        <div style="display:flex; gap:12px; margin-top:8px">
+        <div class="jv-proxy-actions">
           <el-button type="primary" :loading="proxySaving" @click="saveProxy">{{ t('proxy.save') }}</el-button>
-          <el-button :loading="proxyTesting" @click="testProxy">{{ t('common.test') }}</el-button>
+          <el-button :loading="proxyTesting" @click="testProxy">
+            <Plug v-if="!proxyTesting" :size="13" :stroke-width="2.2" style="margin-right:6px" />
+            {{ t('common.test') }}
+          </el-button>
         </div>
       </el-form>
 
       <div v-if="proxyTestResult" class="jv-test-result"
-        :class="proxyTestResult.ok ? 'jv-test-ok' : 'jv-test-fail'" style="margin-top:16px">
+        :class="proxyTestResult.ok ? 'jv-test-ok' : 'jv-test-fail'">
         <span class="jv-test-label">
+          <CheckCircle2 v-if="proxyTestResult.ok" :size="13" :stroke-width="2.2" />
+          <XCircle v-else :size="13" :stroke-width="2.2" />
           {{ proxyTestResult.ok ? t('proxy.testOk') : t('proxy.testFail') }}
         </span>
-        <span v-if="proxyTestResult.message" style="font-size:12px; color:var(--text-secondary)">
+        <span v-if="proxyTestResult.message" class="jv-test-detail">
           {{ proxyTestResult.message }}
         </span>
-        <span v-if="proxyTestResult.error" style="font-size:12px; color:var(--critical)">
+        <span v-if="proxyTestResult.error" class="jv-test-detail is-error">
           {{ proxyTestResult.error }}
         </span>
       </div>
     </el-card>
   </div>
 </template>
-
-<style scoped>
-:deep(.active-row td) {
-  background: #1c3a29 !important;
-}
-
-.jv-settings-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.jv-back-btn {
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  font-family: var(--font-mono);
-}
-
-.jv-back-btn:hover { color: var(--text-primary); }
-
-.jv-test-result {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin: 8px 0 4px;
-  padding: 10px 12px;
-  border-left: 3px solid;
-}
-.jv-test-ok   { background: rgba(66,190,101,.08); border-color: var(--success); }
-.jv-test-fail { background: rgba(250,77,86,.08);  border-color: var(--critical); }
-.jv-test-label {
-  font-weight: 600;
-  font-size: 13px;
-  font-family: var(--font-mono);
-}
-.jv-test-ok   .jv-test-label { color: var(--success); }
-.jv-test-fail .jv-test-label { color: var(--critical); }
-
-</style>
