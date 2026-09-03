@@ -17,7 +17,7 @@
   align-items: center;
   gap: 8px;
   padding: 14px 0 18px;
-  background: linear-gradient(180deg, rgba(12, 15, 23, .92), rgba(5, 6, 10, .82));
+  background: var(--chrome-rail);
   border-right: 1px solid var(--hairline-lo);
   backdrop-filter: blur(22px) saturate(140%);
 }
@@ -29,19 +29,19 @@
   place-items: center;
   border-radius: var(--r-md);
   background: var(--grad-plasma);
-  color: #fff;
+  color: var(--text-on-brand);
   cursor: pointer;
-  box-shadow: 0 8px 24px -8px rgba(124, 92, 255, .9);
+  box-shadow: 0 8px 24px -8px var(--brand-glow-strong);
   transition: transform var(--dur-2) var(--ease-spring), box-shadow var(--dur-2) var(--ease-out);
   flex: none;
 }
-.jv-rail-mark:hover { transform: rotate(-8deg) scale(1.07); box-shadow: 0 12px 34px -8px rgba(124, 92, 255, 1); }
+.jv-rail-mark:hover { transform: rotate(-8deg) scale(1.07); box-shadow: 0 12px 34px -8px var(--brand-glow-strong); }
 .jv-rail-mark::after {
   content: '';
   position: absolute;
   inset: -5px;
   border-radius: var(--r-lg);
-  border: 1px solid rgba(124, 92, 255, .28);
+  border: 1px solid var(--tint-plasma-border);
   animation: mark-halo 3.2s var(--ease-in-out) infinite;
 }
 @keyframes mark-halo {
@@ -77,8 +77,8 @@
 }
 .jv-rail-item.is-active {
   color: var(--plasma-hi);
-  background: rgba(124, 92, 255, .12);
-  border-color: rgba(124, 92, 255, .3);
+  background: var(--tint-plasma-bg);
+  border-color: var(--tint-plasma-border);
 }
 .jv-rail-item.is-active::before {
   content: '';
@@ -88,7 +88,7 @@
   width: 3px; height: 20px;
   border-radius: var(--r-pill);
   background: var(--grad-plasma);
-  box-shadow: 0 0 14px rgba(124, 92, 255, .9);
+  box-shadow: 0 0 14px var(--brand-glow-strong);
 }
 
 /* Rail tooltip */
@@ -139,7 +139,7 @@
   align-items: center;
   gap: 16px;
   padding: 0 26px;
-  background: rgba(8, 10, 16, .72);
+  background: var(--chrome-bar);
   border-bottom: 1px solid var(--hairline-lo);
   backdrop-filter: blur(22px) saturate(150%);
 }
@@ -148,7 +148,7 @@
   position: absolute;
   inset: auto 0 -1px 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(124, 92, 255, .5) 30%, rgba(34, 211, 238, .5) 70%, transparent);
+  background: linear-gradient(90deg, transparent, var(--brand-glow-soft) 30%, var(--tint-signal-border) 70%, transparent);
   opacity: .55;
 }
 
@@ -158,7 +158,7 @@
   font-weight: 700;
   font-size: 19px;
   letter-spacing: -.03em;
-  background: linear-gradient(100deg, #fff 0%, #c8d0e0 42%, #9d84ff 100%);
+  background: var(--wordmark-grad);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -222,7 +222,7 @@
   border: none;
   border-radius: var(--r-pill);
   background: var(--grad-plasma);
-  color: #fff;
+  color: var(--text-on-brand);
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 600;
@@ -230,16 +230,16 @@
   cursor: pointer;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 8px 24px -10px rgba(124, 92, 255, .95);
+  box-shadow: 0 8px 24px -10px var(--brand-glow-strong);
   transition: transform var(--dur-2) var(--ease-spring), box-shadow var(--dur-2) var(--ease-out), filter var(--dur-2) var(--ease-out);
 }
-.jv-bar-cta:hover { transform: translateY(-2px); filter: brightness(1.12) saturate(1.1); box-shadow: 0 14px 34px -10px rgba(124, 92, 255, 1); }
+.jv-bar-cta:hover { transform: translateY(-2px); filter: brightness(1.12) saturate(1.1); box-shadow: 0 14px 34px -10px var(--brand-glow-strong); }
 .jv-bar-cta:active { transform: translateY(0) scale(.98); }
 .jv-bar-cta::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, transparent 22%, rgba(255, 255, 255, .34) 50%, transparent 78%);
+  background: linear-gradient(100deg, transparent 22%, var(--sheen) 50%, transparent 78%);
   transform: translateX(-130%);
   transition: transform var(--dur-4) var(--ease-out);
 }
@@ -268,9 +268,28 @@
 }
 .jv-locale-opt:hover { color: var(--ink-1); }
 .jv-locale-opt.is-active {
-  color: #fff;
-  background: rgba(124, 92, 255, .3);
-  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, .45);
+  color: var(--text-on-brand);
+  background: var(--tint-plasma-bg);
+  box-shadow: inset 0 0 0 1px var(--tint-plasma-border);
+}
+
+/* Theme toggle */
+.jv-theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 34px; height: 34px;
+  border: 1px solid var(--hairline-lo);
+  border-radius: var(--r-md);
+  background: var(--glass);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all var(--dur-2) var(--ease-out);
+}
+.jv-theme-toggle:hover {
+  color: var(--ink-0);
+  border-color: var(--hairline);
+  background: var(--glass-strong);
+  transform: translateY(-1px);
 }
 
 /* ── Canvas ─────────────────────────────────────────────────────────── */

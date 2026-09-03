@@ -1,12 +1,29 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n, type Locale } from './i18n'
-import { LayoutDashboard, Settings2, Plus, ShieldHalf, ChevronRight, Activity } from 'lucide-vue-next'
+import { LayoutDashboard, Settings2, Plus, ShieldHalf, ChevronRight, Activity, Sun, Moon } from 'lucide-vue-next'
 
 const router = useRouter()
 const route = useRoute()
 const { locale, setLocale, t } = useI18n()
+
+type Theme = 'dark' | 'light'
+const theme = ref<Theme>('dark')
+
+const toggleTheme = () => {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  document.documentElement.setAttribute('data-theme', theme.value)
+  localStorage.setItem('jvuln-theme', theme.value)
+}
+
+onMounted(() => {
+  const stored = localStorage.getItem('jvuln-theme') as Theme | null
+  if (stored === 'dark' || stored === 'light') {
+    theme.value = stored
+  }
+  document.documentElement.setAttribute('data-theme', theme.value)
+})
 
 const crumbs = computed<string[]>(() => {
   const p = route.path
@@ -65,6 +82,11 @@ const crumbs = computed<string[]>(() => {
           <span class="dot" />
           <Activity :size="12" :stroke-width="2" />
           <span>LIVE</span>
+        </div>
+
+        <div class="jv-theme-toggle" @click="toggleTheme" :title="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
+          <Sun v-if="theme === 'dark'" :size="16" :stroke-width="2" />
+          <Moon v-else :size="16" :stroke-width="2" />
         </div>
 
         <div class="jv-locale">

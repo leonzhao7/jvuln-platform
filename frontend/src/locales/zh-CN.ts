@@ -19,6 +19,7 @@ const zhCN = {
     active: '当前启用',
     yes: '是',
     no: '否',
+    theme: '主题切换',
   },
   status: {
     COMPLETED: '已完成',

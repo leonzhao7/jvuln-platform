@@ -19,6 +19,7 @@ const enUS = {
     active: 'Active',
     yes: 'Yes',
     no: 'No',
+    theme: 'Toggle theme',
   },
   status: {
     COMPLETED: 'Completed',

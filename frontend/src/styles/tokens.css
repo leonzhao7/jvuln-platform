@@ -1,12 +1,32 @@
-/* ══ JVULN · "IONIZED" design tokens ══════════════════════════════════
-   Dark forensic instrument panel: void base, plasma/cyan accents,
-   glass strata. Legacy bg/text aliases are kept at the bottom so
-   existing inline styles keep resolving. */
+/* ══ JVULN · themable design tokens ══════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
+/* ── Theme-independent constants ── */
 :root {
-  /* ── Void & strata ── */
+  /* Geometry */
+  --r-xs: 4px; --r-sm: 7px; --r-md: 11px; --r-lg: 16px; --r-xl: 22px; --r-pill: 999px;
+
+  /* Motion */
+  --ease-out:   cubic-bezier(.16, 1, .3, 1);
+  --ease-in-out:cubic-bezier(.65, 0, .35, 1);
+  --ease-spring:cubic-bezier(.34, 1.56, .64, 1);
+  --dur-1: .16s; --dur-2: .28s; --dur-3: .48s; --dur-4: .8s;
+
+  /* Type */
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-sans:    'Inter', 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', 'IBM Plex Mono', 'Consolas', monospace;
+
+  /* Layout */
+  --rail-w: 68px;
+  --bar-h: 66px;
+  --shell-max: 1560px;
+}
+
+/* ── DARK theme ("Ionized") ──────────────────────────────────────── */
+[data-theme="dark"] {
+  /* Base strata */
   --void:          #05060a;
   --stratum-0:     #080a10;
   --stratum-1:     #0c0f17;
@@ -14,21 +34,21 @@
   --stratum-3:     #1a1f2b;
   --stratum-4:     #232a38;
 
-  /* ── Glass ── */
+  /* Glass overlays */
   --glass:         rgba(255, 255, 255, .028);
   --glass-strong:  rgba(255, 255, 255, .055);
   --hairline:      rgba(255, 255, 255, .075);
   --hairline-hi:   rgba(255, 255, 255, .14);
   --hairline-lo:   rgba(255, 255, 255, .045);
 
-  /* ── Ink ── */
+  /* Ink scales */
   --ink-0:         #f2f5fb;
   --ink-1:         #c8d0e0;
   --ink-2:         #8d97ac;
   --ink-3:         #5d6678;
   --ink-4:         #3c4453;
 
-  /* ── Plasma accents ── */
+  /* Brand accents */
   --plasma:        #7c5cff;
   --plasma-hi:     #9d84ff;
   --plasma-lo:     #5b3ce0;
@@ -37,55 +57,228 @@
   --lime:          #a3e635;
   --magenta:       #f0abfc;
 
-  /* ── Severity ── */
+  /* Severity palette */
   --sev-critical:  #ff4d6d;
   --sev-high:      #ff9e2c;
   --sev-medium:    #ffd84d;
   --sev-low:       #34e0a1;
   --sev-info:      #4da6ff;
 
-  /* ── Gradients ── */
+  /* Semantic overlays (used in tags, cards, hovers) */
+  --tint-critical-bg:     rgba(255, 77, 109, .13);
+  --tint-critical-border: rgba(255, 77, 109, .34);
+  --tint-critical-text:   #ff8098;
+  --tint-high-bg:         rgba(255, 158, 44, .13);
+  --tint-high-border:     rgba(255, 158, 44, .34);
+  --tint-high-text:       #ffbb6b;
+  --tint-medium-bg:       rgba(255, 216, 77, .13);
+  --tint-medium-border:   rgba(255, 216, 77, .32);
+  --tint-medium-text:     #ffe484;
+  --tint-low-bg:          rgba(52, 224, 161, .13);
+  --tint-low-border:      rgba(52, 224, 161, .32);
+  --tint-low-text:        #6bebbc;
+  --tint-signal-bg:       rgba(34, 211, 238, .13);
+  --tint-signal-border:   rgba(34, 211, 238, .38);
+  --tint-plasma-bg:       rgba(124, 92, 255, .13);
+  --tint-plasma-border:   rgba(124, 92, 255, .34);
+
+  /* Code block tints */
+  --code-vuln-bg:   rgba(255, 77, 109, .07);
+  --code-vuln-text: #ffb3c1;
+  --code-fixed-bg:  rgba(52, 224, 161, .07);
+  --code-fixed-text:#9df3d1;
+
+  /* Ambient field overlays (aurora blooms) */
+  --field-plasma:  rgba(124, 92, 255, .17);
+  --field-signal:  rgba(34, 211, 238, .12);
+  --field-magenta: rgba(240, 171, 252, .075);
+
+  /* Selection */
+  --selection-bg: rgba(124, 92, 255, .34);
+  --selection-fg: #fff;
+
+  /* Text on brand backgrounds (buttons, badges) */
+  --text-on-brand: #fff;
+
+  /* Chrome: translucent rail / bar backdrops */
+  --chrome-rail:  linear-gradient(180deg, rgba(12, 15, 23, .92), rgba(5, 6, 10, .82));
+  --chrome-bar:   rgba(8, 10, 16, .72);
+  --wordmark-grad: linear-gradient(100deg, #fff 0%, #c8d0e0 42%, #9d84ff 100%);
+  --sheen:        rgba(255, 255, 255, .34);
+  --row-hover:    rgba(255, 255, 255, .032);
+  --row-stripe:   rgba(255, 255, 255, .022);
+  --brand-glow-strong: rgba(124, 92, 255, .9);
+  --brand-glow-soft:   rgba(124, 92, 255, .3);
+
+  /* Component-specific */
+  --input-focus-glow: rgba(124, 92, 255, .8);
+  --loading-mask: rgba(5, 6, 10, .78);
+  --message-mask: rgba(5, 6, 10, .62);
+  --dialog-grad-top: linear-gradient(168deg, rgba(255, 255, 255, .045) 0%, rgba(255, 255, 255, .012) 34%, transparent 100%);
+  --table-hover: rgba(255, 255, 255, .03);
+  --scrollbar-thumb: rgba(255, 255, 255, .05);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, .12);
+
+  /* Gradient definitions */
   --grad-plasma:   linear-gradient(135deg, #7c5cff 0%, #22d3ee 100%);
   --grad-heat:     linear-gradient(135deg, #ff4d6d 0%, #ff9e2c 100%);
   --grad-cool:     linear-gradient(135deg, #22d3ee 0%, #34e0a1 100%);
   --grad-ink:      linear-gradient(180deg, #f2f5fb 0%, #8d97ac 100%);
 
-  /* ── Glow ── */
+  /* Glow effects */
   --glow-plasma:   0 0 0 1px rgba(124, 92, 255, .35), 0 8px 32px -8px rgba(124, 92, 255, .45);
   --glow-signal:   0 0 0 1px rgba(34, 211, 238, .35), 0 8px 32px -8px rgba(34, 211, 238, .4);
   --glow-danger:   0 0 0 1px rgba(255, 77, 109, .35), 0 8px 32px -8px rgba(255, 77, 109, .4);
 
-  /* ── Elevation ── */
+  /* Elevation shadows */
   --lift-1:        0 1px 2px rgba(0, 0, 0, .4);
   --lift-2:        0 4px 16px -4px rgba(0, 0, 0, .55);
   --lift-3:        0 18px 48px -12px rgba(0, 0, 0, .72);
   --lift-4:        0 32px 80px -20px rgba(0, 0, 0, .85);
 
-  /* ── Geometry ── */
-  --r-xs: 4px; --r-sm: 7px; --r-md: 11px; --r-lg: 16px; --r-xl: 22px; --r-pill: 999px;
+  /* highlight.js syntax colors (dark) */
+  --syntax-comment:   #5d6678;
+  --syntax-keyword:   #ff7b9c;
+  --syntax-string:    #8ce8c6;
+  --syntax-number:    #67e8f9;
+  --syntax-function:  #c4b0ff;
+  --syntax-type:      #ffc07a;
+  --syntax-variable:  #9dc9ff;
+  --syntax-tag:       #a3e635;
+  --syntax-deletion:  #ff8098;
+}
 
-  /* ── Motion ── */
-  --ease-out:   cubic-bezier(.16, 1, .3, 1);
-  --ease-in-out:cubic-bezier(.65, 0, .35, 1);
-  --ease-spring:cubic-bezier(.34, 1.56, .64, 1);
-  --dur-1: .16s; --dur-2: .28s; --dur-3: .48s; --dur-4: .8s;
+/* ── LIGHT theme ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  /* Base strata */
+  --void:          #fafbfc;
+  --stratum-0:     #f5f6f8;
+  --stratum-1:     #ffffff;
+  --stratum-2:     #f0f2f5;
+  --stratum-3:     #e8eaef;
+  --stratum-4:     #dfe2e8;
 
-  /* ── Type ── */
-  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
-  --font-sans:    'Inter', 'Space Grotesk', system-ui, -apple-system, sans-serif;
-  --font-mono:    'JetBrains Mono', 'IBM Plex Mono', 'Consolas', monospace;
+  /* Glass overlays */
+  --glass:         rgba(0, 0, 0, .028);
+  --glass-strong:  rgba(0, 0, 0, .055);
+  --hairline:      rgba(0, 0, 0, .095);
+  --hairline-hi:   rgba(0, 0, 0, .16);
+  --hairline-lo:   rgba(0, 0, 0, .055);
 
-  /* ── Layout ── */
-  --rail-w: 68px;
-  --bar-h: 66px;
-  --shell-max: 1560px;
+  /* Ink scales */
+  --ink-0:         #0f1419;
+  --ink-1:         #2e3440;
+  --ink-2:         #5a6476;
+  --ink-3:         #8893a7;
+  --ink-4:         #b3bac5;
 
-  /* ── Legacy aliases (do not remove: inline styles depend on these) ── */
+  /* Brand accents */
+  --plasma:        #6246ea;
+  --plasma-hi:     #7f66ff;
+  --plasma-lo:     #4a2ec4;
+  --signal:        #0891b2;
+  --signal-hi:     #06b6d4;
+  --lime:          #84cc16;
+  --magenta:       #d946ef;
+
+  /* Severity palette */
+  --sev-critical:  #dc2626;
+  --sev-high:      #ea580c;
+  --sev-medium:    #ca8a04;
+  --sev-low:       #16a34a;
+  --sev-info:      #2563eb;
+
+  /* Semantic overlays */
+  --tint-critical-bg:     rgba(220, 38, 38, .08);
+  --tint-critical-border: rgba(220, 38, 38, .24);
+  --tint-critical-text:   #dc2626;
+  --tint-high-bg:         rgba(234, 88, 12, .08);
+  --tint-high-border:     rgba(234, 88, 12, .24);
+  --tint-high-text:       #ea580c;
+  --tint-medium-bg:       rgba(202, 138, 4, .08);
+  --tint-medium-border:   rgba(202, 138, 4, .24);
+  --tint-medium-text:     #ca8a04;
+  --tint-low-bg:          rgba(22, 163, 74, .08);
+  --tint-low-border:      rgba(22, 163, 74, .24);
+  --tint-low-text:        #16a34a;
+  --tint-signal-bg:       rgba(8, 145, 178, .08);
+  --tint-signal-border:   rgba(8, 145, 178, .28);
+  --tint-plasma-bg:       rgba(98, 70, 234, .08);
+  --tint-plasma-border:   rgba(98, 70, 234, .24);
+
+  /* Code block tints */
+  --code-vuln-bg:   rgba(220, 38, 38, .06);
+  --code-vuln-text: #dc2626;
+  --code-fixed-bg:  rgba(22, 163, 74, .06);
+  --code-fixed-text:#16a34a;
+
+  /* Ambient field overlays */
+  --field-plasma:  rgba(98, 70, 234, .05);
+  --field-signal:  rgba(8, 145, 178, .04);
+  --field-magenta: rgba(217, 70, 239, .03);
+
+  /* Selection */
+  --selection-bg: rgba(98, 70, 234, .2);
+  --selection-fg: #0f1419;
+
+  /* Text on brand backgrounds */
+  --text-on-brand: #fff;
+
+  /* Chrome: translucent rail / bar backdrops */
+  --chrome-rail:  linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(245, 246, 248, .86));
+  --chrome-bar:   rgba(255, 255, 255, .78);
+  --wordmark-grad: linear-gradient(100deg, #0f1419 0%, #2e3440 42%, #6246ea 100%);
+  --sheen:        rgba(255, 255, 255, .5);
+  --row-hover:    rgba(0, 0, 0, .026);
+  --row-stripe:   rgba(0, 0, 0, .018);
+  --brand-glow-strong: rgba(98, 70, 234, .38);
+  --brand-glow-soft:   rgba(98, 70, 234, .22);
+
+  /* Component-specific */
+  --input-focus-glow: rgba(98, 70, 234, .45);
+  --loading-mask: rgba(255, 255, 255, .72);
+  --message-mask: rgba(15, 20, 25, .32);
+  --dialog-grad-top: linear-gradient(168deg, rgba(0, 0, 0, .022) 0%, rgba(0, 0, 0, .008) 34%, transparent 100%);
+  --table-hover: rgba(0, 0, 0, .026);
+  --scrollbar-thumb: rgba(0, 0, 0, .14);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, .26);
+
+  /* Gradients */
+  --grad-plasma:   linear-gradient(135deg, #6246ea 0%, #0891b2 100%);
+  --grad-heat:     linear-gradient(135deg, #dc2626 0%, #ea580c 100%);
+  --grad-cool:     linear-gradient(135deg, #0891b2 0%, #16a34a 100%);
+  --grad-ink:      linear-gradient(180deg, #0f1419 0%, #5a6476 100%);
+
+  /* Glows */
+  --glow-plasma:   0 0 0 1px rgba(98, 70, 234, .2), 0 6px 24px -6px rgba(98, 70, 234, .2);
+  --glow-signal:   0 0 0 1px rgba(8, 145, 178, .2), 0 6px 24px -6px rgba(8, 145, 178, .18);
+  --glow-danger:   0 0 0 1px rgba(220, 38, 38, .2), 0 6px 24px -6px rgba(220, 38, 38, .18);
+
+  /* Elevation shadows */
+  --lift-1:        0 1px 2px rgba(0, 0, 0, .08);
+  --lift-2:        0 2px 8px -2px rgba(0, 0, 0, .12);
+  --lift-3:        0 8px 24px -6px rgba(0, 0, 0, .16);
+  --lift-4:        0 16px 40px -10px rgba(0, 0, 0, .2);
+
+  /* highlight.js syntax colors (light) */
+  --syntax-comment:   #6b737c;
+  --syntax-keyword:   #cf222e;
+  --syntax-string:    #0a3069;
+  --syntax-number:    #0550ae;
+  --syntax-function:  #8250df;
+  --syntax-type:      #953800;
+  --syntax-variable:  #0550ae;
+  --syntax-tag:       #116329;
+  --syntax-deletion:  #82071e;
+}
+
+/* ── Legacy aliases (for inline styles & external compat) ──────────── */
+:root, [data-theme="dark"], [data-theme="light"] {
   --bg-base: var(--void);
   --bg-surface: var(--stratum-1);
   --bg-elevated: var(--stratum-3);
   --bg-overlay: var(--stratum-2);
-  --bg-code: #090c13;
+  --bg-code: var(--stratum-0);
   --bg-hover: var(--stratum-3);
   --border: var(--hairline-hi);
   --border-subtle: var(--hairline);

@@ -29,9 +29,9 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(38vw 38vw at 12% 4%,  rgba(124, 92, 255, .17), transparent 62%),
-    radial-gradient(32vw 32vw at 88% 12%, rgba(34, 211, 238, .12), transparent 64%),
-    radial-gradient(46vw 40vw at 62% 96%, rgba(240, 171, 252, .075), transparent 66%);
+    radial-gradient(38vw 38vw at 12% 4%,  var(--field-plasma), transparent 62%),
+    radial-gradient(32vw 32vw at 88% 12%, var(--field-signal), transparent 64%),
+    radial-gradient(46vw 40vw at 62% 96%, var(--field-magenta), transparent 66%);
   filter: blur(12px) saturate(115%);
   animation: field-drift 34s var(--ease-in-out) infinite alternate;
 }
@@ -44,11 +44,11 @@ body::after {
   pointer-events: none;
   opacity: .5;
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, .026) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, .026) 1px, transparent 1px);
+    linear-gradient(to right, var(--row-stripe) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--row-stripe) 1px, transparent 1px);
   background-size: 68px 68px;
-  mask-image: radial-gradient(130% 105% at 50% 0%, #000 22%, transparent 78%);
-  -webkit-mask-image: radial-gradient(130% 105% at 50% 0%, #000 22%, transparent 78%);
+  mask-image: radial-gradient(130% 105% at 50% 0%, black 22%, transparent 78%);
+  -webkit-mask-image: radial-gradient(130% 105% at 50% 0%, black 22%, transparent 78%);
 }
 
 @keyframes field-drift {
@@ -72,7 +72,7 @@ body::after {
 }
 ::-webkit-scrollbar-corner { background: transparent; }
 
-::selection { background: rgba(124, 92, 255, .34); color: #fff; }
+::selection { background: var(--selection-bg); color: var(--selection-fg); }
 
 :focus-visible {
   outline: 2px solid var(--plasma-hi);
@@ -127,7 +127,7 @@ pre, code, .jv-mono { font-family: var(--font-mono); font-variant-ligatures: non
 .jv-panel {
   position: relative;
   background:
-    linear-gradient(168deg, rgba(255, 255, 255, .045) 0%, rgba(255, 255, 255, .012) 34%, transparent 100%),
+    linear-gradient(168deg, var(--glass-strong) 0%, var(--glass) 34%, transparent 100%),
     var(--stratum-1);
   border: 1px solid var(--hairline);
   border-radius: var(--r-lg);
@@ -140,7 +140,7 @@ pre, code, .jv-mono { font-family: var(--font-mono); font-variant-ligatures: non
   position: absolute;
   inset: 0 0 auto 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--hairline-hi) 22%, var(--hairline-hi) 78%, transparent);
+  background: linear-gradient(90deg, transparent 10%, var(--hairline-hi) 22%, var(--hairline-hi) 78%, transparent 90%);
   pointer-events: none;
 }
 .jv-panel-pad { padding: 22px 24px; }
@@ -152,7 +152,7 @@ pre, code, .jv-mono { font-family: var(--font-mono); font-variant-ligatures: non
   gap: 12px;
   padding: 15px 20px;
   border-bottom: 1px solid var(--hairline-lo);
-  background: linear-gradient(180deg, rgba(255, 255, 255, .028), transparent);
+  background: linear-gradient(180deg, var(--glass), transparent);
 }
 .jv-panel-head-title {
   font-family: var(--font-display);
@@ -197,7 +197,7 @@ pre, code, .jv-mono { font-family: var(--font-mono); font-variant-ligatures: non
   width: 3px; height: 15px;
   border-radius: var(--r-pill);
   background: var(--grad-plasma);
-  box-shadow: 0 0 12px rgba(124, 92, 255, .6);
+  box-shadow: 0 0 12px var(--brand-glow-soft);
 }
 
 /* Status / severity chips */
@@ -216,17 +216,17 @@ pre, code, .jv-mono { font-family: var(--font-mono); font-variant-ligatures: non
   white-space: nowrap;
   line-height: 1.5;
 }
-.jv-tag-critical  { background: rgba(255, 77, 109, .13); color: #ff8098; border-color: rgba(255, 77, 109, .34); }
-.jv-tag-high      { background: rgba(255, 158, 44, .13); color: #ffbb6b; border-color: rgba(255, 158, 44, .34); }
-.jv-tag-medium    { background: rgba(255, 216, 77, .13); color: #ffe484; border-color: rgba(255, 216, 77, .32); }
-.jv-tag-low       { background: rgba(52, 224, 161, .13); color: #6bebbc; border-color: rgba(52, 224, 161, .32); }
-.jv-tag-completed { background: rgba(52, 224, 161, .13); color: #6bebbc; border-color: rgba(52, 224, 161, .34); }
-.jv-tag-failed    { background: rgba(255, 77, 109, .13); color: #ff8098; border-color: rgba(255, 77, 109, .34); }
+.jv-tag-critical  { background: var(--tint-critical-bg); color: var(--tint-critical-text); border-color: var(--tint-critical-border); }
+.jv-tag-high      { background: var(--tint-high-bg); color: var(--tint-high-text); border-color: var(--tint-high-border); }
+.jv-tag-medium    { background: var(--tint-medium-bg); color: var(--tint-medium-text); border-color: var(--tint-medium-border); }
+.jv-tag-low       { background: var(--tint-low-bg); color: var(--tint-low-text); border-color: var(--tint-low-border); }
+.jv-tag-completed { background: var(--tint-low-bg); color: var(--tint-low-text); border-color: var(--tint-low-border); }
+.jv-tag-failed    { background: var(--tint-critical-bg); color: var(--tint-critical-text); border-color: var(--tint-critical-border); }
 .jv-tag-pending   { background: var(--glass-strong); color: var(--ink-2); border-color: var(--hairline); }
 .jv-tag-running {
-  background: rgba(34, 211, 238, .13);
+  background: var(--tint-signal-bg);
   color: var(--signal-hi);
-  border-color: rgba(34, 211, 238, .38);
+  border-color: var(--tint-signal-border);
 }
 .jv-tag-running::before {
   content: '';
@@ -295,21 +295,21 @@ pre, code, .jv-mono { font-family: var(--font-mono); font-variant-ligatures: non
   white-space: pre-wrap;
   line-height: 1.65;
 }
-.jv-code-vuln  { background: rgba(255, 77, 109, .07); border-left: 2px solid var(--sev-critical); color: #ffb3c1; }
-.jv-code-fixed { background: rgba(52, 224, 161, .07); border-left: 2px solid var(--sev-low);      color: #9df3d1; }
+.jv-code-vuln  { background: var(--code-vuln-bg); border-left: 2px solid var(--sev-critical); color: var(--code-vuln-text); }
+.jv-code-fixed { background: var(--code-fixed-bg); border-left: 2px solid var(--sev-low);      color: var(--code-fixed-text); }
 .jv-code-label-vuln  { color: var(--sev-critical); font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 5px; }
 .jv-code-label-fixed { color: var(--sev-low);      font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 5px; }
 
 /* CWE block */
 .jv-cwe-block {
-  background: rgba(255, 77, 109, .06);
-  border: 1px solid rgba(255, 77, 109, .2);
+  background: var(--code-vuln-bg);
+  border: 1px solid var(--tint-critical-border);
   border-left: 2px solid var(--sev-critical);
   border-radius: var(--r-sm);
   padding: 12px 14px;
   margin-top: 10px;
 }
-.jv-cwe-block .cwe-id   { color: #ff8098; font-size: 12px; font-weight: 600; }
+.jv-cwe-block .cwe-id   { color: var(--tint-critical-text); font-size: 12px; font-weight: 600; }
 .jv-cwe-block .cwe-code { color: var(--sev-critical); font-family: var(--font-mono); font-size: 12px; margin: 5px 0; }
 .jv-cwe-block .cwe-expl { color: var(--ink-2); font-size: 12px; }
 
