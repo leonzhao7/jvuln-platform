@@ -168,10 +168,10 @@ const filteredTasks = computed(() => {
           <span class="jv-filter-count">{{ severityCounts.low }}</span>
         </button>
       </div>
-      <el-button type="primary" @click="router.push('/analysis/new')">
-        <Plus :size="16" :stroke-width="2" />
+      <button class="jv-bar-cta" @click="router.push('/analysis/new')">
+        <Plus :size="15" :stroke-width="2.4" />
         {{ t('dashboard.newAnalysis') }}
-      </el-button>
+      </button>
     </div>
 
     <!-- Ledger -->

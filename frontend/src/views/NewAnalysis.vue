@@ -55,14 +55,14 @@ const submit = async () => {
         </el-form-item>
 
         <div class="jv-launch-actions">
-          <el-button @click="router.back()">
-            <ArrowLeft :size="14" :stroke-width="2.2" style="margin-right:6px" />
+          <button class="jv-btn-secondary" @click="router.back()">
+            <ArrowLeft :size="14" :stroke-width="2.2" />
             {{ t('common.cancel') }}
-          </el-button>
-          <el-button type="primary" :loading="loading" @click="submit">
-            <Rocket v-if="!loading" :size="14" :stroke-width="2.2" style="margin-right:7px" />
+          </button>
+          <button class="jv-bar-cta" :disabled="loading" @click="submit">
+            <Rocket v-if="!loading" :size="15" :stroke-width="2.4" />
             {{ t('newAnalysis.start') }}
-          </el-button>
+          </button>
         </div>
       </el-form>
     </div>

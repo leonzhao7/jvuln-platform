@@ -323,10 +323,10 @@ onMounted(() => {
           <span class="jv-panel-head-icon"><BrainCircuit :size="14" :stroke-width="2" /></span>
           <span class="jv-panel-head-title">{{ t('settings.llmConfigurations') }}</span>
           <div class="jv-panel-head-spacer" />
-          <el-button type="primary" size="small" @click="openAdd">
-            <Plus :size="13" :stroke-width="2.4" style="margin-right:5px" />
+          <button class="jv-bar-cta" style="height: 32px; padding: 0 14px; font-size: 12px;" @click="openAdd">
+            <Plus :size="13" :stroke-width="2.4" />
             {{ t('settings.addNew') }}
-          </el-button>
+          </button>
         </div>
       </template>
 
@@ -452,8 +452,8 @@ onMounted(() => {
 
       <template #footer>
         <div class="jv-dialog-actions">
-          <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" :loading="saving" @click="saveForm">{{ t('common.save') }}</el-button>
+          <button class="jv-btn-secondary" @click="dialogVisible = false">{{ t('common.cancel') }}</button>
+          <button class="jv-bar-cta" :disabled="saving" @click="saveForm">{{ t('common.save') }}</button>
         </div>
       </template>
     </el-dialog>
@@ -465,10 +465,10 @@ onMounted(() => {
           <span class="jv-panel-head-icon"><Coffee :size="14" :stroke-width="2" /></span>
           <span class="jv-panel-head-title">{{ t('javaProfiles.title') }}</span>
           <div class="jv-panel-head-spacer" />
-          <el-button type="primary" size="small" @click="openJpAdd">
-            <Plus :size="13" :stroke-width="2.4" style="margin-right:5px" />
+          <button class="jv-bar-cta" style="height: 32px; padding: 0 14px; font-size: 12px;" @click="openJpAdd">
+            <Plus :size="13" :stroke-width="2.4" />
             {{ t('javaProfiles.addNew') }}
-          </el-button>
+          </button>
         </div>
       </template>
 

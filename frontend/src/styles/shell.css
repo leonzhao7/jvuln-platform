@@ -244,6 +244,43 @@
   transition: transform var(--dur-4) var(--ease-out);
 }
 .jv-bar-cta:hover::after { transform: translateX(130%); }
+.jv-bar-cta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+  filter: none !important;
+}
+.jv-bar-cta:disabled:hover {
+  box-shadow: 0 8px 24px -10px var(--brand-glow-strong);
+}
+
+/* Secondary button */
+.jv-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 17px;
+  border: 1px solid var(--hairline-lo);
+  border-radius: var(--r-pill);
+  background: var(--glass);
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  cursor: pointer;
+  transition: all var(--dur-2) var(--ease-out);
+}
+.jv-btn-secondary:hover {
+  border-color: var(--hairline);
+  background: var(--glass-hi);
+  color: var(--ink-1);
+  transform: translateY(-1px);
+}
+.jv-btn-secondary:active {
+  transform: translateY(0) scale(.98);
+}
 
 /* Locale switch */
 .jv-locale {
