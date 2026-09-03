@@ -1274,9 +1274,7 @@
   margin: 5px 0 0; font-family: var(--font-display);
   font-size: 25px; font-weight: 600; letter-spacing: -.02em; color: var(--ink-0);
 }
-.jv-launch-actions { display: flex; gap: 12px; }
-.jv-launch-actions .el-button { flex: 1; }
-.jv-launch-actions .el-button--primary { flex: 2; }
+.jv-launch-actions { display: flex; gap: 12px; justify-content: flex-end; }
 /* ── Patch diff page ────────────────────────────────────────────────── */
 .jv-diff-header { margin-bottom: 22px; }
 .jv-diff-badge {
