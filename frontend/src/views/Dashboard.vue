@@ -4,12 +4,14 @@ import { useRouter } from 'vue-router'
 import { api, type CveTask } from '../api'
 import { useI18n } from '../i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Trash2, ArrowUpRight, Hexagon } from 'lucide-vue-next'
+import { Trash2, ArrowUpRight, Hexagon, Search, Plus } from 'lucide-vue-next'
 
 const router = useRouter()
 const { t } = useI18n()
 const tasks = ref<CveTask[]>([])
 const loading = ref(false)
+const searchQuery = ref('')
+const selectedSeverity = ref<string | null>(null)
 
 const load = async () => {
   loading.value = true
@@ -59,7 +61,7 @@ const stats = computed(() => ({
   done:     tasks.value.filter(t => t.status === 'COMPLETED').length,
 }))
 
-const SEV = { critical: '#ff4d6d', high: '#ff9e2c', medium: '#ffd84d', low: '#34e0a1', none: '#5d6678' }
+const SEV = { critical: '#e91e63', high: '#ff9800', medium: '#ffd700', low: '#00d9a3', none: '#5d6678' }
 
 const cvssColor = (score?: number | null) => {
   if (!score) return SEV.none
@@ -84,22 +86,93 @@ const formatDuration = (start: string | null, end: string | null, status?: strin
   const remMin = min % 60
   return `${hr}h ${remMin}m`
 }
+
+const getSeverity = (score?: number | null): string => {
+  if (!score || score === 0) return 'none'
+  if (score >= 9) return 'critical'
+  if (score >= 7) return 'high'
+  if (score >= 4) return 'medium'
+  return 'low'
+}
+
+const severityCounts = computed(() => {
+  const counts = { critical: 0, high: 0, medium: 0, low: 0, none: 0 }
+  for (const task of tasks.value) {
+    const sev = getSeverity(task.cvssScore)
+    counts[sev as keyof typeof counts]++
+  }
+  return counts
+})
+
+const filteredTasks = computed(() => {
+  let result = tasks.value
+
+  // 搜索过滤
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.toLowerCase()
+    result = result.filter(task =>
+      task.cveId.toLowerCase().includes(query) ||
+      (task.description && task.description.toLowerCase().includes(query))
+    )
+  }
+
+  // 严重级别过滤
+  if (selectedSeverity.value) {
+    result = result.filter(task => getSeverity(task.cvssScore) === selectedSeverity.value)
+  }
+
+  return result
+})
 </script>
 
 <template>
   <div>
-    <!-- Hero -->
-    <section class="jv-hero">
-      <div class="jv-hero-inner">
-        <div>
-          <div class="jv-eyebrow">JAVA VULNERABILITY INTELLIGENCE</div>
-          <h1 class="jv-hero-title">{{ t('dashboard.title') }}<em>.</em></h1>
-          <p class="jv-hero-sub">
-            {{ t('dashboard.summary', { total: stats.total, done: stats.done, running: stats.running }) }}
-          </p>
-        </div>
+    <!-- Toolbar -->
+    <div class="jv-toolbar">
+      <div class="jv-toolbar-search">
+        <Search :size="16" :stroke-width="2" />
+        <input
+          v-model="searchQuery"
+          type="text"
+          :placeholder="t('dashboard.searchPlaceholder')"
+          class="jv-toolbar-input"
+        />
       </div>
-    </section>
+      <div class="jv-toolbar-filters">
+        <button
+          :class="['jv-severity-filter', 'filter-critical', { active: selectedSeverity === 'critical' }]"
+          @click="selectedSeverity = selectedSeverity === 'critical' ? null : 'critical'"
+        >
+          {{ t('severity.critical') }}
+          <span class="jv-filter-count">{{ severityCounts.critical }}</span>
+        </button>
+        <button
+          :class="['jv-severity-filter', 'filter-high', { active: selectedSeverity === 'high' }]"
+          @click="selectedSeverity = selectedSeverity === 'high' ? null : 'high'"
+        >
+          {{ t('severity.high') }}
+          <span class="jv-filter-count">{{ severityCounts.high }}</span>
+        </button>
+        <button
+          :class="['jv-severity-filter', 'filter-medium', { active: selectedSeverity === 'medium' }]"
+          @click="selectedSeverity = selectedSeverity === 'medium' ? null : 'medium'"
+        >
+          {{ t('severity.medium') }}
+          <span class="jv-filter-count">{{ severityCounts.medium }}</span>
+        </button>
+        <button
+          :class="['jv-severity-filter', 'filter-low', { active: selectedSeverity === 'low' }]"
+          @click="selectedSeverity = selectedSeverity === 'low' ? null : 'low'"
+        >
+          {{ t('severity.low') }}
+          <span class="jv-filter-count">{{ severityCounts.low }}</span>
+        </button>
+      </div>
+      <el-button type="primary" @click="router.push('/analysis/new')">
+        <Plus :size="16" :stroke-width="2" />
+        {{ t('dashboard.newAnalysis') }}
+      </el-button>
+    </div>
 
     <!-- Ledger -->
     <div class="jv-panel" v-loading="loading">
@@ -114,7 +187,7 @@ const formatDuration = (start: string | null, end: string | null, status?: strin
       </div>
 
       <div
-        v-for="(row, i) in tasks" :key="row.cveId"
+        v-for="(row, i) in filteredTasks" :key="row.cveId"
         class="jv-ledger-row"
         :style="{ animationDelay: Math.min(i, 12) * 28 + 'ms' }"
         @click="router.push(`/analysis/${row.cveId}`)"

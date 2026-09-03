@@ -28,6 +28,12 @@ const zhCN = {
     PENDING: '待处理',
     SKIPPED: '已跳过',
   },
+  severity: {
+    critical: '严重',
+    high: '高危',
+    medium: '中危',
+    low: '低危',
+  },
   dashboard: {
     title: 'CVE 分析任务',
     summary: '共 {total} 个 · 已完成 {done} 个 · 运行中 {running} 个',
@@ -48,6 +54,8 @@ const zhCN = {
     deleteFailed: '删除任务失败',
     empty: '暂无分析任务。',
     startFirst: '开始第一次分析',
+    searchPlaceholder: '搜索 CVE 编号或描述...',
+    newAnalysis: '新建分析',
   },
   newAnalysis: {
     title: '新建分析',
