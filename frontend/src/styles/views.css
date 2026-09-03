@@ -718,7 +718,7 @@
 .rs-dp-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .rs-dp-meta-item {
   padding: 9px 11px; border-radius: var(--r-xs);
-  background: rgba(0, 0, 0, .3);
+  background: var(--stratum-2);
   border: 1px solid var(--hairline-lo);
   min-width: 0;
 }
@@ -734,7 +734,7 @@
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
   padding: 7px 11px; margin-bottom: 5px;
   border-radius: var(--r-xs);
-  background: rgba(0, 0, 0, .3);
+  background: var(--stratum-2);
   border-left: 2px solid var(--sev-high);
   font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2);
 }
@@ -798,7 +798,7 @@
 .jv-stage4-pre {
   margin: 0; padding: 11px 13px;
   border-radius: var(--r-xs);
-  background: rgba(0, 0, 0, .38);
+  background: var(--stratum-2);
   border: 1px solid var(--hairline-lo);
   font-family: var(--font-mono); font-size: 11.5px; line-height: 1.65;
   color: var(--ink-2);
@@ -849,7 +849,7 @@
 }
 .jv-paused-reason { color: var(--ink-1); font-size: 12.5px; line-height: 1.65; }
 
-/* POC timeline */
+/* POC timeline - dual track layout */
 .jv-poc-timeline { margin-top: 16px; }
 .jv-poc-timeline-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; flex-wrap: wrap; }
 .jv-poc-timeline-title {
@@ -866,36 +866,62 @@
 .jv-poc-legend-item.is-client::before { background: var(--signal); box-shadow: 0 0 8px var(--signal); }
 .jv-poc-legend-item.is-server::before { background: var(--plasma); box-shadow: 0 0 8px var(--plasma); }
 
-.jv-poc-track { position: relative; padding-left: 26px; }
-.jv-poc-track::before {
-  content: ''; position: absolute; left: 6px; top: 8px; bottom: 8px; width: 1px;
+.jv-poc-dual-track {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+  position: relative;
+}
+.jv-poc-dual-track::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
   background: linear-gradient(180deg, var(--signal), var(--plasma), transparent);
+  transform: translateX(-50%);
 }
-.jv-poc-step { position: relative; display: flex; gap: 12px; margin-bottom: 11px; }
-.jv-poc-step:last-child { margin-bottom: 0; }
-.jv-poc-step-rail { position: absolute; left: -24px; top: 13px; }
-.jv-poc-step-dot {
-  display: block; width: 9px; height: 9px; border-radius: 50%;
-  border: 2px solid var(--void); background: var(--ink-3);
+.jv-poc-step {
+  position: relative;
+  display: flex;
 }
-.jv-poc-step-dot.phase-startup  { background: var(--sev-info);     box-shadow: 0 0 9px var(--sev-info); }
-.jv-poc-step-dot.phase-request  { background: var(--signal);       box-shadow: 0 0 9px var(--signal); }
-.jv-poc-step-dot.phase-response { background: var(--plasma);       box-shadow: 0 0 9px var(--plasma); }
-.jv-poc-step-dot.phase-verify   { background: var(--sev-low);      box-shadow: 0 0 9px var(--sev-low); }
+.jv-poc-step.is-client {
+  grid-column: 1;
+  justify-content: flex-end;
+  padding-right: 12px;
+}
+.jv-poc-step.is-server {
+  grid-column: 2;
+  justify-content: flex-start;
+  padding-left: 12px;
+}
 .jv-poc-step-card {
-  flex: 1; min-width: 0;
-  padding: 11px 14px; border-radius: var(--r-sm);
+  flex: 1;
+  max-width: 100%;
+  padding: 11px 14px;
+  border-radius: var(--r-sm);
   background: var(--row-stripe);
   border: 1px solid var(--hairline-lo);
-  border-left: 2px solid var(--hairline);
   transition: border-color var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out);
 }
-.jv-poc-step.is-client .jv-poc-step-card { border-left-color: var(--tint-signal-border); }
-.jv-poc-step.is-server .jv-poc-step-card { border-left-color: var(--brand-glow-strong); }
-.jv-poc-step.is-client { margin-right: 0; }
-.jv-poc-step.is-server { margin-left: 20px; }
-.jv-poc-step-card:hover { background: var(--glass-strong); border-color: var(--hairline-hi); }
-.jv-poc-step-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; flex-wrap: wrap; }
+.jv-poc-step.is-client .jv-poc-step-card {
+  border-left: 2px solid var(--tint-signal-border);
+}
+.jv-poc-step.is-server .jv-poc-step-card {
+  border-left: 2px solid var(--brand-glow-strong);
+}
+.jv-poc-step-card:hover {
+  background: var(--glass-strong);
+  border-color: var(--hairline-hi);
+}
+.jv-poc-step-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 7px;
+  flex-wrap: wrap;
+}
 .jv-poc-step-phase {
   font-family: var(--font-mono); font-size: 9px; font-weight: 700;
   letter-spacing: .13em; text-transform: uppercase;
@@ -1149,7 +1175,7 @@
   font-size: 14px; line-height: 1.75;
   max-height: 70vh; overflow-y: auto;
   padding: 26px 30px;
-  background: rgba(6, 8, 16, .72);
+  background: var(--stratum-1);
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   word-wrap: break-word;

@@ -997,16 +997,13 @@ const highlightFile = (path: string, code: string): string => {
                     <span class="jv-poc-legend-item is-server">{{ t('analysis.artifacts.pocServer') }}</span>
                   </span>
                 </div>
-                <div class="jv-poc-track">
+                <div class="jv-poc-dual-track">
                   <div
                     v-for="(step, si) in stage4PocSteps"
                     :key="si"
                     class="jv-poc-step"
                     :class="pocStepSide(step) === 'server' ? 'is-server' : 'is-client'"
                   >
-                    <div class="jv-poc-step-rail">
-                      <span class="jv-poc-step-dot" :class="`phase-${step.phase}`"></span>
-                    </div>
                     <div class="jv-poc-step-card">
                       <div class="jv-poc-step-meta">
                         <span class="jv-poc-step-phase" :class="`phase-${step.phase}`">{{ pocPhaseLabel(step.phase) }}</span>

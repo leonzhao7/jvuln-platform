@@ -185,7 +185,7 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
 <style>
 .diff-wrapper.d2h-dark-color-scheme {
   --d2h-dark-color:                     var(--text-secondary);
-  --d2h-dark-bg-color:                  #060810;
+  --d2h-dark-bg-color:                  var(--stratum-0);
   --d2h-dark-border-color:              var(--border-subtle);
   --d2h-dark-dim-color:                 var(--text-disabled);
   --d2h-dark-line-border-color:         var(--hairline-lo);
@@ -219,10 +219,7 @@ const decisionFor = (fileName: string): FileDecision | undefined => {
   font-size: 12px;
 }
 .diff-wrapper .d2h-file-header {
-  font-family: var(--font-mono) !important;
-  font-size: 12px;
-  padding: 8px 12px;
-  height: auto;
+  display: none;
 }
 .diff-wrapper .d2h-file-name {
   font-family: var(--font-mono);
