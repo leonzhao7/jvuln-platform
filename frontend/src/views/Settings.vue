@@ -5,7 +5,7 @@ import { api, type LlmConfig, type JavaProfile, type ProxySettings } from '../ap
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from '../i18n'
 import {
-  ArrowLeft, BrainCircuit, Coffee, Network, Plus, Plug, Pencil, Trash2,
+  BrainCircuit, Coffee, Network, Plus, Plug, Pencil, Trash2,
   CheckCircle2, XCircle, SlidersHorizontal,
 } from 'lucide-vue-next'
 
@@ -306,12 +306,7 @@ onMounted(() => {
 <template>
   <div class="jv-settings">
     <div class="jv-settings-header">
-      <span class="jv-back-btn" @click="router.back()">
-        <ArrowLeft :size="14" :stroke-width="2.2" />
-        {{ t('common.back') }}
-      </span>
       <div>
-        <div class="jv-eyebrow">SYSTEM CONFIGURATION</div>
         <h2 class="jv-settings-title">{{ t('settings.title') }}</h2>
       </div>
       <div class="jv-panel-head-spacer" />

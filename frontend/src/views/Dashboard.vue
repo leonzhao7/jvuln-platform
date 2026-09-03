@@ -4,14 +4,7 @@ import { useRouter } from 'vue-router'
 import { api, type CveTask } from '../api'
 import { useI18n } from '../i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  Layers, Flame, Loader, CircleCheck, Trash2, ArrowUpRight,
-  Hexagon, PieChart, Gauge, BarChart3, Activity,
-} from 'lucide-vue-next'
-import SeverityDonut from '../components/charts/SeverityDonut.vue'
-import RadialMeter from '../components/charts/RadialMeter.vue'
-import BarList from '../components/charts/BarList.vue'
-import TrendBars from '../components/charts/TrendBars.vue'
+import { Trash2, ArrowUpRight, Hexagon } from 'lucide-vue-next'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -76,66 +69,6 @@ const cvssColor = (score?: number | null) => {
   return SEV.low
 }
 
-const severitySlices = computed(() => {
-  const buckets = { critical: 0, high: 0, medium: 0, low: 0, none: 0 }
-  for (const task of tasks.value) {
-    const s = task.cvssScore ?? 0
-    if (!s) buckets.none++
-    else if (s >= 9) buckets.critical++
-    else if (s >= 7) buckets.high++
-    else if (s >= 4) buckets.medium++
-    else buckets.low++
-  }
-  return [
-    { label: 'CRITICAL', value: buckets.critical, color: SEV.critical },
-    { label: 'HIGH',     value: buckets.high,     color: SEV.high },
-    { label: 'MEDIUM',   value: buckets.medium,   color: SEV.medium },
-    { label: 'LOW',      value: buckets.low,      color: SEV.low },
-    { label: 'N/A',      value: buckets.none,     color: SEV.none },
-  ].filter(s => s.value > 0)
-})
-
-const completionPct = computed(() =>
-  stats.value.total ? (stats.value.done / stats.value.total) * 100 : 0)
-
-const artifactRows = computed(() => {
-  const counts = new Map<string, number>()
-  for (const task of tasks.value) {
-    const full = task.artifact ?? '—'
-    const short = full.includes(':') ? full.split(':').slice(-1)[0] : full
-    counts.set(short, (counts.get(short) ?? 0) + 1)
-  }
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([label, value]) => ({ label, value }))
-})
-
-const scoreSpark = computed(() => {
-  const scores = tasks.value.map(t => t.cvssScore ?? 0).slice(0, 12)
-  const peak = Math.max(1, ...scores)
-  return scores.map(s => Math.max(8, (s / peak) * 100))
-})
-
-const scoreBands = computed(() => {
-  const bands = [
-    { label: '0-2', lo: 0,   hi: 2 },
-    { label: '2-4', lo: 2,   hi: 4 },
-    { label: '4-6', lo: 4,   hi: 6 },
-    { label: '6-7', lo: 6,   hi: 7 },
-    { label: '7-8', lo: 7,   hi: 8 },
-    { label: '8-9', lo: 8,   hi: 9 },
-    { label: '9-10', lo: 9,  hi: 10.01 },
-  ]
-  return bands.map(b => ({
-    label: b.label,
-    value: tasks.value.filter(t => {
-      const s = t.cvssScore ?? 0
-      return s > 0 && s >= b.lo && s < b.hi
-    }).length,
-  }))
-})
-
 const formatDuration = (start: string | null, end: string | null, status?: string) => {
   if (!start) return '—'
   const endMs = status === 'RUNNING' ? Date.now() : (end ? new Date(end).getTime() : NaN)
@@ -165,117 +98,8 @@ const formatDuration = (start: string | null, end: string | null, status?: strin
             {{ t('dashboard.summary', { total: stats.total, done: stats.done, running: stats.running }) }}
           </p>
         </div>
-        <div class="jv-hero-side">
-          <RadialMeter
-            :value="completionPct"
-            :label="t('dashboard.completed')"
-            color="#22d3ee"
-            :size="122"
-          />
-        </div>
       </div>
     </section>
-
-    <!-- KPI tiles -->
-    <div class="jv-stats-row">
-      <div class="jv-stat-card">
-        <div class="jv-stat-head">
-          <Layers :size="14" :stroke-width="2" />
-          <span class="jv-stat-label">{{ t('dashboard.total') }}</span>
-        </div>
-        <div class="jv-stat-value">{{ stats.total }}</div>
-        <div class="jv-spark">
-          <i v-for="(h, i) in scoreSpark" :key="i" :style="{ height: h + '%' }" />
-        </div>
-      </div>
-      <div class="jv-stat-card jv-stat-critical">
-        <div class="jv-stat-head">
-          <Flame :size="14" :stroke-width="2" />
-          <span class="jv-stat-label">{{ t('dashboard.critical') }}</span>
-        </div>
-        <div class="jv-stat-value">{{ stats.critical }}</div>
-        <div class="jv-stat-foot">CVSS &gt;= 9.0</div>
-      </div>
-      <div class="jv-stat-card jv-stat-running">
-        <div class="jv-stat-head">
-          <Loader :size="14" :stroke-width="2" />
-          <span class="jv-stat-label">{{ t('dashboard.running') }}</span>
-        </div>
-        <div class="jv-stat-value">{{ stats.running }}</div>
-        <div class="jv-stat-foot">PIPELINE ACTIVE</div>
-      </div>
-      <div class="jv-stat-card jv-stat-done">
-        <div class="jv-stat-head">
-          <CircleCheck :size="14" :stroke-width="2" />
-          <span class="jv-stat-label">{{ t('dashboard.completed') }}</span>
-        </div>
-        <div class="jv-stat-value">{{ stats.done }}</div>
-        <div class="jv-stat-foot">{{ Math.round(completionPct) }}% OF TOTAL</div>
-      </div>
-    </div>
-
-    <!-- Analytics -->
-    <div class="jv-analytics">
-      <div class="jv-panel jv-chart-panel">
-        <div class="jv-panel-head">
-          <span class="jv-panel-head-icon"><PieChart :size="14" :stroke-width="2" /></span>
-          <span class="jv-panel-head-title">SEVERITY MIX</span>
-        </div>
-        <div class="jv-chart-body">
-          <template v-if="severitySlices.length">
-            <SeverityDonut
-              :slices="severitySlices"
-              :size="152"
-              :thickness="12"
-              :center-value="stats.total"
-              center-label="TASKS"
-            />
-            <div class="jv-chart-legend">
-              <div v-for="s in severitySlices" :key="s.label" class="jv-chart-legend-row">
-                <span class="swatch" :style="{ background: s.color, color: s.color }" />
-                <span>{{ s.label }}</span>
-                <span class="n">{{ s.value }}</span>
-              </div>
-            </div>
-          </template>
-          <div v-else class="jv-chart-empty">NO DATA</div>
-        </div>
-      </div>
-
-      <div class="jv-panel jv-chart-panel">
-        <div class="jv-panel-head">
-          <span class="jv-panel-head-icon"><Gauge :size="14" :stroke-width="2" /></span>
-          <span class="jv-panel-head-title">THROUGHPUT</span>
-        </div>
-        <div class="jv-chart-body">
-          <RadialMeter :value="completionPct" label="COMPLETE" color="#34e0a1" :size="142" />
-        </div>
-      </div>
-
-      <div class="jv-panel jv-chart-panel">
-        <div class="jv-panel-head">
-          <span class="jv-panel-head-icon"><BarChart3 :size="14" :stroke-width="2" /></span>
-          <span class="jv-panel-head-title">{{ t('dashboard.artifact') }}</span>
-        </div>
-        <div class="jv-chart-body is-stack">
-          <BarList v-if="artifactRows.length" :rows="artifactRows" color="#7c5cff" />
-          <div v-else class="jv-chart-empty">NO DATA</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- CVSS distribution -->
-    <div class="jv-panel jv-dist-panel">
-      <div class="jv-panel-head">
-        <span class="jv-panel-head-icon"><Activity :size="14" :stroke-width="2" /></span>
-        <span class="jv-panel-head-title">CVSS DISTRIBUTION</span>
-        <div class="jv-panel-head-spacer" />
-        <span class="jv-panel-head-note">{{ t('dashboard.cvss') }}</span>
-      </div>
-      <div class="jv-chart-body is-stack">
-        <TrendBars :bars="scoreBands" :height="104" color="#22d3ee" />
-      </div>
-    </div>
 
     <!-- Ledger -->
     <div class="jv-panel" v-loading="loading">
