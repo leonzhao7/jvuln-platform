@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { api } from '../api'
 import { ElMessage } from 'element-plus'
 import { useI18n } from '../i18n'
-import { ScanLine, Rocket, ArrowLeft, Terminal } from 'lucide-vue-next'
+import { ScanLine, Rocket, ArrowLeft } from 'lucide-vue-next'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -54,11 +54,6 @@ const submit = async () => {
           />
         </el-form-item>
 
-        <p class="jv-launch-note">
-          <Terminal :size="13" :stroke-width="2" />
-          <span>{{ t('newAnalysis.description') }}</span>
-        </p>
-
         <div class="jv-launch-actions">
           <el-button @click="router.back()">
             <ArrowLeft :size="14" :stroke-width="2.2" style="margin-right:6px" />
@@ -70,10 +65,6 @@ const submit = async () => {
           </el-button>
         </div>
       </el-form>
-
-      <div class="jv-launch-strip">
-        <span v-for="s in 5" :key="s" class="jv-launch-tick">STAGE {{ s }}</span>
-      </div>
     </div>
   </div>
 </template>
